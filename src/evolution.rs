@@ -1,11 +1,12 @@
-use serde::Serialize;
 use std::cmp::PartialOrd;
+
+use serde::Serialize;
 
 pub trait Epochal {
     type Observer;
     /// The evolve function turns the crank once on the evolutionary
     /// process.
-    fn evolve(self, observer: Self::Observer) -> Self;
+    fn evolve(self, observer: &Self::Observer) -> Self;
 }
 
 /// Types that implement Hatchery act as executors, and are responsible

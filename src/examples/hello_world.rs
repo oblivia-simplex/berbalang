@@ -1,15 +1,12 @@
-use crate::evolution::*;
-use crate::observer::Observe;
-use async_trait::async_trait;
-use futures::executor::block_on;
-use futures::future::join_all;
+use std::iter;
+use std::iter::Iterator;
+
 use log;
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
-use std::iter;
-use std::iter::Iterator;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+
+use crate::evolution::*;
+use crate::observer::Observe;
 
 #[derive(Clone, Debug, Default)]
 pub struct Config {
@@ -135,9 +132,9 @@ impl Epoch {
 }
 
 impl Epochal for Epoch {
-    type Observer = Arc<observation::Observer>;
+    type Observer = observation::Observer;
 
-    fn evolve(mut self, observer: Self::Observer) -> Self {
+    fn evolve(mut self, observer: &Self::Observer) -> Self {
         // draw 4 unique lots from the hat
         let mut population = std::mem::take(&mut self.population);
         let mut lots: Vec<usize> = (0..population.len()).collect::<Vec<usize>>();
@@ -154,6 +151,7 @@ impl Epochal for Epoch {
 
         for (_, i) in indexed.iter() {
             observer.observe(population[*i].clone())
+                .expect("observation failed");
         }
 
         let champ = &population[indexed[0].1];
@@ -193,15 +191,15 @@ impl Epochal for Epoch {
 
 pub fn run(config: Config) -> Option<Genome> {
     let mut world = Epoch::new(config);
-    let observer = Arc::new(observation::Observer::default());
+    let observer = observation::Observer::spawn(&world.config);
 
     loop {
-        world = world.evolve(observer.clone());
+        world = world.evolve(&observer);
         if let Some(
             champ
             @ Genome {
-                genes: _,
                 fitness: Some(0),
+                ..
             },
         ) = world.best
         {
@@ -212,19 +210,39 @@ pub fn run(config: Config) -> Option<Genome> {
 }
 
 mod observation {
-    use super::*;
+    use std::sync::mpsc::{channel, Sender, SendError};
+    use std::thread::{JoinHandle, spawn};
+
     use crate::observer::Observe;
 
-    #[derive(Default)]
+    use super::*;
+
     pub struct Observer {
-
+        pub handle: JoinHandle<()>,
+        pub tx: Sender<Genome>,
     }
-
 
     impl Observe for Observer {
         type Observable = Genome;
+        type Params = Config;
+        type Error = SendError<Self::Observable>;
 
-        fn observe(&self, ob: Self::Observable) {
+        fn spawn(_params: &Self::Params) -> Self {
+            let (tx, rx) = channel();
+
+            let handle = spawn(move ||
+                {
+                    for observable in rx {
+                        log::debug!("received observable {:?}", observable);
+                    }
+                }
+            );
+
+            Self { handle, tx }
+        }
+
+        fn observe(&self, ob: Self::Observable) -> Result<(), Self::Error> {
+            self.tx.send(ob)
         }
 
         fn report(&self) {
