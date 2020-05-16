@@ -232,3 +232,14 @@ mod observation {
         }
     }
 }
+
+pub trait Bullshit {
+    fn bull();
+}
+
+impl Bullshit for Genome {
+    fn bull() {
+        let x = todo!("do this later");
+
+    }
+}
