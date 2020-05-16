@@ -2,9 +2,10 @@ use serde::Serialize;
 use std::cmp::PartialOrd;
 
 pub trait Epochal {
+    type Observer;
     /// The evolve function turns the crank once on the evolutionary
     /// process.
-    fn evolve(self) -> Self;
+    fn evolve(self, observer: Self::Observer) -> Self;
 }
 
 /// Types that implement Hatchery act as executors, and are responsible
@@ -14,6 +15,13 @@ pub trait Hatchery {
     type Phenome;
 
     fn hatch(&self, genotype: &Self::Genome) -> Self::Phenome;
+}
+
+pub trait ScoreMut {
+    type Params;
+    type Fitness;
+
+    fn score_mut(&mut self, params: &Self::Params) -> Self::Fitness;
 }
 
 pub trait Score {

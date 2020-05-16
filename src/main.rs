@@ -1,17 +1,21 @@
 mod evolution;
 mod examples;
+mod observer;
 
-use examples::basic;
+use crate::examples::hello_world;
+use pretty_env_logger as logger;
 
 fn main() {
-    const TARGET: &str = "This is Lucca's genetic algorithm example.";
+    logger::init();
 
-    let config = basic::Config {
-        mut_rate: 0.1,
-        init_len: TARGET.len(),
-        pop_size: 100,
+    const TARGET: &str = "Wanna know how I got these scars?";
+
+    let config = hello_world::Config {
+        mut_rate: 0.3,
+        init_len: TARGET.len() * 4,
+        pop_size: 1000,
         target: TARGET.to_string(),
     };
 
-    basic::run(config);
+    hello_world::run(config);
 }
