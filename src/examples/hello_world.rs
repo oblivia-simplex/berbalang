@@ -9,7 +9,7 @@ use serde_derive::Deserialize;
 use crate::configure::{Configure, ConfigureObserver};
 use crate::evaluator::Evaluate;
 use crate::evolution::*;
-use crate::observer::Observe;
+use crate::observer::{build_observation_mod, Observe};
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
@@ -73,18 +73,6 @@ impl Phenome for Genotype {
 }
 
 impl Genotype {
-    pub fn new(len: usize) -> Self {
-        let mut rng = thread_rng();
-        let s: String = iter::repeat(())
-            .map(|()| rng.sample(Alphanumeric))
-            .take(len)
-            .collect();
-        Self {
-            genes: s,
-            fitness: None,
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.genes.len()
     }
@@ -111,6 +99,21 @@ impl Genotype {
 }
 
 impl Genome for Genotype {
+    type Params = Config;
+
+    fn random(params: &Self::Params) -> Self {
+        let mut rng = thread_rng();
+        let len = rng.gen_range(1, params.init_len);
+        let s: String = iter::repeat(())
+            .map(|()| rng.sample(Alphanumeric))
+            .take(len)
+            .collect();
+        Self {
+            genes: s,
+            fitness: None,
+        }
+    }
+
     fn crossover(&self, mate: &Self) -> Vec<Self> {
         let mut rng = thread_rng();
         let split_m: usize = rng.gen::<usize>() % self.len();
@@ -123,7 +126,7 @@ impl Genome for Genotype {
                 fitness: None,
             },
             Genotype {
-                genes: format!("{}{}", m2, f1),
+                genes: format!("{}{}", f1, m2),
                 fitness: None,
             },
         ]
@@ -170,7 +173,7 @@ impl Genome for Genotype {
 impl Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
     pub fn new(config: Config) -> Self {
         let population = iter::repeat(())
-            .map(|()| Genotype::new(config.init_len))
+            .map(|()| Genotype::random(&config))
             .take(config.pop_size)
             .collect();
         let observer = observation::Observer::spawn(&config);
@@ -340,81 +343,4 @@ mod evaluation {
     }
 }
 
-mod observation {
-    use std::sync::mpsc::{channel, Sender, SendError};
-    use std::thread::{JoinHandle, spawn};
-
-    use crate::observer::{ObservationWindow, Observe};
-
-    use super::*;
-
-    pub struct Observer {
-        pub handle: JoinHandle<()>,
-        tx: Sender<Genotype>,
-    }
-
-    struct Window {
-        pub frame: Vec<Option<Genotype>>,
-        i: usize,
-        window_size: usize,
-    }
-
-    impl ObservationWindow for Window {
-        type Observable = Genotype;
-
-        fn insert(&mut self, thing: Self::Observable) {
-            self.i = (self.i + 1) % self.window_size;
-            self.frame[self.i] = Some(thing);
-            if self.i == 0 {
-                self.report();
-            }
-        }
-
-        fn report(&self) {
-            let fitnesses: Vec<usize> = self
-                .frame
-                .iter()
-                .filter_map(|t| t.as_ref().and_then(Genotype::fitness))
-                .collect();
-            let avg_fit = fitnesses.iter().sum::<usize>() as f32 / fitnesses.len() as f32;
-            log::info!("Average fitness: {}", avg_fit);
-        }
-    }
-
-    impl Window {
-        pub fn new(window_size: usize) -> Self {
-            assert!(window_size > 0);
-            Self {
-                frame: vec![None; window_size],
-                i: 0,
-                window_size,
-            }
-        }
-    }
-
-    impl Observe for Observer {
-        type Observable = Genotype;
-        type Params = Config;
-        type Error = SendError<Self::Observable>;
-
-        fn observe(&self, ob: Self::Observable) {
-            self.tx.send(ob).expect("tx failure");
-        }
-
-        fn spawn(params: &Self::Params) -> Self {
-            let (tx, rx) = channel();
-
-            let window_size = params.observer_window_size();
-            let handle = spawn(move || {
-                let mut window: Window = Window::new(window_size);
-
-                for observable in rx {
-                    log::debug!("received observable {:?}", observable);
-                    window.insert(observable);
-                }
-            });
-
-            Self { handle, tx }
-        }
-    }
-}
+build_observation_mod!(observation, Genotype, Config);

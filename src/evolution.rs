@@ -29,9 +29,16 @@ pub struct Epoch<O: Observe, E: Evaluate, G: Genome, C: Configure> {
 pub trait FitnessScore: PartialOrd + Serialize {}
 
 pub trait Genome {
+    type Params;
+
+    fn random(params: &Self::Params) -> Self
+        where
+            Self: Sized;
+
     fn crossover(&self, mate: &Self) -> Vec<Self>
     where
         Self: Sized;
+
     fn mutate(&mut self);
 }
 
