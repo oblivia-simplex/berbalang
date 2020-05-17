@@ -15,11 +15,12 @@ fn main() {
         mut_rate: 0.3,
         init_len: TARGET.len() * 4,
         pop_size: 1000,
+        num_offspring: 2,
+        tournament_size: 4,
         target: TARGET.to_string(),
-        observer: hello_world::ObserverConfig {
-            window_size: 1000,
-        }
+        observer: hello_world::ObserverConfig { window_size: 1000 },
     };
+    config.assert_invariants();
 
     hello_world::run(config);
 }

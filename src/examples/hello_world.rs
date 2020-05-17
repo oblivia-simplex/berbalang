@@ -18,8 +18,16 @@ pub struct Config {
     pub mut_rate: f32,
     pub init_len: usize,
     pub pop_size: usize,
+    pub tournament_size: usize,
+    pub num_offspring: usize,
     pub target: String,
     pub observer: ObserverConfig,
+}
+
+impl Config {
+    pub fn assert_invariants(&self) {
+        assert!(self.tournament_size >= self.num_offspring + 2);
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -135,57 +143,115 @@ impl Epoch {
             iteration: 0,
         }
     }
+
+    pub fn update_best(&mut self, champ: &Genome) {
+        match self.best {
+            Some(ref best) if champ.fitter_than(best) => {
+                self.best = Some(champ.clone());
+                log::info!("[{}]\tnew champ {:?}", self.iteration, champ)
+            }
+            None => {
+                self.best = Some(champ.clone());
+                log::info!("[{}]\tnew champ {:?}", self.iteration, champ)
+            }
+            _ => {}
+        }
+    }
 }
 
 impl Epochal for Epoch {
     type Observer = observation::Observer;
+    type Evaluator = evaluation::Evaluator;
 
-    fn evolve(mut self, observer: &Self::Observer) -> Self {
+    fn evolve(mut self, observer: &Self::Observer, evaluator: &Self::Evaluator) -> Self {
         // draw 4 unique lots from the hat
+        let tournament_size = self.config.tournament_size;
         let mut population = std::mem::take(&mut self.population);
-        let mut lots: Vec<usize> = (0..population.len()).collect::<Vec<usize>>();
-        lots.shuffle(&mut thread_rng());
-        let fitnesses: Vec<_> = lots
-            .iter()
-            .take(4)
-            .map(|i| population[*i].score_mut(&self.config))
-            .collect();
-        let mut indexed: Vec<(Fitness, usize)> =
-            fitnesses.into_iter().zip(lots.into_iter()).collect();
-        // Rank lots by the fitnesses of the corresponding genomes
-        indexed.sort();
+        let mut rng = thread_rng();
+        // shuffle is O(1)!
+        population.shuffle(&mut rng);
+        let mut combatants = Vec::new();
+        for _ in 0..tournament_size {
+            if let Some(combatant) = population.pop() {
+                let scored = evaluator.evaluate(combatant);
+                observer.observe(scored.clone());
+                combatants.push(scored)
+            } else {
+                log::error!("Population empty!");
+            }
+        }
+        // none of the fitnesses will be None, here, so we can freely compare them
+        combatants.sort_by(|a, b| a.fitness.cmp(&b.fitness));
+        self.update_best(&combatants[0]);
 
-        for (_, i) in indexed.iter() {
-            observer.observe(population[*i].clone())
-                .expect("observation failed");
+        // kill one off for every offspring to be produced
+        for _ in 0..self.config.num_offspring {
+            let _ = combatants.pop();
         }
 
-        let champ = &population[indexed[0].1];
-        match self.best {
-            Some(ref best) if champ.fitter_than(best) => {
-                self.best = Some(champ.clone());
-                log::debug!("[{}]\tnew champ {:?}", self.iteration, champ)
+        // replace the combatants that will neither breed nor die
+        let bystanders = self.config.tournament_size - (self.config.num_offspring + 2);
+        for _ in 0..bystanders {
+            if let Some(c) = combatants.pop() {
+                population.push(c);
             }
-            None => {
-                self.best = Some(champ.clone());
-                log::debug!("[{}]\tnew champ {:?}", self.iteration, champ)
-            }
-            _ => {}
         }
 
-        let winners: Vec<usize> = indexed[0..2].iter().map(|(_, i)| *i).collect();
-        let dead: Vec<usize> = indexed[indexed.len() - 1..]
-            .iter()
-            .map(|(_, i)| *i)
-            .collect();
+        let mother = combatants.pop().unwrap();
+        let father = combatants.pop().unwrap();
+        let offspring: Vec<Genome> = mother.mate(&father, &self.config);
 
-        let mut offspring: Vec<Genome> =
-            population[winners[0]].mate(&population[winners[1]], &self.config);
+        // return everyone to the population
+        population.push(mother);
+        population.push(father);
+        for child in offspring.into_iter() {
+            population.push(child)
+        }
 
-        // now replace the dead with the offspring
-        population[dead[0]] = offspring.pop().expect("where did they go?");
-        population[dead[0]] = offspring.pop().expect("where did they go?");
+        /*
+                let mut lots: Vec<usize> = (0..population.len()).collect::<Vec<usize>>();
+                lots.shuffle(&mut thread_rng());
+                let fitnesses: Vec<_> = lots
+                    .iter()
+                    .take(4)
+                    .map(|i| population[*i].score_mut(&self.config))
+                    .collect();
+                let mut indexed: Vec<(Fitness, usize)> =
+                    fitnesses.into_iter().zip(lots.into_iter()).collect();
+                // Rank lots by the fitnesses of the corresponding genomes
+                indexed.sort();
 
+                for (_, i) in indexed.iter() {
+                    observer.observe(population[*i].clone())
+                        .expect("observation failed");
+                }
+
+                let champ = &population[indexed[0].1];
+                match self.best {
+                    Some(ref best) if champ.fitter_than(best) => {
+                        self.best = Some(champ.clone());
+                        log::debug!("[{}]\tnew champ {:?}", self.iteration, champ)
+                    }
+                    None => {
+                        self.best = Some(champ.clone());
+                        log::debug!("[{}]\tnew champ {:?}", self.iteration, champ)
+                    }
+                    _ => {}
+                }
+
+                let winners: Vec<usize> = indexed[0..2].iter().map(|(_, i)| *i).collect();
+                let dead: Vec<usize> = indexed[indexed.len() - 1..]
+                    .iter()
+                    .map(|(_, i)| *i)
+                    .collect();
+
+                let mut offspring: Vec<Genome> =
+                    population[winners[0]].mate(&population[winners[1]], &self.config);
+
+                // now replace the dead with the offspring
+                population[dead[0]] = offspring.pop().expect("where did they go?");
+                population[dead[0]] = offspring.pop().expect("where did they go?");
+        */
         Self {
             population,
             config: std::mem::take(&mut self.config),
@@ -198,20 +264,57 @@ impl Epochal for Epoch {
 pub fn run(config: Config) -> Option<Genome> {
     let mut world = Epoch::new(config);
     let observer = observation::Observer::spawn(&world.config);
+    let evaluator = evaluation::Evaluator::spawn(&world.config);
 
     loop {
-        world = world.evolve(&observer);
+        world = world.evolve(&observer, &evaluator);
         if let Some(
-            champ
-            @ Genome {
-                fitness: Some(0),
-                ..
+            champ @ Genome {
+                fitness: Some(0), ..
             },
         ) = world.best
         {
             println!("\n***** Success! *****");
             return Some(champ);
         };
+    }
+}
+
+mod evaluation {
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::thread::{JoinHandle, spawn};
+
+    use super::*;
+
+    pub struct Evaluator {
+        handle: JoinHandle<()>,
+        tx: Sender<Genome>,
+        rx: Receiver<Genome>,
+    }
+
+    impl Evaluator {
+        pub fn spawn(params: &Config) -> Self {
+            let (tx, our_rx): (Sender<Genome>, Receiver<Genome>) = channel();
+            let (our_tx, rx): (Sender<Genome>, Receiver<Genome>) = channel();
+
+            let target = params.target.clone();
+
+            let handle = spawn(move || {
+                for mut genome in our_rx {
+                    if genome.fitness.is_none() {
+                        genome.fitness = Some(distance::levenshtein(&genome.genes, &target))
+                    }
+                    our_tx.send(genome).expect("Channel failure");
+                }
+            });
+
+            Self { handle, tx, rx }
+        }
+
+        pub fn evaluate(&self, genome: Genome) -> Genome {
+            self.tx.send(genome).expect("tx failure");
+            self.rx.recv().expect("rx failure")
+        }
     }
 }
 
@@ -244,7 +347,8 @@ mod observation {
         }
 
         fn report(&self) {
-            let fitnesses: Vec<Fitness> = self.frame
+            let fitnesses: Vec<Fitness> = self
+                .frame
                 .iter()
                 .filter_map(|t| t.as_ref().and_then(|x| x.fitness))
                 .collect();
@@ -271,16 +375,14 @@ mod observation {
             let (tx, rx) = channel();
 
             let window_size = params.observer.window_size;
-            let handle = spawn(move ||
-                {
-                    let mut window: Window = Window::new(window_size);
+            let handle = spawn(move || {
+                let mut window: Window = Window::new(window_size);
 
-                    for observable in rx {
-                        log::debug!("received observable {:?}", observable);
-                        window.insert(observable);
-                    }
+                for observable in rx {
+                    log::debug!("received observable {:?}", observable);
+                    window.insert(observable);
                 }
-            );
+            });
 
             Self { handle, tx }
         }

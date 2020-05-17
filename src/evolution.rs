@@ -4,9 +4,11 @@ use serde::Serialize;
 
 pub trait Epochal {
     type Observer;
+    type Evaluator;
+
     /// The evolve function turns the crank once on the evolutionary
     /// process.
-    fn evolve(self, observer: &Self::Observer) -> Self;
+    fn evolve(self, observer: &Self::Observer, evaluator: &Self::Evaluator) -> Self;
 }
 
 /// Types that implement Hatchery act as executors, and are responsible
