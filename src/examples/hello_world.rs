@@ -6,41 +6,73 @@ use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use serde_derive::Deserialize;
 
+use crate::configure::{Configure, ConfigureObserver};
 use crate::evaluator::Evaluate;
 use crate::evolution::*;
 use crate::observer::Observe;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
-    pub window_size: usize,
+    window_size: usize,
+}
+
+impl ConfigureObserver for ObserverConfig {
+    fn window_size(&self) -> usize {
+        self.window_size
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
-    pub mut_rate: f32,
+    mut_rate: f32,
     pub init_len: usize,
-    pub pop_size: usize,
-    pub tournament_size: usize,
+    pop_size: usize,
+    tournament_size: usize,
     pub num_offspring: usize,
     pub target: String,
-    pub target_fitness: Fitness,
-    pub observer: ObserverConfig,
+    pub target_fitness: usize,
+    observer: ObserverConfig,
 }
 
-impl Config {
-    pub fn assert_invariants(&self) {
+impl Configure for Config {
+    fn assert_invariants(&self) {
         assert!(self.tournament_size >= self.num_offspring + 2);
         assert_eq!(self.num_offspring, 2); // all that's supported for now
     }
+
+    fn mutation_rate(&self) -> f32 {
+        self.mut_rate
+    }
+
+    fn population_size(&self) -> usize {
+        self.pop_size
+    }
+
+    fn tournament_size(&self) -> usize {
+        self.tournament_size
+    }
+
+    fn observer_window_size(&self) -> usize {
+        self.observer.window_size
+    }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Genome {
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Genotype {
     genes: String,
-    fitness: Option<Fitness>,
+    fitness: Option<usize>,
 }
 
-impl Genome {
+// because this is a GA we identify genome and phenome
+impl Phenome for Genotype {
+    type Fitness = usize;
+
+    fn fitness(&self) -> Option<Self::Fitness> {
+        self.fitness
+    }
+}
+
+impl Genotype {
     pub fn new(len: usize) -> Self {
         let mut rng = thread_rng();
         let s: String = iter::repeat(())
@@ -62,7 +94,7 @@ impl Genome {
         let mut offspring = self.crossover(other);
         let mut rng = thread_rng();
         for child in offspring.iter_mut() {
-            if rng.gen::<f32>() < params.mut_rate {
+            if rng.gen::<f32>() < params.mutation_rate() {
                 child.mutate();
             }
         }
@@ -78,7 +110,7 @@ impl Genome {
     }
 }
 
-impl Genotype for Genome {
+impl Genome for Genotype {
     fn crossover(&self, mate: &Self) -> Vec<Self> {
         let mut rng = thread_rng();
         let split_m: usize = rng.gen::<usize>() % self.len();
@@ -86,11 +118,11 @@ impl Genotype for Genome {
         let (m1, m2) = self.genes.split_at(split_m);
         let (f1, f2) = mate.genes.split_at(split_f);
         vec![
-            Genome {
+            Genotype {
                 genes: format!("{}{}", m1, f2),
                 fitness: None,
             },
-            Genome {
+            Genotype {
                 genes: format!("{}{}", m2, f1),
                 fitness: None,
             },
@@ -135,59 +167,62 @@ impl Genotype for Genome {
     }
 }
 
-pub type Fitness = usize;
-
-#[derive(Debug)]
-pub struct Epoch {
-    pub population: Vec<Genome>,
-    pub config: Config,
-    pub best: Option<Genome>,
-    pub iteration: usize,
-}
-
-impl Epoch {
+impl Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
     pub fn new(config: Config) -> Self {
         let population = iter::repeat(())
-            .map(|()| Genome::new(config.init_len))
+            .map(|()| Genotype::new(config.init_len))
             .take(config.pop_size)
             .collect();
+        let observer = observation::Observer::spawn(&config);
+        let evaluator = evaluation::Evaluator::spawn(&config);
         Self {
             population,
             config,
             best: None,
             iteration: 0,
+            observer,
+            evaluator,
         }
     }
 
-    pub fn update_best(&mut self, champ: &Genome) {
-        match self.best {
+    pub fn update_best(best: Option<Genotype>, champ: &Genotype) -> Option<Genotype> {
+        match best {
             Some(ref best) if champ.fitter_than(best) => {
-                self.best = Some(champ.clone());
-                log::info!("[{}]\tnew champ {:?}", self.iteration, champ)
+                log::info!("new champ {:?}", champ);
+                Some(champ.clone())
             }
             None => {
-                self.best = Some(champ.clone());
-                log::info!("[{}]\tnew champ {:?}", self.iteration, champ)
+                log::info!("new champ {:?}", champ);
+                Some(champ.clone())
             }
-            _ => {}
+            _ => best,
         }
     }
 
-    pub fn target_reached(&self, target: Fitness) -> bool {
+    pub fn target_reached(&self, target: usize) -> bool {
         self.best
             .as_ref()
-            .and_then(|b| b.fitness)
+            .and_then(|b| b.fitness())
             .map_or(false, |f| f <= target)
     }
 }
 
-impl Epochal for Epoch {
+impl Epochal for Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
     type Observer = observation::Observer;
     type Evaluator = evaluation::Evaluator;
 
-    fn evolve(mut self, observer: &Self::Observer, evaluator: &Self::Evaluator) -> Self {
-        let tournament_size = self.config.tournament_size;
-        let mut population = std::mem::take(&mut self.population);
+    fn evolve(self) -> Self {
+        // destruct the Epoch
+        let Self {
+            mut population,
+            mut best,
+            observer,
+            evaluator,
+            config,
+            iteration,
+        } = self;
+
+        let tournament_size = config.tournament_size();
         let mut rng = thread_rng();
         // shuffle is O(1)!
         population.shuffle(&mut rng);
@@ -203,24 +238,24 @@ impl Epochal for Epoch {
         }
         // none of the fitnesses will be None, here, so we can freely compare them
         combatants.sort_by(|a, b| a.fitness.cmp(&b.fitness));
-        self.update_best(&combatants[0]);
+        best = Self::update_best(best, &combatants[0]);
 
         // kill one off for every offspring to be produced
-        for _ in 0..self.config.num_offspring {
+        for _ in 0..config.num_offspring {
             let _ = combatants.pop();
         }
 
         // replace the combatants that will neither breed nor die
-        let bystanders = self.config.tournament_size - (self.config.num_offspring + 2);
+        let bystanders = config.tournament_size() - (config.num_offspring + 2);
         for _ in 0..bystanders {
             if let Some(c) = combatants.pop() {
                 population.push(c);
             }
         }
-
+        // TODO implement breeder, similar to observer, etc?
         let mother = combatants.pop().unwrap();
         let father = combatants.pop().unwrap();
-        let offspring: Vec<Genome> = mother.mate(&father, &self.config);
+        let offspring: Vec<Genotype> = mother.mate(&father, &config);
 
         // return everyone to the population
         population.push(mother);
@@ -229,26 +264,28 @@ impl Epochal for Epoch {
             population.push(child)
         }
 
+        // put the epoch back together
         Self {
             population,
-            config: std::mem::take(&mut self.config),
-            best: std::mem::take(&mut self.best),
-            iteration: self.iteration + 1,
+            config,
+            best,
+            iteration,
+            observer,
+            evaluator,
         }
     }
 }
 
-pub fn run(config: Config) -> Option<Genome> {
+pub fn run(config: Config) -> Option<Genotype> {
+    let target_fitness = config.target_fitness;
     let mut world = Epoch::new(config);
-    let observer = observation::Observer::spawn(&world.config);
-    let evaluator = evaluation::Evaluator::spawn(&world.config);
 
     loop {
-        world = world.evolve(&observer, &evaluator);
-        if world.target_reached(0) {
+        world = world.evolve();
+        if world.target_reached(target_fitness) {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);
-            return world.best.clone();
+            return world.best;
         };
     }
 }
@@ -259,16 +296,19 @@ mod evaluation {
 
     use super::*;
 
+    type Phenotype = Genotype;
+
     pub struct Evaluator {
         pub handle: JoinHandle<()>,
-        tx: Sender<Genome>,
-        rx: Receiver<Genome>,
+        tx: Sender<Genotype>,
+        rx: Receiver<Genotype>,
     }
 
     impl Evaluate for Evaluator {
-        type Phenotype = Genome;
         // because this is a GA, not a GP
         type Params = Config;
+        type Phenotype = Phenotype;
+        type Fitness = usize;
 
         fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
             self.tx.send(phenome).expect("tx failure");
@@ -276,15 +316,15 @@ mod evaluation {
         }
 
         fn spawn(params: &Self::Params) -> Self {
-            let (tx, our_rx): (Sender<Genome>, Receiver<Genome>) = channel();
-            let (our_tx, rx): (Sender<Genome>, Receiver<Genome>) = channel();
+            let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
+            let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
 
             let target = params.target.clone();
 
             let handle = spawn(move || {
                 for mut phenome in our_rx {
                     if phenome.fitness.is_none() {
-                        phenome.fitness = Some(distance::damerau_levenshtein(&phenome.genes, &target))
+                        phenome.fitness = Some(fitness_function(&phenome, &target))
                     }
                     our_tx.send(phenome).expect("Channel failure");
                 }
@@ -292,6 +332,11 @@ mod evaluation {
 
             Self { handle, tx, rx }
         }
+    }
+
+    #[inline]
+    fn fitness_function(phenome: &Genotype, target: &str) -> usize {
+        distance::damerau_levenshtein(&phenome.genes, target)
     }
 }
 
@@ -305,17 +350,17 @@ mod observation {
 
     pub struct Observer {
         pub handle: JoinHandle<()>,
-        tx: Sender<Genome>,
+        tx: Sender<Genotype>,
     }
 
     struct Window {
-        pub frame: Vec<Option<Genome>>,
+        pub frame: Vec<Option<Genotype>>,
         i: usize,
         window_size: usize,
     }
 
     impl ObservationWindow for Window {
-        type Observable = Genome;
+        type Observable = Genotype;
 
         fn insert(&mut self, thing: Self::Observable) {
             self.i = (self.i + 1) % self.window_size;
@@ -326,16 +371,14 @@ mod observation {
         }
 
         fn report(&self) {
-            let fitnesses: Vec<Fitness> = self
+            let fitnesses: Vec<usize> = self
                 .frame
                 .iter()
-                .filter_map(|t| t.as_ref().and_then(|x| x.fitness))
+                .filter_map(|t| t.as_ref().and_then(Genotype::fitness))
                 .collect();
             let avg_fit = fitnesses.iter().sum::<usize>() as f32 / fitnesses.len() as f32;
             log::info!("Average fitness: {}", avg_fit);
         }
-
-
     }
 
     impl Window {
@@ -350,7 +393,7 @@ mod observation {
     }
 
     impl Observe for Observer {
-        type Observable = Genome;
+        type Observable = Genotype;
         type Params = Config;
         type Error = SendError<Self::Observable>;
 
@@ -361,7 +404,7 @@ mod observation {
         fn spawn(params: &Self::Params) -> Self {
             let (tx, rx) = channel();
 
-            let window_size = params.observer.window_size;
+            let window_size = params.observer_window_size();
             let handle = spawn(move || {
                 let mut window: Window = Window::new(window_size);
 

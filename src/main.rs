@@ -1,7 +1,9 @@
 use pretty_env_logger as logger;
 
+use crate::configure::Configure;
 use crate::examples::hello_world;
 
+mod configure;
 mod evaluator;
 mod evolution;
 mod examples;
