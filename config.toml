@@ -4,6 +4,7 @@ pop_size = 1000
 tournament_size = 4
 num_offspring = 2
 target = "Wanna know how I got these scars?"
+target_fitness = 0
 
 [observer]
 window_size = 100

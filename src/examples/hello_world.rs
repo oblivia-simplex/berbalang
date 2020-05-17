@@ -23,6 +23,7 @@ pub struct Config {
     pub tournament_size: usize,
     pub num_offspring: usize,
     pub target: String,
+    pub target_fitness: Fitness,
     pub observer: ObserverConfig,
 }
 
@@ -146,6 +147,13 @@ impl Epoch {
             _ => {}
         }
     }
+
+    pub fn target_reached(&self, target: Fitness) -> bool {
+        self.best
+            .as_ref()
+            .and_then(|b| b.fitness)
+            .map_or(false, |f| f <= target)
+    }
 }
 
 impl Epochal for Epoch {
@@ -212,14 +220,9 @@ pub fn run(config: Config) -> Option<Genome> {
 
     loop {
         world = world.evolve(&observer, &evaluator);
-        if let Some(
-            champ @ Genome {
-                fitness: Some(0), ..
-            },
-        ) = world.best
-        {
+        if world.target_reached(0) {
             println!("\n***** Success! *****");
-            return Some(champ);
+            return world.best.clone();
         };
     }
 }
@@ -241,6 +244,11 @@ mod evaluation {
         // because this is a GA, not a GP
         type Params = Config;
 
+        fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
+            self.tx.send(phenome).expect("tx failure");
+            self.rx.recv().expect("rx failure")
+        }
+
         fn spawn(params: &Self::Params) -> Self {
             let (tx, our_rx): (Sender<Genome>, Receiver<Genome>) = channel();
             let (our_tx, rx): (Sender<Genome>, Receiver<Genome>) = channel();
@@ -257,11 +265,6 @@ mod evaluation {
             });
 
             Self { handle, tx, rx }
-        }
-
-        fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
-            self.tx.send(phenome).expect("tx failure");
-            self.rx.recv().expect("rx failure")
         }
     }
 }
@@ -338,6 +341,5 @@ mod observation {
         fn observe(&self, ob: Self::Observable) {
             self.tx.send(ob).expect("tx failure");
         }
-
     }
 }
