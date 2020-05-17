@@ -5,21 +5,15 @@ use crate::examples::hello_world;
 mod evolution;
 mod examples;
 mod observer;
+mod evaluator;
 
 fn main() {
     logger::init();
 
-    const TARGET: &str = "Wanna know how I got these scars?";
-
-    let config = hello_world::Config {
-        mut_rate: 0.3,
-        init_len: TARGET.len() * 4,
-        pop_size: 1000,
-        num_offspring: 2,
-        tournament_size: 4,
-        target: TARGET.to_string(),
-        observer: hello_world::ObserverConfig { window_size: 1000 },
-    };
+    let config: hello_world::Config = toml::from_str(
+        &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
+    )
+        .expect("Failed to parse config.toml");
     config.assert_invariants();
 
     hello_world::run(config);

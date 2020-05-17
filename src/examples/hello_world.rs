@@ -4,16 +4,18 @@ use std::iter::Iterator;
 use log;
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
+use serde_derive::Deserialize;
 
+use crate::evaluator::Evaluate;
 use crate::evolution::*;
 use crate::observer::Observe;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
     pub window_size: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
     pub mut_rate: f32,
     pub init_len: usize,
@@ -109,19 +111,6 @@ impl Genotype for Genome {
 
 pub type Fitness = usize;
 
-impl ScoreMut for Genome {
-    type Params = Config;
-    type Fitness = Fitness;
-
-    fn score_mut(&mut self, params: &Self::Params) -> Self::Fitness {
-        // let's have the fitness just be the levenshtein distance
-        if self.fitness.is_none() {
-            self.fitness = Some(distance::levenshtein(&self.genes, &params.target))
-        };
-        self.fitness.expect("unreachable")
-    }
-}
-
 #[derive(Debug)]
 pub struct Epoch {
     pub population: Vec<Genome>,
@@ -164,7 +153,6 @@ impl Epochal for Epoch {
     type Evaluator = evaluation::Evaluator;
 
     fn evolve(mut self, observer: &Self::Observer, evaluator: &Self::Evaluator) -> Self {
-        // draw 4 unique lots from the hat
         let tournament_size = self.config.tournament_size;
         let mut population = std::mem::take(&mut self.population);
         let mut rng = thread_rng();
@@ -208,50 +196,6 @@ impl Epochal for Epoch {
             population.push(child)
         }
 
-        /*
-                let mut lots: Vec<usize> = (0..population.len()).collect::<Vec<usize>>();
-                lots.shuffle(&mut thread_rng());
-                let fitnesses: Vec<_> = lots
-                    .iter()
-                    .take(4)
-                    .map(|i| population[*i].score_mut(&self.config))
-                    .collect();
-                let mut indexed: Vec<(Fitness, usize)> =
-                    fitnesses.into_iter().zip(lots.into_iter()).collect();
-                // Rank lots by the fitnesses of the corresponding genomes
-                indexed.sort();
-
-                for (_, i) in indexed.iter() {
-                    observer.observe(population[*i].clone())
-                        .expect("observation failed");
-                }
-
-                let champ = &population[indexed[0].1];
-                match self.best {
-                    Some(ref best) if champ.fitter_than(best) => {
-                        self.best = Some(champ.clone());
-                        log::debug!("[{}]\tnew champ {:?}", self.iteration, champ)
-                    }
-                    None => {
-                        self.best = Some(champ.clone());
-                        log::debug!("[{}]\tnew champ {:?}", self.iteration, champ)
-                    }
-                    _ => {}
-                }
-
-                let winners: Vec<usize> = indexed[0..2].iter().map(|(_, i)| *i).collect();
-                let dead: Vec<usize> = indexed[indexed.len() - 1..]
-                    .iter()
-                    .map(|(_, i)| *i)
-                    .collect();
-
-                let mut offspring: Vec<Genome> =
-                    population[winners[0]].mate(&population[winners[1]], &self.config);
-
-                // now replace the dead with the offspring
-                population[dead[0]] = offspring.pop().expect("where did they go?");
-                population[dead[0]] = offspring.pop().expect("where did they go?");
-        */
         Self {
             population,
             config: std::mem::take(&mut self.config),
@@ -287,13 +231,17 @@ mod evaluation {
     use super::*;
 
     pub struct Evaluator {
-        handle: JoinHandle<()>,
+        pub handle: JoinHandle<()>,
         tx: Sender<Genome>,
         rx: Receiver<Genome>,
     }
 
-    impl Evaluator {
-        pub fn spawn(params: &Config) -> Self {
+    impl Evaluate for Evaluator {
+        type Phenotype = Genome;
+        // because this is a GA, not a GP
+        type Params = Config;
+
+        fn spawn(params: &Self::Params) -> Self {
             let (tx, our_rx): (Sender<Genome>, Receiver<Genome>) = channel();
             let (our_tx, rx): (Sender<Genome>, Receiver<Genome>) = channel();
 
@@ -311,8 +259,8 @@ mod evaluation {
             Self { handle, tx, rx }
         }
 
-        pub fn evaluate(&self, genome: Genome) -> Genome {
-            self.tx.send(genome).expect("tx failure");
+        fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
+            self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
     }
@@ -328,7 +276,7 @@ mod observation {
 
     pub struct Observer {
         pub handle: JoinHandle<()>,
-        pub tx: Sender<Genome>,
+        tx: Sender<Genome>,
     }
 
     struct Window {
@@ -387,8 +335,8 @@ mod observation {
             Self { handle, tx }
         }
 
-        fn observe(&self, ob: Self::Observable) -> Result<(), Self::Error> {
-            self.tx.send(ob)
+        fn observe(&self, ob: Self::Observable) {
+            self.tx.send(ob).expect("tx failure");
         }
 
         fn report() {
