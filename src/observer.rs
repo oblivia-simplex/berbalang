@@ -12,3 +12,11 @@ pub trait Observe {
 
     fn spawn(params: &Self::Params) -> Self;
 }
+
+pub trait ObservationWindow {
+    type Observable;
+
+    fn insert(&mut self, ob: Self::Observable);
+
+    fn report(&self);
+}

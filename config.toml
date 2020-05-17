@@ -1,10 +1,10 @@
-mut_rate = 0.2
+mut_rate = 0.5
 init_len = 32
-pop_size = 1000
+pop_size = 100
 tournament_size = 4
 num_offspring = 2
-target = "Wanna know how I got these scars?"
+target = "Hello, world!"
 target_fitness = 0
 
 [observer]
-window_size = 100
+window_size = 10000

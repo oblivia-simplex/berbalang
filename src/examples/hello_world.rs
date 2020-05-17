@@ -30,6 +30,7 @@ pub struct Config {
 impl Config {
     pub fn assert_invariants(&self) {
         assert!(self.tournament_size >= self.num_offspring + 2);
+        assert_eq!(self.num_offspring, 2); // all that's supported for now
     }
 }
 
@@ -98,14 +99,38 @@ impl Genotype for Genome {
 
     fn mutate(&mut self) {
         let mut rng: ThreadRng = thread_rng();
-        let i: usize = rng.gen::<usize>() % self.len();
-        unsafe {
-            let bytes = self.genes.as_bytes_mut();
-            let mut c: u8 = 0;
-            while c < 0x20 || 0x7E < c {
-                c = rng.gen::<u8>();
+        let mutation = rng.gen::<u8>() % 4;
+        match mutation {
+            // replace some character with random character
+            0 => unsafe {
+                let i: usize = rng.gen::<usize>() % self.len();
+                let bytes = self.genes.as_bytes_mut();
+                let mut c: u8 = 0;
+                while c < 0x20 || 0x7E < c {
+                    c = rng.gen::<u8>();
+                }
+                bytes[i] = c;
+            },
+            // swaps halves of the string
+            1 => {
+                let tmp = self.genes.split_off(self.genes.len() / 2);
+                self.genes = format!("{}{}", self.genes, tmp);
             }
-            bytes[i] = c;
+            // swaps two random characters in the string
+            2 => unsafe {
+                let len = self.genes.len();
+                let bytes = self.genes.as_mut_vec();
+                let i = rng.gen::<usize>() % len;
+                let j = rng.gen::<usize>() % len;
+                if i != j {
+                    bytes.swap(i, j)
+                }
+            },
+            // reverse the string
+            3 => {
+                self.genes = self.genes.chars().rev().collect::<String>();
+            }
+            _ => unreachable!("Unreachable"),
         }
     }
 }
@@ -221,7 +246,8 @@ pub fn run(config: Config) -> Option<Genome> {
     loop {
         world = world.evolve(&observer, &evaluator);
         if world.target_reached(0) {
-            println!("\n***** Success! *****");
+            println!("\n***** Success after {} epochs! *****", world.iteration);
+            println!("{:#?}", world.best);
             return world.best.clone();
         };
     }
@@ -229,7 +255,7 @@ pub fn run(config: Config) -> Option<Genome> {
 
 mod evaluation {
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::thread::{spawn, JoinHandle};
+    use std::thread::{JoinHandle, spawn};
 
     use super::*;
 
@@ -256,11 +282,11 @@ mod evaluation {
             let target = params.target.clone();
 
             let handle = spawn(move || {
-                for mut genome in our_rx {
-                    if genome.fitness.is_none() {
-                        genome.fitness = Some(distance::levenshtein(&genome.genes, &target))
+                for mut phenome in our_rx {
+                    if phenome.fitness.is_none() {
+                        phenome.fitness = Some(distance::damerau_levenshtein(&phenome.genes, &target))
                     }
-                    our_tx.send(genome).expect("Channel failure");
+                    our_tx.send(phenome).expect("Channel failure");
                 }
             });
 
@@ -270,10 +296,10 @@ mod evaluation {
 }
 
 mod observation {
-    use std::sync::mpsc::{channel, SendError, Sender};
-    use std::thread::{spawn, JoinHandle};
+    use std::sync::mpsc::{channel, Sender, SendError};
+    use std::thread::{JoinHandle, spawn};
 
-    use crate::observer::Observe;
+    use crate::observer::{ObservationWindow, Observe};
 
     use super::*;
 
@@ -288,8 +314,10 @@ mod observation {
         window_size: usize,
     }
 
-    impl Window {
-        fn insert(&mut self, thing: Genome) {
+    impl ObservationWindow for Window {
+        type Observable = Genome;
+
+        fn insert(&mut self, thing: Self::Observable) {
             self.i = (self.i + 1) % self.window_size;
             self.frame[self.i] = Some(thing);
             if self.i == 0 {
@@ -307,7 +335,11 @@ mod observation {
             log::info!("Average fitness: {}", avg_fit);
         }
 
-        fn new(window_size: usize) -> Self {
+
+    }
+
+    impl Window {
+        pub fn new(window_size: usize) -> Self {
             assert!(window_size > 0);
             Self {
                 frame: vec![None; window_size],
@@ -321,6 +353,10 @@ mod observation {
         type Observable = Genome;
         type Params = Config;
         type Error = SendError<Self::Observable>;
+
+        fn observe(&self, ob: Self::Observable) {
+            self.tx.send(ob).expect("tx failure");
+        }
 
         fn spawn(params: &Self::Params) -> Self {
             let (tx, rx) = channel();
@@ -336,10 +372,6 @@ mod observation {
             });
 
             Self { handle, tx }
-        }
-
-        fn observe(&self, ob: Self::Observable) {
-            self.tx.send(ob).expect("tx failure");
         }
     }
 }
