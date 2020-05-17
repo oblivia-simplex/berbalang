@@ -18,7 +18,7 @@ pub trait Observe {
     /// (which will presumably record the data some serial format -- a
     /// tsv file, for instance, that can then be consumed by gnuplot.
     /// Or perhaps something more structured, like json.
-    fn report(&self);
+    fn report();
 
     fn spawn(params: &Self::Params) -> Self;
 }

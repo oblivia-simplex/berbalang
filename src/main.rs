@@ -1,9 +1,10 @@
+use pretty_env_logger as logger;
+
+use crate::examples::hello_world;
+
 mod evolution;
 mod examples;
 mod observer;
-
-use crate::examples::hello_world;
-use pretty_env_logger as logger;
 
 fn main() {
     logger::init();
@@ -15,6 +16,9 @@ fn main() {
         init_len: TARGET.len() * 4,
         pop_size: 1000,
         target: TARGET.to_string(),
+        observer: hello_world::ObserverConfig {
+            window_size: 1000,
+        }
     };
 
     hello_world::run(config);

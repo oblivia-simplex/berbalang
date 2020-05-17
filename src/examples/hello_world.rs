@@ -9,11 +9,17 @@ use crate::evolution::*;
 use crate::observer::Observe;
 
 #[derive(Clone, Debug, Default)]
+pub struct ObserverConfig {
+    pub window_size: usize,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     pub mut_rate: f32,
     pub init_len: usize,
     pub pop_size: usize,
     pub target: String,
+    pub observer: ObserverConfig,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -222,18 +228,56 @@ mod observation {
         pub tx: Sender<Genome>,
     }
 
+    struct Window {
+        pub frame: Vec<Option<Genome>>,
+        i: usize,
+        window_size: usize,
+    }
+
+    impl Window {
+        fn insert(&mut self, thing: Genome) {
+            self.i = (self.i + 1) % self.window_size;
+            self.frame[self.i] = Some(thing);
+            if self.i == 0 {
+                self.report();
+            }
+        }
+
+        fn report(&self) {
+            let fitnesses: Vec<Fitness> = self.frame
+                .iter()
+                .filter_map(|t| t.as_ref().and_then(|x| x.fitness))
+                .collect();
+            let avg_fit = fitnesses.iter().sum::<usize>() as f32 / fitnesses.len() as f32;
+            log::info!("Average fitness: {}", avg_fit);
+        }
+
+        fn new(window_size: usize) -> Self {
+            assert!(window_size > 0);
+            Self {
+                frame: vec![None; window_size],
+                i: 0,
+                window_size,
+            }
+        }
+    }
+
     impl Observe for Observer {
         type Observable = Genome;
         type Params = Config;
         type Error = SendError<Self::Observable>;
 
-        fn spawn(_params: &Self::Params) -> Self {
+        fn spawn(params: &Self::Params) -> Self {
             let (tx, rx) = channel();
 
+            let window_size = params.observer.window_size;
             let handle = spawn(move ||
                 {
+                    let mut window: Window = Window::new(window_size);
+
                     for observable in rx {
                         log::debug!("received observable {:?}", observable);
+                        window.insert(observable);
                     }
                 }
             );
@@ -245,7 +289,7 @@ mod observation {
             self.tx.send(ob)
         }
 
-        fn report(&self) {
+        fn report() {
             unimplemented!()
         }
     }
