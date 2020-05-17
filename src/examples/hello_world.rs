@@ -339,8 +339,5 @@ mod observation {
             self.tx.send(ob).expect("tx failure");
         }
 
-        fn report() {
-            unimplemented!()
-        }
     }
 }
