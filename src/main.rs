@@ -2,10 +2,10 @@ use pretty_env_logger as logger;
 
 use crate::examples::hello_world;
 
+mod evaluator;
 mod evolution;
 mod examples;
 mod observer;
-mod evaluator;
 
 fn main() {
     logger::init();
@@ -13,7 +13,7 @@ fn main() {
     let config: hello_world::Config = toml::from_str(
         &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
     )
-        .expect("Failed to parse config.toml");
+    .expect("Failed to parse config.toml");
     config.assert_invariants();
 
     hello_world::run(config);

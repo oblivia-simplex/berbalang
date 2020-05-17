@@ -1,4 +1,3 @@
-
 // A Logger needs to asynchronously gather and periodically
 // record information on the evolutionary process.
 

@@ -226,7 +226,7 @@ pub fn run(config: Config) -> Option<Genome> {
 
 mod evaluation {
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::thread::{JoinHandle, spawn};
+    use std::thread::{spawn, JoinHandle};
 
     use super::*;
 
@@ -267,8 +267,8 @@ mod evaluation {
 }
 
 mod observation {
-    use std::sync::mpsc::{channel, Sender, SendError};
-    use std::thread::{JoinHandle, spawn};
+    use std::sync::mpsc::{channel, SendError, Sender};
+    use std::thread::{spawn, JoinHandle};
 
     use crate::observer::Observe;
 
