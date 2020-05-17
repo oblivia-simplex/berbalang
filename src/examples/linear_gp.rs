@@ -4,8 +4,9 @@ use rand::{Rng, thread_rng};
 use serde_derive::Deserialize;
 
 use crate::configure::{Configure, ConfigureObserver};
-use crate::evolution::Genome;
-use crate::observer::build_observation_mod;
+use crate::evolution::{FitnessScalar, Genome, Phenome};
+
+pub type Fitness = FitnessScalar<usize>;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
@@ -233,7 +234,7 @@ pub struct Phenotype {
 pub struct Creature {
     genotype: Genotype,
     phenotype: Option<Phenotype>,
-    fitness: Option<usize>,
+    fitness: Option<Fitness>,
 }
 
 impl Creature {
@@ -241,7 +242,15 @@ impl Creature {
         self.genotype.len()
     }
 
-    pub fn fitness(&self) -> Option<usize> {
+    pub fn fitness(&self) -> Option<Fitness> {
+        self.fitness
+    }
+}
+
+impl Phenome for Creature {
+    type Fitness = FitnessScalar<usize>;
+
+    fn fitness(&self) -> Option<Self::Fitness> {
         self.fitness
     }
 }
@@ -291,4 +300,3 @@ impl Genome for Creature {
     }
 }
 
-build_observation_mod!(observation, Creature, Config);

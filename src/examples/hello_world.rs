@@ -9,7 +9,9 @@ use serde_derive::Deserialize;
 use crate::configure::{Configure, ConfigureObserver};
 use crate::evaluator::Evaluate;
 use crate::evolution::*;
-use crate::observer::{build_observation_mod, Observe};
+use crate::observer::Observer;
+
+pub type Fitness = FitnessScalar<usize>;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
@@ -57,15 +59,15 @@ impl Configure for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Genotype {
     genes: String,
-    fitness: Option<usize>,
+    fitness: Option<Fitness>,
 }
 
 // because this is a GA we identify genome and phenome
 impl Phenome for Genotype {
-    type Fitness = usize;
+    type Fitness = Fitness;
 
     fn fitness(&self) -> Option<Self::Fitness> {
         self.fitness
@@ -170,13 +172,13 @@ impl Genome for Genotype {
     }
 }
 
-impl Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
+impl Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
     pub fn new(config: Config) -> Self {
         let population = iter::repeat(())
             .map(|()| Genotype::random(&config))
             .take(config.pop_size)
             .collect();
-        let observer = observation::Observer::spawn(&config);
+        let observer = Observer::spawn(&config);
         let evaluator = evaluation::Evaluator::spawn(&config);
         Self {
             population,
@@ -202,7 +204,7 @@ impl Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
         }
     }
 
-    pub fn target_reached(&self, target: usize) -> bool {
+    pub fn target_reached(&self, target: Fitness) -> bool {
         self.best
             .as_ref()
             .and_then(|b| b.fitness())
@@ -210,8 +212,9 @@ impl Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
     }
 }
 
-impl Epochal for Epoch<observation::Observer, evaluation::Evaluator, Genotype, Config> {
-    type Observer = observation::Observer;
+// Genotype doubles as Phenotype here
+impl Epochal for Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
+    type Observer = Observer<Genotype>;
     type Evaluator = evaluation::Evaluator;
 
     fn evolve(self) -> Self {
@@ -280,7 +283,7 @@ impl Epochal for Epoch<observation::Observer, evaluation::Evaluator, Genotype, C
 }
 
 pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness = config.target_fitness;
+    let target_fitness: Fitness = config.target_fitness.into();
     let mut world = Epoch::new(config);
 
     loop {
@@ -338,9 +341,9 @@ mod evaluation {
     }
 
     #[inline]
-    fn fitness_function(phenome: &Genotype, target: &str) -> usize {
-        distance::damerau_levenshtein(&phenome.genes, target)
+    fn fitness_function(phenome: &Genotype, target: &str) -> Fitness {
+        distance::damerau_levenshtein(&phenome.genes, target).into()
     }
 }
 
-build_observation_mod!(observation, Genotype, Config);
+//build_observation_mod!(observation, Genotype, Config);
