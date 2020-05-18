@@ -172,13 +172,26 @@ impl Genome for Genotype {
     }
 }
 
+fn report(window: &Vec<Option<Genotype>>) {
+    let fitnesses: Vec<Fitness> = window.iter()
+        .filter_map(|g| g.as_ref().and_then(|x| x.fitness))
+        .collect();
+    let avg_fit = fitnesses
+        .iter()
+        .fold(0.into(), |a: Fitness, b: &Fitness| a + *b).0 as f32 / fitnesses.len() as f32;
+    let min_fit = fitnesses.iter().min();
+
+    log::info!("AVERAGE FITNESS: {}; MIN FIT: {:?}", avg_fit, min_fit);
+}
+
 impl Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
     pub fn new(config: Config) -> Self {
         let population = iter::repeat(())
             .map(|()| Genotype::random(&config))
             .take(config.pop_size)
             .collect();
-        let observer = Observer::spawn(&config);
+        let report_fn = Box::new(report);
+        let observer = Observer::spawn(&config, report_fn);
         let evaluator = evaluation::Evaluator::spawn(&config);
         Self {
             population,

@@ -2,6 +2,7 @@
 // record information on the evolutionary process.
 
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 // a hack to make the imports more meaningful
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{JoinHandle, spawn};
@@ -9,25 +10,29 @@ use std::thread::{JoinHandle, spawn};
 use crate::configure::Configure;
 use crate::evolution::{FitnessScalar, Phenome};
 
-pub struct Observer<O: Phenome + Send + Debug + Clone> {
+pub struct Observer<O: Phenome> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
     // TODO: add a reporter struct field
 }
 
-pub struct Window<O: Phenome + Send + Debug + Clone> {
+pub type ReportFn<T> = Box<dyn Fn(&Vec<Option<T>>) -> () + Sync + Send + 'static>;
+
+pub struct Window<O: Phenome> {
     pub frame: Vec<Option<O>>,
     i: usize,
     window_size: usize,
+    report_fn: ReportFn<O>,
 }
 
-impl<O: Phenome + Send + Debug + Clone> Window<O> {
-    fn new(window_size: usize) -> Self {
+impl<O: Phenome> Window<O> {
+    fn new(window_size: usize, report_fn: ReportFn<O>) -> Self {
         assert!(window_size > 0);
         Self {
             frame: vec![None; window_size],
             i: 0,
             window_size,
+            report_fn,
         }
     }
 
@@ -40,55 +45,38 @@ impl<O: Phenome + Send + Debug + Clone> Window<O> {
     }
 
     fn report(&self) {
-        // TODO: report should be fully customizable.
-        let fitnesses: Vec<_> = self
-            .frame
-            .iter()
-            .filter_map(|t| t.as_ref().and_then(O::fitness))
-            .collect();
-        //let fitvec = FitVec(fitnesses);
-
-        //        let avg_fit = fitnesses.iter().sum() as f32 / fitnesses.len() as f32;
-        //        log::info!("Average fitness: {}", avg_fit);
-        // TODO: Fitnesses need to be summable, etc.
-        // flesh the fitness type out more.
-        // maybe define a fitness vec newtype with summary methods
-        //log::info!("FitVec: {:?}", fitvec)
+        (self.report_fn)(&self.frame)
     }
 }
 
-impl<O: 'static + Phenome + Send + Debug + Clone> Observer<O> {
+impl<O: 'static + Phenome> Observer<O> {
     /// The observe method should take a clone of the observable
     /// and store in something like a sliding observation window.
     pub fn observe(&self, ob: O) {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn<C: Configure>(params: &C) -> Observer<O> {
+    pub fn spawn<C: Configure>(
+        params: &C,
+        report_fn: ReportFn<O>,
+    ) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
 
         let window_size: usize = params.observer_window_size();
-        let handle: JoinHandle<()> = spawn(move || {
-            let mut window: Window<O> = Window::new(window_size);
 
+        let handle: JoinHandle<()> = spawn(move || {
+            let mut window: Window<O> = Window::new(window_size, report_fn);
             for observable in rx {
                 log::debug!("received observable {:?}", observable);
                 window.insert(observable);
             }
         });
 
-        Observer { handle, tx }
+        Observer {
+            handle,
+            tx,
+        }
     }
-}
-
-pub trait ObservationWindow {
-    fn new<O: Phenome + Send + Debug>(window_size: usize) -> Self
-        where
-            Self: Sized;
-
-    fn insert<O: Phenome + Send + Debug>(&mut self, ob: O);
-
-    fn report(&self);
 }
 
 /*

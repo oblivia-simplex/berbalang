@@ -299,4 +299,3 @@ impl Genome for Creature {
         self.genotype.0[i].mutate();
     }
 }
-

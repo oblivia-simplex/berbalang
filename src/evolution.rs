@@ -138,7 +138,7 @@ pub trait Genome {
     fn mutate(&mut self);
 }
 
-pub trait Phenome {
+pub trait Phenome: Clone + Debug + Send {
     type Fitness: FitnessScore;
 
     /// This method is intended for reporting, not measuring, fitness.
