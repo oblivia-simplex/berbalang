@@ -1,7 +1,15 @@
+use std::sync::Arc;
+
+use crate::configure::Configure;
+use crate::evolution::{FitnessScore, Phenome};
+
+pub type FitnessFn<P: Phenome, C, F: FitnessScore> =
+Box<dyn Fn(&P, Arc<C>) -> F + Sync + Send + 'static>;
+
 pub trait Evaluate {
-    type Phenotype;
+    type Phenotype: Phenome;
     type Params;
-    type Fitness;
+    type Fitness: FitnessScore;
 
     /// We're assuming that the Phenotype contains a binding to
     /// the resulting fitness score, and that this method sets
@@ -12,5 +20,8 @@ pub trait Evaluate {
     /// is to allow the use of asynchronous evaluation pipelines.
     fn evaluate(&self, ob: Self::Phenotype) -> Self::Phenotype;
 
-    fn spawn(params: &Self::Params) -> Self;
+    fn spawn(
+        params: Arc<Self::Params>,
+        fitness_fn: FitnessFn<Self::Phenotype, Self::Params, Self::Fitness>,
+    ) -> Self;
 }

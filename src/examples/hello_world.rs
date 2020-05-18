@@ -1,5 +1,6 @@
 use std::iter;
 use std::iter::Iterator;
+use std::sync::Arc;
 
 use log;
 use rand::distributions::Alphanumeric;
@@ -7,9 +8,9 @@ use rand::prelude::*;
 use serde_derive::Deserialize;
 
 use crate::configure::{Configure, ConfigureObserver};
-use crate::evaluator::Evaluate;
+use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::*;
-use crate::observer::Observer;
+use crate::observer::{Observer, ReportFn};
 
 pub type Fitness = FitnessScalar<usize>;
 
@@ -173,26 +174,36 @@ impl Genome for Genotype {
 }
 
 fn report(window: &Vec<Option<Genotype>>) {
-    let fitnesses: Vec<Fitness> = window.iter()
+    let fitnesses: Vec<Fitness> = window
+        .iter()
         .filter_map(|g| g.as_ref().and_then(|x| x.fitness))
         .collect();
     let avg_fit = fitnesses
         .iter()
-        .fold(0.into(), |a: Fitness, b: &Fitness| a + *b).0 as f32 / fitnesses.len() as f32;
+        .fold(0.into(), |a: Fitness, b: &Fitness| a + *b)
+        .0 as f32
+        / fitnesses.len() as f32;
     let min_fit = fitnesses.iter().min();
 
     log::info!("AVERAGE FITNESS: {}; MIN FIT: {:?}", avg_fit, min_fit);
 }
 
+fn fitness_function(phenome: &Genotype, params: Arc<Config>) -> Fitness {
+    distance::damerau_levenshtein(&phenome.genes, &params.target).into()
+}
+
 impl Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
     pub fn new(config: Config) -> Self {
+        let config = Arc::new(config);
         let population = iter::repeat(())
             .map(|()| Genotype::random(&config))
             .take(config.pop_size)
             .collect();
-        let report_fn = Box::new(report);
-        let observer = Observer::spawn(&config, report_fn);
-        let evaluator = evaluation::Evaluator::spawn(&config);
+        let report_fn: ReportFn<_> = Box::new(report);
+        let fitness_fn: FitnessFn<_, _, _> = Box::new(fitness_function);
+        let observer = Observer::spawn(config.clone(), report_fn);
+        let evaluator =
+            evaluation::Evaluator::spawn(config.clone(), fitness_fn);
         Self {
             population,
             config,
@@ -310,8 +321,11 @@ pub fn run(config: Config) -> Option<Genotype> {
 }
 
 mod evaluation {
+    use std::sync::Arc;
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread::{JoinHandle, spawn};
+
+    use crate::evaluator::FitnessFn;
 
     use super::*;
 
@@ -319,31 +333,32 @@ mod evaluation {
 
     pub struct Evaluator {
         pub handle: JoinHandle<()>,
-        tx: Sender<Genotype>,
-        rx: Receiver<Genotype>,
+        tx: Sender<Phenotype>,
+        rx: Receiver<Phenotype>,
     }
 
     impl Evaluate for Evaluator {
         // because this is a GA, not a GP
         type Params = Config;
         type Phenotype = Phenotype;
-        type Fitness = usize;
+        type Fitness = super::Fitness;
 
         fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn spawn(params: &Self::Params) -> Self {
-            let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
-            let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
-
-            let target = params.target.clone();
+        fn spawn(
+            params: Arc<Self::Params>,
+            fitness_fn: FitnessFn<Self::Phenotype, Self::Params, Self::Fitness>,
+        ) -> Self {
+            let (tx, our_rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
+            let (our_tx, rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
 
             let handle = spawn(move || {
                 for mut phenome in our_rx {
                     if phenome.fitness.is_none() {
-                        phenome.fitness = Some(fitness_function(&phenome, &target))
+                        phenome.fitness = Some(fitness_function(&phenome, params.clone()))
                     }
                     our_tx.send(phenome).expect("Channel failure");
                 }
@@ -351,11 +366,6 @@ mod evaluation {
 
             Self { handle, tx, rx }
         }
-    }
-
-    #[inline]
-    fn fitness_function(phenome: &Genotype, target: &str) -> Fitness {
-        distance::damerau_levenshtein(&phenome.genes, target).into()
     }
 }
 

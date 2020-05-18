@@ -56,10 +56,7 @@ impl<O: 'static + Phenome> Observer<O> {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn<C: Configure>(
-        params: &C,
-        report_fn: ReportFn<O>,
-    ) -> Observer<O> {
+    pub fn spawn<C: Configure>(params: Arc<C>, report_fn: ReportFn<O>) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
 
         let window_size: usize = params.observer_window_size();
@@ -72,10 +69,7 @@ impl<O: 'static + Phenome> Observer<O> {
             }
         });
 
-        Observer {
-            handle,
-            tx,
-        }
+        Observer { handle, tx }
     }
 }
 

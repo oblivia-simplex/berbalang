@@ -245,6 +245,10 @@ impl Creature {
     pub fn fitness(&self) -> Option<Fitness> {
         self.fitness
     }
+
+    pub fn set_fitness(&mut self, fitness: Fitness) {
+        self.fitness = Some(fitness)
+    }
 }
 
 impl Phenome for Creature {
@@ -297,5 +301,56 @@ impl Genome for Creature {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
         self.genotype.0[i].mutate();
+    }
+}
+
+mod evaluation {
+    use std::sync::Arc;
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::thread::{JoinHandle, spawn};
+
+    use crate::evaluator::{Evaluate, FitnessFn};
+    use crate::evolution::FitnessScore;
+
+    use super::*;
+
+    // the type names can get a bit confusing, here. fix this. TODO
+    type Phenotype = super::Creature;
+
+    pub struct Evaluator {
+        pub handle: JoinHandle<()>,
+        tx: Sender<Phenotype>,
+        rx: Receiver<Phenotype>,
+    }
+
+    impl Evaluate for Evaluator {
+        // because this is a GA, not a GP
+        type Params = Config;
+        type Phenotype = Phenotype;
+        type Fitness = super::Fitness;
+
+        fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
+            self.tx.send(phenome).expect("tx failure");
+            self.rx.recv().expect("rx failure")
+        }
+
+        fn spawn(
+            params: Arc<Self::Params>,
+            fitness_fn: FitnessFn<Self::Phenotype, Self::Params, Self::Fitness>,
+        ) -> Self {
+            let (tx, our_rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
+            let (our_tx, rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
+
+            let handle = spawn(move || {
+                for mut phenome in our_rx {
+                    if phenome.fitness().is_none() {
+                        phenome.set_fitness((fitness_fn)(&phenome, params.clone()))
+                    }
+                    our_tx.send(phenome).expect("Channel failure");
+                }
+            });
+
+            Self { handle, tx, rx }
+        }
     }
 }

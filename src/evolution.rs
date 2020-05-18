@@ -1,6 +1,7 @@
 use std::cmp::PartialOrd;
 use std::fmt::Debug;
 use std::ops::{Add, Div};
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -19,7 +20,7 @@ pub trait Epochal {
 
 pub struct Epoch<E: Evaluate, G: Genome, P: Phenome + Debug + Send + Clone, C: Configure> {
     pub population: Vec<G>,
-    pub config: C,
+    pub config: Arc<C>,
     pub best: Option<G>,
     pub iteration: usize,
     pub observer: Observer<P>,
