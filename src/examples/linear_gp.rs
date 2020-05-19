@@ -1,12 +1,17 @@
+use std::cmp::Ordering;
 use std::iter;
+use std::sync::Arc;
 
 use rand::{Rng, thread_rng};
 use serde_derive::Deserialize;
 
 use crate::configure::{Configure, ConfigureObserver};
-use crate::evolution::{FitnessScalar, Genome, Phenome};
+use crate::evaluator::{Evaluate, FitnessFn};
+use crate::evolution::{Epoch, Genome, Phenome, Problem};
+use crate::observer::{Observer, ReportFn};
 
-pub type Fitness = FitnessScalar<usize>;
+pub type Fitness = usize;
+pub type MachineWord = i32;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
@@ -20,6 +25,11 @@ impl ConfigureObserver for ObserverConfig {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
+pub struct DataConfig {
+    path: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
     mut_rate: f32,
     pub init_len: usize,
@@ -29,6 +39,8 @@ pub struct Config {
     pub target: String,
     pub target_fitness: usize,
     observer: ObserverConfig,
+    data: DataConfig,
+    problems: Option<Vec<Problem>>,
 }
 
 impl Configure for Config {
@@ -52,11 +64,23 @@ impl Configure for Config {
     fn observer_window_size(&self) -> usize {
         self.observer.window_size
     }
+
+    fn num_offspring(&self) -> usize {
+        self.num_offspring
+    }
 }
 
-mod machine {
+pub mod machine {
+    use std::fmt::{self, Display};
+
     use rand::{Rng, thread_rng};
     use rand::distributions::{Distribution, Standard};
+
+    use crate::examples::linear_gp::MachineWord;
+
+//use std::sync::atomic::AtomicUsize;
+
+    //static CORE: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Clone, Copy, Eq, PartialEq, Debug)]
     pub enum Op {
@@ -65,9 +89,30 @@ mod machine {
         Mov,
         Mult,
         Sub,
+        Xor,
+        Set(MachineWord),
+        Lsl,
+        And,
     }
 
-    pub const NUM_OPS: usize = 5;
+    impl Display for Op {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use Op::*;
+            match self {
+                Add => write!(f, "ADD"),
+                Div => write!(f, "DIV"),
+                Mov => write!(f, "MOV"),
+                Mult => write!(f, "MUL"),
+                Sub => write!(f, "SUB"),
+                Xor => write!(f, "XOR"),
+                Set(n) => write!(f, "SET(0x{:X})", n),
+                Lsl => write!(f, "LSL"),
+                And => write!(f, "AND"),
+            }
+        }
+    }
+
+    pub const NUM_OPS: usize = 9;
 
     impl Distribution<Op> for Standard {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Op {
@@ -78,6 +123,10 @@ mod machine {
                 2 => Mov,
                 3 => Mult,
                 4 => Sub,
+                5 => Xor,
+                6 => Set(rng.gen_range(0, 256)),
+                7 => Lsl,
+                8 => And,
                 _ => unreachable!("out of range"),
             }
         }
@@ -85,7 +134,7 @@ mod machine {
 
     pub type Register = usize;
 
-    pub const NUM_REGISTERS: usize = 8;
+    pub const NUM_REGISTERS: usize = 4;
     const MAX_STEPS: usize = 0x1000;
     // TODO make this configurable
     const FIRST_INPUT_REGISTER: usize = 1;
@@ -96,6 +145,16 @@ mod machine {
         pub op: Op,
         pub a: Register,
         pub b: Register,
+    }
+
+    impl Display for Inst {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            if let Op::Set(n) = self.op {
+                write!(f, "SET  R{}  0x{:X}", self.a, n)
+            } else {
+                write!(f, "{}  R{}, R{}", self.op, self.a, self.b)
+            }
+        }
     }
 
     impl Inst {
@@ -122,22 +181,22 @@ mod machine {
     }
 
     pub struct Machine {
-        registers: [i32; NUM_REGISTERS],
+        registers: [MachineWord; NUM_REGISTERS],
         pc: usize,
         max_steps: usize,
     }
 
     impl Machine {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                registers: [0_i32; NUM_REGISTERS],
+                registers: [0; NUM_REGISTERS],
                 pc: 0,
                 max_steps: MAX_STEPS,
             }
         }
 
         #[inline]
-        fn set(&mut self, reg: usize, val: i32) {
+        fn set(&mut self, reg: usize, val: MachineWord) {
             self.registers[reg % NUM_REGISTERS] = val
         }
 
@@ -149,17 +208,21 @@ mod machine {
                     self.set(inst.a, $val)
                 };
             }
-            let mut r = self.registers;
+            let r = self.registers;
 
             match inst.op {
-                Add => set!(r[inst.a] + r[inst.b]),
+                Add => set!(r[inst.a].wrapping_add(r[inst.b])),
                 Div => {
                     let b = if r[inst.b] == 0 { 1 } else { r[inst.b] };
-                    set!(r[inst.a] / b)
+                    set!(r[inst.a].wrapping_div(b))
                 }
                 Mov => set!(r[inst.b]),
-                Mult => set!(r[inst.a] * r[inst.b]),
-                Sub => set!(r[inst.a] - r[inst.b]),
+                Mult => set!(r[inst.a].wrapping_mul(r[inst.b])),
+                Sub => set!(r[inst.a].wrapping_sub(r[inst.b])),
+                Xor => set!(r[inst.a] ^ r[inst.b]),
+                Set(n) => set!(n),
+                Lsl => set!(r[inst.a].wrapping_shl(r[inst.b] as u32)),
+                And => set!(r[inst.a] & r[inst.b]),
             }
         }
 
@@ -167,7 +230,7 @@ mod machine {
             self.registers.iter_mut().for_each(|i| *i = 0);
         }
 
-        fn load_input(&mut self, inputs: &Vec<i32>) {
+        fn load_input(&mut self, inputs: &Vec<MachineWord>) {
             if inputs.len() > NUM_REGISTERS - 1 {
                 log::error!("Too many inputs to load into input registers. Wrapping.");
             }
@@ -187,15 +250,16 @@ mod machine {
                 let inst = fetch(self.pc);
                 self.pc += 1;
                 self.eval(inst);
+                log::trace!("[{}]\t{}\t{:X?}", self.pc-1, inst, self.registers);
                 step += 1;
             }
         }
 
-        fn return_value(&self) -> i32 {
+        fn return_value(&self) -> MachineWord {
             self.registers[RETURN_REGISTER]
         }
 
-        pub fn exec(&mut self, code: &Vec<Inst>, input: &Vec<i32>) -> i32 {
+        pub fn exec(&mut self, code: &Vec<Inst>, input: &Vec<MachineWord>) -> MachineWord {
             self.flush_registers();
             self.load_input(input);
             self.exec_insts(code);
@@ -224,17 +288,14 @@ impl Genotype {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Phenotype {
-    pub input: Vec<i32>,
-    pub output: i32,
-}
+pub type Answer = Vec<Problem>;
 
 #[derive(Clone, Debug, Default)]
 pub struct Creature {
     genotype: Genotype,
-    phenotype: Option<Phenotype>,
+    answers: Option<Answer>,
     fitness: Option<Fitness>,
+    tag: u64,
 }
 
 impl Creature {
@@ -242,22 +303,59 @@ impl Creature {
         self.genotype.len()
     }
 
-    pub fn fitness(&self) -> Option<Fitness> {
-        self.fitness
-    }
-
-    pub fn set_fitness(&mut self, fitness: Fitness) {
-        self.fitness = Some(fitness)
+    fn instructions(&self) -> &Vec<machine::Inst> {
+        &self.genotype.0
     }
 }
 
 impl Phenome for Creature {
-    type Fitness = FitnessScalar<usize>;
+    type Inst = machine::Inst;
+    type Fitness = Fitness;
 
-    fn fitness(&self) -> Option<Self::Fitness> {
+    fn fitness(&self) -> Option<Fitness> {
         self.fitness
     }
+
+    fn set_fitness(&mut self, f: Fitness) {
+        self.fitness = Some(f)
+    }
+
+    fn tag(&self) -> u64 {
+        self.tag
+    }
+
+    fn set_tag(&mut self, tag: u64) {
+        self.tag = tag
+    }
+
+    fn problems(&self) -> Option<&Vec<Problem>> {
+        self.answers.as_ref()
+    }
+
+    fn store_answers(&mut self, answers: Vec<Problem>) {
+        self.answers = Some(answers);
+    }
 }
+
+impl PartialOrd for Creature {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.tag.partial_cmp(&other.tag)
+    }
+}
+
+impl Ord for Creature {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tag.cmp(&other.tag)
+    }
+}
+
+impl PartialEq for Creature {
+    fn eq(&self, other: &Self) -> bool {
+        self.tag == other.tag
+    }
+}
+
+impl Eq for Creature {}
 
 // means "has a genome", not "is a genome"
 impl Genome for Creature {
@@ -269,6 +367,7 @@ impl Genome for Creature {
         let genotype = Genotype::random(len);
         Self {
             genotype,
+            tag: rng.gen::<u64>(),
             ..Default::default()
         }
     }
@@ -288,10 +387,12 @@ impl Genome for Creature {
         vec![
             Self {
                 genotype: Genotype(c1),
+                tag: rng.gen::<u64>(),
                 ..Default::default()
             },
             Self {
                 genotype: Genotype(c2),
+                tag: rng.gen::<u64>(),
                 ..Default::default()
             },
         ]
@@ -304,48 +405,154 @@ impl Genome for Creature {
     }
 }
 
+fn report(window: &Vec<Creature>) {
+    log::error!("report fn not yet implemented")
+}
+
+fn parse_data(path: &str) -> Option<Vec<Problem>> {
+    if let Ok(mut reader) = csv::ReaderBuilder::new().delimiter(b'\t').from_path(path) {
+        let mut problems = Vec::new();
+        let mut tag = 0;
+        for row in reader.records() {
+            if let Ok(row) = row {
+                let mut vals: Vec<MachineWord> =
+                    row.deserialize(None).expect("Error parsing row in data");
+                let output = vals.pop().expect("Missing output field");
+                let input = vals;
+                problems.push(Problem { input, output, tag });
+                tag += 1;
+            }
+        }
+        Some(problems)
+    } else {
+        None
+    }
+}
+
+impl Epoch<evaluation::Evaluator, Creature, Config> {
+    pub fn new(mut config: Config) -> Self {
+        let problems = parse_data(&config.data.path);
+        assert!(problems.is_some());
+        config.problems = problems;
+        let config = Arc::new(config);
+        let population = iter::repeat(())
+            .map(|()| Creature::random(&config))
+            .take(config.population_size())
+            .collect();
+        let report_fn: ReportFn<_> = Box::new(report);
+        let fitness_fn: FitnessFn<Creature, _> = Box::new(evaluation::fitness_function);
+        let observer = Observer::spawn(config.clone(), report_fn);
+        let evaluator = evaluation::Evaluator::spawn(config.clone(), fitness_fn);
+
+        Self {
+            population,
+            config,
+            best: None,
+            iteration: 0,
+            observer,
+            evaluator,
+        }
+    }
+}
+
 mod evaluation {
     use std::sync::Arc;
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread::{JoinHandle, spawn};
 
+    use rayon::prelude::*;
+
     use crate::evaluator::{Evaluate, FitnessFn};
-    use crate::evolution::FitnessScore;
+    use crate::examples::linear_gp::machine::Machine;
 
     use super::*;
 
-    // the type names can get a bit confusing, here. fix this. TODO
-    type Phenotype = super::Creature;
+// the type names can get a bit confusing, here. fix this. TODO
 
     pub struct Evaluator {
         pub handle: JoinHandle<()>,
-        tx: Sender<Phenotype>,
-        rx: Receiver<Phenotype>,
+        tx: Sender<Creature>,
+        rx: Receiver<Creature>,
     }
 
-    impl Evaluate for Evaluator {
-        // because this is a GA, not a GP
-        type Params = Config;
-        type Phenotype = Phenotype;
-        type Fitness = super::Fitness;
+    // It's important that the problems in the pheno are returned sorted
+    fn execute(params: Arc<Config>, mut creature: Creature) -> Creature {
+        let problems = params.problems.as_ref().expect("No problems!");
 
-        fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
+        let mut iterator = problems.iter();
+        #[cfg(release)]
+            {
+                log::trace!("Using par_iter in release mode.");
+                iterator = problems.par_iter();
+            }
+
+        let mut results = iterator
+            .map(
+                |Problem {
+                     input,
+                     output: _expected,
+                     tag,
+                 }| {
+                    // TODO: note that we have the expected value here. maybe this
+                    // would be a good place to call the fitness function, too.
+                    // TODO: is it worth creating a new machine per-thread?
+                    // Probably not when it comes to unicorn, but for this, yeah.
+                    let mut machine = Machine::new();
+                    let output = machine.exec(creature.instructions(), &input);
+                    Problem {
+                        input: input.clone(),
+                        output,
+                        tag: *tag,
+                    }
+                },
+            )
+            .collect::<Vec<Problem>>();
+        results.sort_by_key(|p| p.tag);
+        creature.store_answers(results);
+        creature
+    }
+
+    pub fn fitness_function<P: Phenome>(mut creature: P, params: Arc<Config>) -> P {
+        let fitness = creature
+            .problems()
+            .as_ref()
+            .expect("Missing phenotype!")
+            .iter()
+            .zip(params.problems.as_ref().expect("no problems!").iter())
+            .filter_map(|(result, expected)| {
+                assert_eq!(result.tag, expected.tag);
+                // Simply counting errors.
+                // TODO: consider trying distance metrics
+                if result.output == expected.output {
+                    None
+                } else {
+                    Some(1)
+                }
+            })
+            .fold(0, |a, b| a + b);
+        log::debug!("fitness is {}", fitness);
+        creature.set_fitness(fitness.into());
+        creature
+    }
+
+    impl Evaluate<Creature> for Evaluator {
+        type Params = Config;
+        type Fitness = Fitness;
+
+        fn evaluate(&self, phenome: Creature) -> Creature {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn spawn(
-            params: Arc<Self::Params>,
-            fitness_fn: FitnessFn<Self::Phenotype, Self::Params, Self::Fitness>,
-        ) -> Self {
-            let (tx, our_rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
-            let (our_tx, rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
+        fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
+            let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
+            let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
 
             let handle = spawn(move || {
-                for mut phenome in our_rx {
-                    if phenome.fitness().is_none() {
-                        phenome.set_fitness((fitness_fn)(&phenome, params.clone()))
-                    }
+                //let mut machine = Machine::new(); // This too could be parameterized
+                for phenome in our_rx {
+                    let phenome = execute(params.clone(), phenome);
+                    let phenome = (fitness_fn)(phenome, params.clone());
                     our_tx.send(phenome).expect("Channel failure");
                 }
             });
@@ -353,4 +560,19 @@ mod evaluation {
             Self { handle, tx, rx }
         }
     }
+}
+
+pub fn run(config: Config) -> Option<Creature> {
+    let target_fitness: Fitness = config.target_fitness.into();
+    let mut world = Epoch::<evaluation::Evaluator, Creature, Config>::new(config);
+
+    loop {
+        world = world.evolve();
+        if world.target_reached(target_fitness) {
+            println!("\n***** Success after {} epochs! *****", world.iteration);
+            println!("{:#?}", world.best);
+            return world.best;
+        };
+    }
+    None
 }

@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use crate::configure::Configure;
-use crate::evolution::{FitnessScore, Phenome};
+use crate::evolution::Phenome;
+use crate::fitness::FitnessScore;
 
-pub type FitnessFn<P: Phenome, C, F: FitnessScore> =
-Box<dyn Fn(&P, Arc<C>) -> F + Sync + Send + 'static>;
+pub type FitnessFn<P, C> = Box<dyn Fn(P, Arc<C>) -> P + Sync + Send + 'static>;
 
-pub trait Evaluate {
-    type Phenotype: Phenome;
+// TODO: Consider replicating design seen in observer
+// using a generic struct instead of a trait
+
+pub trait Evaluate<P: Phenome> {
     type Params;
     type Fitness: FitnessScore;
 
@@ -18,10 +19,7 @@ pub trait Evaluate {
     /// NOTE: nothing guarantees that the returned phenotype is
     /// the same one that was passed in. Keep this in mind. This
     /// is to allow the use of asynchronous evaluation pipelines.
-    fn evaluate(&self, ob: Self::Phenotype) -> Self::Phenotype;
+    fn evaluate(&self, ob: P) -> P;
 
-    fn spawn(
-        params: Arc<Self::Params>,
-        fitness_fn: FitnessFn<Self::Phenotype, Self::Params, Self::Fitness>,
-    ) -> Self;
+    fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<P, Self::Params>) -> Self;
 }

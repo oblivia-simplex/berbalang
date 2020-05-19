@@ -1,131 +1,140 @@
-use std::cmp::PartialOrd;
+use std::cmp::{Ordering, PartialOrd};
+use std::collections::BinaryHeap;
 use std::fmt::Debug;
-use std::ops::{Add, Div};
+use std::iter;
 use std::sync::Arc;
 
-use serde::Serialize;
+use rand::{Rng, thread_rng};
+use serde_derive::Deserialize;
 
 use crate::configure::Configure;
 use crate::evaluator::Evaluate;
+use crate::fitness::FitnessScore;
 use crate::observer::Observer;
 
-pub trait Epochal {
-    type Observer;
-    type Evaluator;
-
-    /// The evolve function turns the crank once on the evolutionary
-    /// process.
-    fn evolve(self) -> Self;
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+pub struct Problem {
+    pub input: Vec<i32>,
+    // TODO make this more generic
+    pub output: i32,
+    // Ditto
+    pub tag: u64,
 }
 
-pub struct Epoch<E: Evaluate, G: Genome, P: Phenome + Debug + Send + Clone, C: Configure> {
-    pub population: Vec<G>,
+impl PartialOrd for Problem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.tag.partial_cmp(&other.tag)
+    }
+}
+
+impl Ord for Problem {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tag.cmp(&other.tag)
+    }
+}
+
+pub struct Epoch<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static, C: Configure> {
+    pub population: BinaryHeap<P>,
     pub config: Arc<C>,
-    pub best: Option<G>,
+    pub best: Option<P>,
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
 }
 
-pub trait FitnessScoreReq:
-PartialEq + Debug + Send + Clone + PartialOrd + Serialize + Add + Div
-{}
+impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
+    pub fn evolve(self) -> Self {
+        // destruct the Epoch
+        let Self {
+            mut population,
+            mut best,
+            observer,
+            evaluator,
+            config,
+            iteration,
+        } = self;
 
-pub trait FitnessScore:
-PartialEq + Debug + Send + Clone + PartialOrd + Serialize + Add + Div
-{}
+        // try using a heap for the population instead, and then
+        // follow jackie's suggestion to take a random reservoir
+        // sample of combatants.
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, serde_derive::Serialize, Default, Hash, Ord)]
-pub struct FitnessScalar<F: FitnessScoreReq>(pub F);
+        let tournament_size = config.tournament_size();
+        let mut rng = thread_rng();
+        let mut combatants = iter::repeat(())
+            .take(tournament_size)
+            .filter_map(|()| population.pop())
+            .map(|mut e| {
+                e.set_tag(rng.gen::<u64>());
+                e
+            })
+            .map(|e| evaluator.evaluate(e))
+            .map(|e| {
+                observer.observe(e.clone());
+                e
+            })
+            .collect::<Vec<P>>();
 
-/*
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, serde_derive::Serialize, Hash)]
-pub struct FitnessVector<F: FitnessScoreReq>(pub Vec<F>);
+        combatants.sort_by(|a, b| a.fitness().cmp(&b.fitness()));
+        best = Self::update_best(best, &combatants[0]);
 
-impl<T: Add<Output = T> + FitnessScoreReq> Add for FitnessVector<T> {
-    type Output = Self;
+        // kill one off for every offspring to be produced
+        for _ in 0..config.num_offspring() {
+            let _ = combatants.pop();
+        }
 
-    // Add the fitness vectors pairwise
-    fn add(self, other: Self) -> Self::Output {
-        assert_eq!(self.0.len(), other.0.len());
-        FitnessVector(
-            self.0
-                .iter()
-                .zip(other.0.iter())
-                .map(|(a, b)| *a + *b)
-                .collect::<Vec<_>>(),
-        )
+        // replace the combatants that will neither breed nor die
+        let bystanders = config.tournament_size() - (config.num_offspring() + 2);
+        for _ in 0..bystanders {
+            if let Some(c) = combatants.pop() {
+                population.push(c);
+            }
+        }
+        // TODO implement breeder, similar to observer, etc?
+        let mother = combatants.pop().unwrap();
+        let father = combatants.pop().unwrap();
+        let offspring: Vec<P> = mother.mate(&father, config.clone());
+
+        // return everyone to the population
+        population.push(mother);
+        population.push(father);
+        for child in offspring.into_iter() {
+            population.push(child)
+        }
+
+        // put the epoch back together
+        Self {
+            population,
+            config,
+            best,
+            iteration: iteration + 1,
+            observer,
+            evaluator,
+        }
     }
-}
-*/
-impl<T: Add<Output=T> + FitnessScoreReq> Add for FitnessScalar<T> {
-    type Output = Self;
 
-    // Add the fitness vectors pairwise
-    fn add(self, other: Self) -> Self::Output {
-        Self(self.0 + other.0)
+    pub fn update_best(best: Option<P>, champ: &P) -> Option<P> {
+        match best {
+            Some(ref best) if champ.fitness() < best.fitness() => {
+                log::info!("new champ {:?}", champ);
+                Some(champ.clone())
+            }
+            None => {
+                log::info!("new champ {:?}", champ);
+                Some(champ.clone())
+            }
+            _ => best,
+        }
     }
-}
-/*
-impl<T: Div<Output = T> + FitnessScoreReq> Div for FitnessVector<T> {
-    type Output = Self;
 
-    // Div the fitness vectors pairwise
-    fn div(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.0.len(), rhs.0.len());
-        FitnessVector(
-            self.0
-                .iter()
-                .zip(rhs.0.iter())
-                .map(|(a, b)| *a / *b)
-                .collect::<Vec<_>>(),
-        )
-    }
-}
-*/
-impl<T: Div<Output=T> + FitnessScoreReq> Div for FitnessScalar<T> {
-    type Output = Self;
-
-    // Div the fitness vectors pairwise
-    fn div(self, rhs: Self) -> Self::Output {
-        FitnessScalar(self.0 / rhs.0)
-    }
-}
-
-macro_rules! impl_scalar_and_vector_fitness_scores {
-    ($( $t:ty ), *) => {
-       $(
-          impl FitnessScoreReq for $t {}
-          impl FitnessScore for FitnessScalar<$t> {}
-          //impl FitnessScore for FitnessVector<Vec<$t>> {}
-
-
-          impl std::fmt::Debug for FitnessScalar<$t> {
-              fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                  write!(f, "{:?}", self.0)
-              }
-          }
-
-          impl From<$t> for FitnessScalar<$t> {
-              fn from(n: $t) -> Self {
-                  Self(n)
-              }
-          }
-/*
-          impl From<Vec<$t>> for FitnessVector<$t> {
-              fn from(n: Vec<$t>) -> Self {
-                  Self(n)
-              }
-          }
-          */
-
-        )*
+    pub fn target_reached(&self, target: <P as Phenome>::Fitness) -> bool {
+        self.best
+            .as_ref()
+            .and_then(|b| b.fitness())
+            .map_or(false, |f| f <= target)
     }
 }
 
-impl_scalar_and_vector_fitness_scores!(usize);
-
-pub trait Genome {
+pub trait Genome: Debug {
     type Params;
 
     fn random(params: &Self::Params) -> Self
@@ -137,11 +146,38 @@ pub trait Genome {
         Self: Sized;
 
     fn mutate(&mut self);
+
+    fn mate<C: Configure>(&self, other: &Self, params: Arc<C>) -> Vec<Self>
+        where
+            Self: Sized,
+    {
+        log::debug!("Mating {:?} and {:?}", self, other);
+        let mut offspring = self.crossover(other);
+        let mut rng = thread_rng();
+        for child in offspring.iter_mut() {
+            if rng.gen::<f32>() < params.mutation_rate() {
+                child.mutate();
+            }
+        }
+        log::debug!("Offspring: {:?}", offspring);
+        offspring
+    }
 }
 
-pub trait Phenome: Clone + Debug + Send {
-    type Fitness: FitnessScore;
+pub trait Phenome: Clone + Debug + Send + Ord + Genome {
+    type Fitness: FitnessScore + From<usize>;
+    type Inst;
 
     /// This method is intended for reporting, not measuring, fitness.
     fn fitness(&self) -> Option<Self::Fitness>;
+
+    fn set_fitness(&mut self, f: Self::Fitness);
+
+    fn tag(&self) -> u64;
+
+    fn set_tag(&mut self, tag: u64);
+
+    fn problems(&self) -> Option<&Vec<Problem>>;
+
+    fn store_answers(&mut self, results: Vec<Problem>);
 }

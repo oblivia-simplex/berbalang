@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::iter;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -7,12 +8,15 @@ use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use serde_derive::Deserialize;
 
-use crate::configure::{Configure, ConfigureObserver};
-use crate::evaluator::{Evaluate, FitnessFn};
-use crate::evolution::*;
-use crate::observer::{Observer, ReportFn};
+use crate::{
+    configure::{Configure, ConfigureObserver},
+    evaluator::{Evaluate, FitnessFn},
+    evolution::*,
+    examples::hello_world::evaluation::Evaluator,
+    observer::{Observer, ReportFn},
+};
 
-pub type Fitness = FitnessScalar<usize>;
+pub type Fitness = usize;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
@@ -58,46 +62,66 @@ impl Configure for Config {
     fn observer_window_size(&self) -> usize {
         self.observer.window_size
     }
+
+    fn num_offspring(&self) -> usize {
+        self.num_offspring
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Genotype {
     genes: String,
     fitness: Option<Fitness>,
+    tag: u64,
+    // used for sorting in heap
+    generation: usize,
+}
+
+impl PartialOrd for Genotype {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.tag.partial_cmp(&other.tag)
+    }
+}
+
+impl Ord for Genotype {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tag.cmp(&other.tag)
+    }
 }
 
 // because this is a GA we identify genome and phenome
 impl Phenome for Genotype {
+    type Inst = ();
     type Fitness = Fitness;
 
-    fn fitness(&self) -> Option<Self::Fitness> {
+    fn fitness(&self) -> Option<Fitness> {
         self.fitness
+    }
+
+    fn set_fitness(&mut self, f: Fitness) {
+        self.fitness = Some(f);
+    }
+
+    fn tag(&self) -> u64 {
+        self.tag
+    }
+
+    fn set_tag(&mut self, tag: u64) {
+        self.tag = tag
+    }
+
+    fn problems(&self) -> Option<&Vec<Problem>> {
+        unimplemented!("n/a")
+    }
+
+    fn store_answers(&mut self, results: Vec<Problem>) {
+        unimplemented!("n/a") // CODE SMELL FIXME!
     }
 }
 
 impl Genotype {
     pub fn len(&self) -> usize {
         self.genes.len()
-    }
-
-    pub fn mate(&self, other: &Self, params: &Config) -> Vec<Self> {
-        log::debug!("Mating {:?} and {:?}", self, other);
-        let mut offspring = self.crossover(other);
-        let mut rng = thread_rng();
-        for child in offspring.iter_mut() {
-            if rng.gen::<f32>() < params.mutation_rate() {
-                child.mutate();
-            }
-        }
-        log::debug!("Offspring: {:?}", offspring);
-        offspring
-    }
-
-    pub fn fitter_than(&self, other: &Self) -> bool {
-        match (self.fitness, other.fitness) {
-            (Some(a), Some(b)) if a < b => true,
-            _ => false,
-        }
     }
 }
 
@@ -114,6 +138,8 @@ impl Genome for Genotype {
         Self {
             genes: s,
             fitness: None,
+            tag: rng.gen::<u64>(),
+            generation: 0,
         }
     }
 
@@ -123,14 +149,19 @@ impl Genome for Genotype {
         let split_f: usize = rng.gen::<usize>() % mate.len();
         let (m1, m2) = self.genes.split_at(split_m);
         let (f1, f2) = mate.genes.split_at(split_f);
+        let generation = self.generation.max(mate.generation) + 1;
         vec![
             Genotype {
                 genes: format!("{}{}", m1, f2),
                 fitness: None,
+                tag: rng.gen::<u64>(),
+                generation,
             },
             Genotype {
                 genes: format!("{}{}", f1, m2),
                 fitness: None,
+                tag: rng.gen::<u64>(),
+                generation,
             },
         ]
     }
@@ -173,37 +204,42 @@ impl Genome for Genotype {
     }
 }
 
-fn report(window: &Vec<Option<Genotype>>) {
-    let fitnesses: Vec<Fitness> = window
-        .iter()
-        .filter_map(|g| g.as_ref().and_then(|x| x.fitness))
-        .collect();
+fn report(window: &Vec<Genotype>) {
+    let fitnesses: Vec<Fitness> = window.iter().filter_map(|g| g.fitness).collect();
     let avg_fit = fitnesses
         .iter()
-        .fold(0.into(), |a: Fitness, b: &Fitness| a + *b)
-        .0 as f32
+        .fold(0_usize, |a: Fitness, b: &Fitness| a + *b) as f32
         / fitnesses.len() as f32;
     let min_fit = fitnesses.iter().min();
+    let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f32 / window.len() as f32;
 
-    log::info!("AVERAGE FITNESS: {}; MIN FIT: {:?}", avg_fit, min_fit);
+    log::info!(
+        "AVERAGE FITNESS: {}; MIN FIT: {:?}; AVG GEN: {}",
+        avg_fit,
+        min_fit,
+        avg_gen
+    );
 }
 
-fn fitness_function(phenome: &Genotype, params: Arc<Config>) -> Fitness {
-    distance::damerau_levenshtein(&phenome.genes, &params.target).into()
+fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
+    if phenome.fitness.is_none() {
+        let fitness = distance::damerau_levenshtein(&phenome.genes, &params.target).into();
+        phenome.set_fitness(fitness)
+    };
+    phenome
 }
 
-impl Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
+impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
         let population = iter::repeat(())
             .map(|()| Genotype::random(&config))
-            .take(config.pop_size)
+            .take(config.population_size())
             .collect();
         let report_fn: ReportFn<_> = Box::new(report);
-        let fitness_fn: FitnessFn<_, _, _> = Box::new(fitness_function);
+        let fitness_fn: FitnessFn<_, _> = Box::new(fitness_function);
         let observer = Observer::spawn(config.clone(), report_fn);
-        let evaluator =
-            evaluation::Evaluator::spawn(config.clone(), fitness_fn);
+        let evaluator = evaluation::Evaluator::spawn(config.clone(), fitness_fn);
         Self {
             population,
             config,
@@ -214,101 +250,12 @@ impl Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
         }
     }
 
-    pub fn update_best(best: Option<Genotype>, champ: &Genotype) -> Option<Genotype> {
-        match best {
-            Some(ref best) if champ.fitter_than(best) => {
-                log::info!("new champ {:?}", champ);
-                Some(champ.clone())
-            }
-            None => {
-                log::info!("new champ {:?}", champ);
-                Some(champ.clone())
-            }
-            _ => best,
-        }
-    }
 
-    pub fn target_reached(&self, target: Fitness) -> bool {
-        self.best
-            .as_ref()
-            .and_then(|b| b.fitness())
-            .map_or(false, |f| f <= target)
-    }
-}
-
-// Genotype doubles as Phenotype here
-impl Epochal for Epoch<evaluation::Evaluator, Genotype, Genotype, Config> {
-    type Observer = Observer<Genotype>;
-    type Evaluator = evaluation::Evaluator;
-
-    fn evolve(self) -> Self {
-        // destruct the Epoch
-        let Self {
-            mut population,
-            mut best,
-            observer,
-            evaluator,
-            config,
-            iteration,
-        } = self;
-
-        let tournament_size = config.tournament_size();
-        let mut rng = thread_rng();
-        // shuffle is O(1)!
-        population.shuffle(&mut rng);
-        let mut combatants = Vec::new();
-        for _ in 0..tournament_size {
-            if let Some(combatant) = population.pop() {
-                let scored = evaluator.evaluate(combatant);
-                observer.observe(scored.clone());
-                combatants.push(scored)
-            } else {
-                log::error!("Population empty!");
-            }
-        }
-        // none of the fitnesses will be None, here, so we can freely compare them
-        combatants.sort_by(|a, b| a.fitness.cmp(&b.fitness));
-        best = Self::update_best(best, &combatants[0]);
-
-        // kill one off for every offspring to be produced
-        for _ in 0..config.num_offspring {
-            let _ = combatants.pop();
-        }
-
-        // replace the combatants that will neither breed nor die
-        let bystanders = config.tournament_size() - (config.num_offspring + 2);
-        for _ in 0..bystanders {
-            if let Some(c) = combatants.pop() {
-                population.push(c);
-            }
-        }
-        // TODO implement breeder, similar to observer, etc?
-        let mother = combatants.pop().unwrap();
-        let father = combatants.pop().unwrap();
-        let offspring: Vec<Genotype> = mother.mate(&father, &config);
-
-        // return everyone to the population
-        population.push(mother);
-        population.push(father);
-        for child in offspring.into_iter() {
-            population.push(child)
-        }
-
-        // put the epoch back together
-        Self {
-            population,
-            config,
-            best,
-            iteration,
-            observer,
-            evaluator,
-        }
-    }
 }
 
 pub fn run(config: Config) -> Option<Genotype> {
     let target_fitness: Fitness = config.target_fitness.into();
-    let mut world = Epoch::new(config);
+    let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype, Config>::new(config);
 
     loop {
         world = world.evolve();
@@ -329,38 +276,34 @@ mod evaluation {
 
     use super::*;
 
-    type Phenotype = Genotype;
-
-    pub struct Evaluator {
+    pub struct Evaluator<P: Phenome> {
         pub handle: JoinHandle<()>,
-        tx: Sender<Phenotype>,
-        rx: Receiver<Phenotype>,
+        tx: Sender<P>,
+        rx: Receiver<P>,
     }
 
-    impl Evaluate for Evaluator {
-        // because this is a GA, not a GP
+    impl<P: Phenome + 'static> Evaluate<P> for Evaluator<P> {
+        type Fitness = Fitness;
         type Params = Config;
-        type Phenotype = Phenotype;
-        type Fitness = super::Fitness;
 
-        fn evaluate(&self, phenome: Self::Phenotype) -> Self::Phenotype {
+        fn evaluate(&self, phenome: P) -> P {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn spawn(
-            params: Arc<Self::Params>,
-            fitness_fn: FitnessFn<Self::Phenotype, Self::Params, Self::Fitness>,
-        ) -> Self {
-            let (tx, our_rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
-            let (our_tx, rx): (Sender<Phenotype>, Receiver<Phenotype>) = channel();
-
+        fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<P, Self::Params>) -> Self {
+            let (tx, our_rx): (Sender<P>, Receiver<P>) = channel();
+            let (our_tx, rx): (Sender<P>, Receiver<P>) = channel();
+            let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
-                for mut phenome in our_rx {
-                    if phenome.fitness.is_none() {
-                        phenome.fitness = Some(fitness_function(&phenome, params.clone()))
-                    }
-                    our_tx.send(phenome).expect("Channel failure");
+                for phenome in our_rx {
+                    let our_tx = our_tx.clone();
+                    let params = params.clone();
+                    let fitness_fn = fitness_fn.clone();
+                    let _handle = spawn(move || {
+                        let phenome = fitness_fn(phenome, params.clone());
+                        our_tx.send(phenome).expect("Channel failure");
+                    });
                 }
             });
 

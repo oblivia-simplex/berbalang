@@ -4,6 +4,7 @@ pub trait Configure {
     fn tournament_size(&self) -> usize;
     fn population_size(&self) -> usize;
     fn observer_window_size(&self) -> usize;
+    fn num_offspring(&self) -> usize;
 }
 
 pub trait ConfigureObserver {
