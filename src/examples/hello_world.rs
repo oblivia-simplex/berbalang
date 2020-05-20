@@ -12,7 +12,6 @@ use crate::{
     configure::{Configure, ConfigureObserver},
     evaluator::{Evaluate, FitnessFn},
     evolution::*,
-    examples::hello_world::evaluation::Evaluator,
     observer::{Observer, ReportFn},
 };
 
@@ -39,6 +38,7 @@ pub struct Config {
     pub target: String,
     pub target_fitness: usize,
     observer: ObserverConfig,
+    max_length: usize,
 }
 
 impl Configure for Config {
@@ -66,6 +66,8 @@ impl Configure for Config {
     fn num_offspring(&self) -> usize {
         self.num_offspring
     }
+
+    fn max_length(&self) -> usize { self.max_length }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -114,7 +116,7 @@ impl Phenome for Genotype {
         unimplemented!("n/a")
     }
 
-    fn store_answers(&mut self, results: Vec<Problem>) {
+    fn store_answers(&mut self, _results: Vec<Problem>) {
         unimplemented!("n/a") // CODE SMELL FIXME!
     }
 }
@@ -143,7 +145,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover(&self, mate: &Self) -> Vec<Self> {
+    fn crossover<Config>(&self, mate: &Self, _params: Arc<Config>) -> Vec<Self> {
         let mut rng = thread_rng();
         let split_m: usize = rng.gen::<usize>() % self.len();
         let split_f: usize = rng.gen::<usize>() % mate.len();
@@ -204,7 +206,7 @@ impl Genome for Genotype {
     }
 }
 
-fn report(window: &Vec<Genotype>) {
+fn report(window: &[Genotype]) {
     let fitnesses: Vec<Fitness> = window.iter().filter_map(|g| g.fitness).collect();
     let avg_fit = fitnesses
         .iter()
@@ -223,7 +225,7 @@ fn report(window: &Vec<Genotype>) {
 
 fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
     if phenome.fitness.is_none() {
-        let fitness = distance::damerau_levenshtein(&phenome.genes, &params.target).into();
+        let fitness = distance::damerau_levenshtein(&phenome.genes, &params.target);
         phenome.set_fitness(fitness)
     };
     phenome
@@ -254,7 +256,7 @@ impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
 }
 
 pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness: Fitness = config.target_fitness.into();
+    let target_fitness: Fitness = config.target_fitness;
     let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype, Config>::new(config);
 
     loop {

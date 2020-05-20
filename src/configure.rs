@@ -5,6 +5,7 @@ pub trait Configure {
     fn population_size(&self) -> usize;
     fn observer_window_size(&self) -> usize;
     fn num_offspring(&self) -> usize;
+    fn max_length(&self) -> usize;
 }
 
 pub trait ConfigureObserver {

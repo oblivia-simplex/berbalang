@@ -1,5 +1,8 @@
 use pretty_env_logger as logger;
 
+#[cfg(feature = "hello_world")]
+use examples::hello_world as example;
+#[cfg(feature = "linear_gp")]
 use examples::linear_gp as example;
 
 use crate::configure::Configure;

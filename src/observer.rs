@@ -15,7 +15,7 @@ pub struct Observer<O: Phenome> {
     // TODO: add a reporter struct field
 }
 
-pub type ReportFn<T> = Box<dyn Fn(&Vec<T>) -> () + Sync + Send + 'static>;
+pub type ReportFn<T> = Box<dyn Fn(&[T]) -> () + Sync + Send + 'static>;
 
 pub struct Window<O: Phenome> {
     pub frame: Vec<O>,

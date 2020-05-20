@@ -115,11 +115,11 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
     pub fn update_best(best: Option<P>, champ: &P) -> Option<P> {
         match best {
             Some(ref best) if champ.fitness() < best.fitness() => {
-                log::info!("new champ {:?}", champ);
+                log::info!("new champ with fitness {:?}:\n{:?}", champ.fitness(), champ);
                 Some(champ.clone())
             }
             None => {
-                log::info!("new champ {:?}", champ);
+                log::info!("new champ with fitness {:?}\n{:?}", champ.fitness(), champ);
                 Some(champ.clone())
             }
             _ => best,
@@ -141,7 +141,7 @@ pub trait Genome: Debug {
         where
             Self: Sized;
 
-    fn crossover(&self, mate: &Self) -> Vec<Self>
+    fn crossover<C: Configure>(&self, mate: &Self, params: Arc<C>) -> Vec<Self>
     where
         Self: Sized;
 
@@ -152,7 +152,7 @@ pub trait Genome: Debug {
             Self: Sized,
     {
         log::debug!("Mating {:?} and {:?}", self, other);
-        let mut offspring = self.crossover(other);
+        let mut offspring = self.crossover::<C>(other, params.clone());
         let mut rng = thread_rng();
         for child in offspring.iter_mut() {
             if rng.gen::<f32>() < params.mutation_rate() {

@@ -1,5 +1,6 @@
+use std::{fmt, iter};
 use std::cmp::Ordering;
-use std::iter;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use rand::{Rng, thread_rng};
@@ -41,6 +42,7 @@ pub struct Config {
     observer: ObserverConfig,
     data: DataConfig,
     problems: Option<Vec<Problem>>,
+    max_length: usize,
 }
 
 impl Configure for Config {
@@ -68,6 +70,8 @@ impl Configure for Config {
     fn num_offspring(&self) -> usize {
         self.num_offspring
     }
+
+    fn max_length(&self) -> usize { self.max_length }
 }
 
 pub mod machine {
@@ -290,12 +294,22 @@ impl Genotype {
 
 pub type Answer = Vec<Problem>;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct Creature {
     genotype: Genotype,
     answers: Option<Answer>,
     fitness: Option<Fitness>,
     tag: u64,
+}
+
+impl Debug for Creature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, inst) in self.instructions().iter().enumerate()
+        {
+            write!(f, "[{}]  {}\n", i, inst)?;
+        }
+        write!(f, "\n")
+    }
 }
 
 impl Creature {
@@ -372,7 +386,7 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(&self, mate: &Self) -> Vec<Self> {
+    fn crossover<C: Configure>(&self, mate: &Self, params: Arc<C>) -> Vec<Self> {
         let mut rng = thread_rng();
         // TODO: note how similar this is to the GA crossover.
         // refactor this out into a more general method
@@ -382,8 +396,11 @@ impl Genome for Creature {
         let (f1, f2) = mate.genotype.0.split_at(split_f);
         let mut c1 = m1.to_vec();
         c1.extend(f2.into_iter());
+        c1.truncate(params.max_length());
         let mut c2 = f1.to_vec();
         c2.extend(m2.into_iter());
+        c2.truncate(params.max_length());
+
         vec![
             Self {
                 genotype: Genotype(c1),
@@ -405,7 +422,7 @@ impl Genome for Creature {
     }
 }
 
-fn report(window: &Vec<Creature>) {
+fn report(_window: &[Creature]) {
     log::error!("report fn not yet implemented")
 }
 
@@ -476,15 +493,10 @@ mod evaluation {
     }
 
     // It's important that the problems in the pheno are returned sorted
-    fn execute(params: Arc<Config>, mut creature: Creature) -> Creature {
+    pub fn execute(params: Arc<Config>, mut creature: Creature) -> Creature {
         let problems = params.problems.as_ref().expect("No problems!");
 
-        let mut iterator = problems.iter();
-        #[cfg(release)]
-            {
-                log::trace!("Using par_iter in release mode.");
-                iterator = problems.par_iter();
-            }
+        let iterator = problems.par_iter();
 
         let mut results = iterator
             .map(
@@ -563,7 +575,7 @@ mod evaluation {
 }
 
 pub fn run(config: Config) -> Option<Creature> {
-    let target_fitness: Fitness = config.target_fitness.into();
+    let target_fitness: Fitness = config.target_fitness;
     let mut world = Epoch::<evaluation::Evaluator, Creature, Config>::new(config);
 
     loop {
@@ -571,8 +583,10 @@ pub fn run(config: Config) -> Option<Creature> {
         if world.target_reached(target_fitness) {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);
-            return world.best;
+            let best = std::mem::take(&mut world.best).unwrap();
+            std::env::set_var("RUST_LOG", "trace");
+            let best = evaluation::execute(world.config, best);
+            return Some(best);
         };
     }
-    None
 }
