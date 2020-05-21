@@ -1,11 +1,13 @@
 use pretty_env_logger as logger;
 
-#[cfg(feature = "hello_world")]
+#[cfg(not(feature = "linear_gp"))]
 use examples::hello_world as example;
 #[cfg(feature = "linear_gp")]
 use examples::linear_gp as example;
 
 use crate::configure::Configure;
+
+mod scratch; // NOTE: tinkering files
 
 mod configure;
 mod evaluator;

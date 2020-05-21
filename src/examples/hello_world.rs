@@ -3,7 +3,6 @@ use std::iter;
 use std::iter::Iterator;
 use std::sync::Arc;
 
-use log;
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use serde_derive::Deserialize;
@@ -67,7 +66,9 @@ impl Configure for Config {
         self.num_offspring
     }
 
-    fn max_length(&self) -> usize { self.max_length }
+    fn max_length(&self) -> usize {
+        self.max_length
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -251,8 +252,6 @@ impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
             evaluator,
         }
     }
-
-
 }
 
 pub fn run(config: Config) -> Option<Genotype> {

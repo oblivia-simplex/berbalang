@@ -11,24 +11,22 @@ linear_gp = []
 hello_world = []
 
 [dependencies]
-tokio = { version = "0.2", features = ["full"] }
-async-trait = "0.1"
-tokio-timer = "0"
-indexmap = "1.3"
-toml = "0.5"
-rand = "0.7"
-rand_isaac = "0.2"
-unicorn = "0.9"
-goblin = "0.2"
-lazy_static = "1.4"
-rust-ini = "0.15"
+cached = "0"
+csv = "1"
 distance = "0.4"
-serde = { version = "1", features = ["derive"] }
 futures = "0.3"
-sliding_windows = "3"
+goblin = "0.2"
+indexmap = "1.3"
+lazy_static = "1.4"
 log = "0.4"
 pretty_env_logger = "0.4"
-serde_derive = "1"
-cached = "0"
+rand = "0.7"
+rand_isaac = "0.2"
 rayon = "1.3"
-csv = "1"
+rust-ini = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_derive = "1"
+sliding_windows = "3"
+threadpool = "1.8"
+toml = "0.5"
+unicorn = "0.9"

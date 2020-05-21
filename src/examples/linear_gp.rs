@@ -71,7 +71,9 @@ impl Configure for Config {
         self.num_offspring
     }
 
-    fn max_length(&self) -> usize { self.max_length }
+    fn max_length(&self) -> usize {
+        self.max_length
+    }
 }
 
 pub mod machine {
@@ -254,7 +256,7 @@ pub mod machine {
                 let inst = fetch(self.pc);
                 self.pc += 1;
                 self.eval(inst);
-                log::trace!("[{}]\t{}\t{:X?}", self.pc-1, inst, self.registers);
+                log::trace!("[{}]\t{}\t{:X?}", self.pc - 1, inst, self.registers);
                 step += 1;
             }
         }
@@ -304,8 +306,7 @@ pub struct Creature {
 
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (i, inst) in self.instructions().iter().enumerate()
-        {
+        for (i, inst) in self.instructions().iter().enumerate() {
             write!(f, "[{}]  {}\n", i, inst)?;
         }
         write!(f, "\n")
@@ -538,7 +539,7 @@ mod evaluation {
                 if result.output == expected.output {
                     None
                 } else {
-                    Some(1)
+                    Some((result.output as i64 - expected.output as i64).abs() as usize)
                 }
             })
             .fold(0, |a, b| a + b);

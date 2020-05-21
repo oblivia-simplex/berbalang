@@ -7,11 +7,11 @@ num_offspring = 2
 #target = "Hello, World!"
 target = "hello"
 target_fitness = 0
-max_length = 1024
+max_length = 100
 
 [observer]
 window_size = 100000
 
 [data]
-#path = "./data/i^2+4i-3.tsv"
-path = "./data/square.tsv"
+path = "./data/i^2+4i-3.tsv"
+#path = "./data/square.tsv"
