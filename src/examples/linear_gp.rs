@@ -1,9 +1,9 @@
-use std::{fmt, iter};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::{fmt, iter};
 
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 
 use crate::configure::{Configure, ConfigureObserver};
@@ -79,12 +79,12 @@ impl Configure for Config {
 pub mod machine {
     use std::fmt::{self, Display};
 
-    use rand::{Rng, thread_rng};
     use rand::distributions::{Distribution, Standard};
+    use rand::{thread_rng, Rng};
 
     use crate::examples::linear_gp::MachineWord;
 
-//use std::sync::atomic::AtomicUsize;
+    //use std::sync::atomic::AtomicUsize;
 
     //static CORE: AtomicUsize = AtomicUsize::new(0);
 
@@ -474,9 +474,9 @@ impl Epoch<evaluation::Evaluator, Creature, Config> {
 }
 
 mod evaluation {
-    use std::sync::Arc;
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::thread::{JoinHandle, spawn};
+    use std::sync::Arc;
+    use std::thread::{spawn, JoinHandle};
 
     use rayon::prelude::*;
 
@@ -485,7 +485,7 @@ mod evaluation {
 
     use super::*;
 
-// the type names can get a bit confusing, here. fix this. TODO
+    // the type names can get a bit confusing, here. fix this. TODO
 
     pub struct Evaluator {
         pub handle: JoinHandle<()>,

@@ -269,9 +269,9 @@ pub fn run(config: Config) -> Option<Genotype> {
 }
 
 mod evaluation {
-    use std::sync::Arc;
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::thread::{JoinHandle, spawn};
+    use std::sync::Arc;
+    use std::thread::{spawn, JoinHandle};
 
     use crate::evaluator::FitnessFn;
 

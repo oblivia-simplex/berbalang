@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::iter;
 use std::sync::Arc;
 
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 
 use crate::configure::Configure;
@@ -138,8 +138,8 @@ pub trait Genome: Debug {
     type Params;
 
     fn random(params: &Self::Params) -> Self
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 
     fn crossover<C: Configure>(&self, mate: &Self, params: Arc<C>) -> Vec<Self>
     where
@@ -148,8 +148,8 @@ pub trait Genome: Debug {
     fn mutate(&mut self);
 
     fn mate<C: Configure>(&self, other: &Self, params: Arc<C>) -> Vec<Self>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         log::debug!("Mating {:?} and {:?}", self, other);
         let mut offspring = self.crossover::<C>(other, params.clone());

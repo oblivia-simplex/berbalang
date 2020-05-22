@@ -4,7 +4,7 @@
 use std::sync::Arc;
 // a hack to make the imports more meaningful
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{JoinHandle, spawn};
+use std::thread::{spawn, JoinHandle};
 
 use crate::configure::Configure;
 use crate::evolution::Phenome;
