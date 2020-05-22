@@ -9,10 +9,35 @@ use unicorn::{uc_handle, Cpu, CpuX86};
 use object_pool::Pool;
 
 
-struct Hatchery<C: Cpu<'static>> {
+pub struct Hatchery<C: Cpu<'static> + Send> {
     pool: Arc<Pool<C>>,
     mode: unicorn::Mode,
 }
+
+/*
+trait Hatch<C: Cpu<'static>> {
+    fn exec(emu: &mut C, code: &Code) -> Result<i32, unicorn::Error>;
+}
+
+impl Hatch<CpuX86<'static>> for Hatchery<CpuX86<'static>> {
+    fn exec(emu: &mut CpuX86, code: &Code) -> Result<i32, unicorn::Error> {
+        // NOTE: we're being lazy here. We should be zeroing out the registers
+        // and the writeable memory, but the point here is just to figure out
+        // a viable parallelization method.
+        // NOTE: we're adding a sleep here to see how things perform.
+        log::trace!("executing code {:02x?} after nap", code);
+        //sleep(Duration::from_millis(1000));
+        emu.mem_write(0x1000, &code)?;
+        emu.emu_start(
+            0x1000,
+            (0x1000 + code.len()) as u64,
+            10 * unicorn::SECOND_SCALE,
+            1024,
+        )?;
+        emu.reg_read_i32(unicorn::RegisterX86::EAX)
+    }
+}
+*/
 
 #[derive(Debug)]
 enum Error {
@@ -40,24 +65,7 @@ impl From<RecvError> for Error {
 
 type Code = Vec<u8>;
 
-fn exec<C: Cpu<'static>>(emu: &mut C, code: &Code) -> Result<i32, unicorn::Error> {
-    // NOTE: we're being lazy here. We should be zeroing out the registers
-    // and the writeable memory, but the point here is just to figure out
-    // a viable parallelization method.
-    // NOTE: we're adding a sleep here to see how things perform.
-    log::trace!("executing code {:02x?} after nap", code);
-    //sleep(Duration::from_millis(1000));
-    emu.mem_write(0x1000, &code)?;
-    emu.emu_start(
-        0x1000,
-        (0x1000 + code.len()) as u64,
-        10 * unicorn::SECOND_SCALE,
-        1024,
-    )?;
-    let reg: <C as Cpu<'_>>::Reg = 0.into();
-    emu.reg_read_i32(reg)
-    // FIXME: needs to be made genetic // emu.reg_read_i32(unicorn::RegisterX86::EAX)
-}
+
 
 macro_rules! notice {
     ($e:expr) => {
@@ -74,7 +82,7 @@ fn init_emu<C: Cpu<'static>>(mode: unicorn::Mode) -> Result<C, unicorn::Error> {
     Ok(emu)
 }
 
-impl<C: Cpu<'static>> Hatchery<C> {
+impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
     // TODO: it would be nice if the unicorn::Mode were just determined
     // by the Cpu type, though this wouldn't work nicely for ARM/Thumb
     pub fn new(mode: unicorn::Mode, num_workers: usize) -> Self {
@@ -85,24 +93,36 @@ impl<C: Cpu<'static>> Hatchery<C> {
         }
     }
 
-    pub fn pipeline<'a, I: IntoIterator<Item=&'a Code>>(&self, inbound: I) -> Receiver<Result<i32, Error>> {
-        let (tx, rx) = channel::<Result<i32, Error>>();
+    pub fn pipeline<'a, I: Iterator<Item=Code>>(&self, inbound: I) -> Receiver<Result<Vec<u8>, Error>> {
+        let (tx, rx) = channel::<Result<Vec<u8>, Error>>();
+        let mode = self.mode;
         for code in inbound {
             let pool = self.pool.clone();
+            let tx = tx.clone();
             let handle = spawn(move || -> Result<(), Error> {
                 let mut emu = pool.pull(|| {
                     log::warn!("Pool empty, creating new emulator");
-                    init_emu::<C>(self.mode).expect("Failed to create new emulator")
+                    init_emu::<C>(mode).expect("Failed to create new emulator")
                 });
-                let res = exec(&mut emu, &code)
-                    .map(|r| (code, r))
+                log::trace!("executing code {:02x?} after nap", code);
+                //sleep(Duration::from_millis(1000));
+                emu.mem_write(0x1000, &code)?;
+                emu.emu_start(
+                    0x1000,
+                    (0x1000 + code.len()) as u64,
+                    10 * unicorn::SECOND_SCALE,
+                    1024,
+                )?;
+                let res: Result<Vec<u8>, Error> = emu.mem_read_as_vec(0x3000, 0x1000)
                     .map_err(Error::from);
-                tx.res
+                tx.send(res)
+                    .map_err(Error::from)
             });
         }
-        rx.iter()
+        rx
     }
 }
+
 
     /* pub fn spawn(mode: unicorn::Mode, num_workers: usize) -> Self {
         let (hatchery_egress, hatchery_ingress) = channel::<Result<(Code, i32), Error>>();
@@ -150,7 +170,18 @@ impl<C: Cpu<'static>> Hatchery<C> {
 
 
 
+fn iter_stuff() {
+    let hatchery: Hatchery<CpuX86> = Hatchery::new(unicorn::Mode::MODE_32, 16);
 
+    let code_iterator = iter::repeat(())
+        .take(1024)
+        .map(|()| random_code);
+
+    let rx: Receiver<_> = hatchery.pipeline(code_iterator);
+    for x in rx.iter() {
+        println!("Returned {:x?}", x);
+    }
+}
 
 
 #[cfg(test)]
@@ -159,43 +190,33 @@ mod test {
 
     use super::*;
     use std::iter;
+    use log;
 
     #[test]
     fn test_hatchery() {
         pretty_env_logger::env_logger::init();
-        let hatchery = Hatchery::spawn(unicorn::Mode::MODE_32, 8);
-        let mut rng = thread_rng();
-        let futs = iter::repeat(())
-            .take(1000)
-            .map(|()| {
-                let code = iter::repeat(()).take(rng.gen_range(10,1000))
-                    .map(|()| rng.gen::<u8>())
-                    .collect();
-                hatchery.execute(code)
-            })
-            .collect::<Vec<_>>();
-        let results = futures::executor::block_on(futures::future::join_all(futs));
-        for res in results {
-            match res {
-                Ok((ret_code, res)) => {
-                    println!("Code = {:02x?}", ret_code);
-                    println!("EAX = 0x{:0x}", res);
-                }
-                Err(e) => println!("Hatchery Error: {:?}", e),
-            }
-        }
-        /*
-        let codes = iter::repeat(()).map(|()| rand::thread_rng().gen::<[u8;32]>().to_vec()).take(10_000).collect::<Vec<Code>>();
-        let results = hatchery.execute_batch(codes);
-        for res in results {
-            match res {
-                Ok((ret_code, res)) => {
-                    println!("EAX = 0x{:08x}", res);
-                }
-                Err(e) => println!("Hatchery Error: {:?}", e),
-            }
+
+        fn random_code() -> Vec<u8> {
+            iter::repeat(())
+                .take(1024)
+                .map(|()| rand::random::<u8>())
+                .collect()
         }
 
-         */
+        let hatchery: Hatchery<CpuX86> = Hatchery::new(unicorn::Mode::MODE_32, 16);
+
+        let code_iterator = iter::repeat(())
+            .take(1024)
+            .map(|()| random_code);
+
+        let rx: Receiver<_> = hatchery.pipeline(code_iterator);
+        for x in rx.iter() {
+            println!("Returned {:x?}", x);
+        }
+        //hatchery.pipeline(it).iter()
+        //    .for_each(|c| {
+        //        println!("Returned: {:x?}", c);
+        //    });
+
     }
 }
