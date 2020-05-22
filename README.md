@@ -1,3 +1,3 @@
 # Berbalang
 
-[!./img/Berbalang.jpeg]
+![berbalang](./img/Berbalang.jpeg)
