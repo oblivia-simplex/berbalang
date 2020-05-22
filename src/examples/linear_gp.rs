@@ -27,7 +27,7 @@ impl ConfigureObserver for ObserverConfig {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DataConfig {
-    path: String,
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -40,7 +40,7 @@ pub struct Config {
     pub target: String,
     pub target_fitness: usize,
     observer: ObserverConfig,
-    data: DataConfig,
+    pub data: DataConfig,
     problems: Option<Vec<Problem>>,
     max_length: usize,
 }
@@ -99,6 +99,7 @@ pub mod machine {
         Set(MachineWord),
         Lsl,
         And,
+        Jle,
     }
 
     impl Display for Op {
@@ -114,11 +115,12 @@ pub mod machine {
                 Set(n) => write!(f, "SET(0x{:X})", n),
                 Lsl => write!(f, "LSL"),
                 And => write!(f, "AND"),
+                Jle => write!(f, "JLE"), // Jump if less than or equal to 0
             }
         }
     }
 
-    pub const NUM_OPS: usize = 9;
+    pub const NUM_OPS: usize = 10;
 
     impl Distribution<Op> for Standard {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Op {
@@ -133,6 +135,7 @@ pub mod machine {
                 6 => Set(rng.gen_range(0, 256)),
                 7 => Lsl,
                 8 => And,
+                9 => Jle,
                 _ => unreachable!("out of range"),
             }
         }
@@ -155,10 +158,11 @@ pub mod machine {
 
     impl Display for Inst {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            if let Op::Set(n) = self.op {
-                write!(f, "SET  R{}  0x{:X}", self.a, n)
-            } else {
-                write!(f, "{}  R{}, R{}", self.op, self.a, self.b)
+            match self.op {
+                Op::Set(n) =>
+                    write!(f, "SET  R{}  0x{:X}", self.a, n),
+                _ =>
+                    write!(f, "{}  R{}, R{}", self.op, self.a, self.b)
             }
         }
     }
@@ -229,6 +233,11 @@ pub mod machine {
                 Set(n) => set!(n),
                 Lsl => set!(r[inst.a].wrapping_shl(r[inst.b] as u32)),
                 And => set!(r[inst.a] & r[inst.b]),
+                Jle => {
+                    if r[inst.a] <= 0 {
+                        self.pc = r[inst.b] as usize
+                    }
+                }
             }
         }
 
@@ -253,10 +262,13 @@ pub mod machine {
 
             let max_steps = self.max_steps;
             while step < max_steps {
+                let old_pc = self.pc;
                 let inst = fetch(self.pc);
                 self.pc += 1;
                 self.eval(inst);
-                log::trace!("[{}]\t{}\t{:X?}", self.pc - 1, inst, self.registers);
+                self.pc = self.pc % code.len();
+                log::trace!("[{}]\t{}\t{:X?}{}", old_pc, inst, self.registers,
+                            if old_pc+1 == self.pc {""} else {"*"});
                 step += 1;
             }
         }
@@ -393,14 +405,13 @@ impl Genome for Creature {
         // refactor this out into a more general method
         let split_m: usize = rng.gen::<usize>() % self.len();
         let split_f: usize = rng.gen::<usize>() % mate.len();
-        let (m1, m2) = self.genotype.0.split_at(split_m);
-        let (f1, f2) = mate.genotype.0.split_at(split_f);
-        let mut c1 = m1.to_vec();
-        c1.extend(f2.into_iter());
-        c1.truncate(params.max_length());
-        let mut c2 = f1.to_vec();
-        c2.extend(m2.into_iter());
-        c2.truncate(params.max_length());
+        let (mut m1, mut m2) = self.genotype.0.split_at(split_m);
+        let (mut f1, mut f2) = mate.genotype.0.split_at(split_f);
+
+        let mut c1 = m1[0..m1.len().min(params.max_length()/2)].to_vec();
+        c1.extend(f2[0..f2.len().min(params.max_length()/2)].into_iter());
+        let mut c2 = f1[0..f1.len().min(params.max_length()/2)].to_vec();
+        c2.extend(m2[0..m2.len().min(params.max_length()/2)].into_iter());
 
         vec![
             Self {
@@ -497,6 +508,9 @@ mod evaluation {
     pub fn execute(params: Arc<Config>, mut creature: Creature) -> Creature {
         let problems = params.problems.as_ref().expect("No problems!");
 
+        #[cfg(debug_assertions)]
+        let iterator = problems.iter();
+        #[cfg(not(debug_assertions))]
         let iterator = problems.par_iter();
 
         let mut results = iterator
@@ -537,9 +551,12 @@ mod evaluation {
                 // Simply counting errors.
                 // TODO: consider trying distance metrics
                 if result.output == expected.output {
+                    log::debug!("correct result: {:?}", result);
                     None
                 } else {
-                    Some((result.output as i64 - expected.output as i64).abs() as usize)
+                    let dif = (result.output as i64 - expected.output as i64).abs() as f64;
+                    let score = dif.tanh() * 100.0;
+                    Some(score as usize)
                 }
             })
             .fold(0, |a, b| a + b);

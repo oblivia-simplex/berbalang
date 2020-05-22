@@ -15,14 +15,20 @@ mod evolution;
 mod examples;
 mod fitness;
 mod observer;
+mod emulator;
 
 fn main() {
     logger::init();
 
-    let config: example::Config = toml::from_str(
+    let mut config: example::Config = toml::from_str(
         &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
     )
     .expect("Failed to parse config.toml");
+
+    let args = std::env::args().collect::<Vec<String>>();
+    if args.len() > 1 {
+        config.data.path = args[1].clone();
+    }
     config.assert_invariants();
 
     example::run(config);

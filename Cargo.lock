@@ -88,6 +88,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 
 [[package]]
+name = "berbalang"
+version = "0.1.0"
+dependencies = [
+ "async-test",
+ "cached",
+ "csv",
+ "distance",
+ "futures",
+ "goblin",
+ "indexmap",
+ "lazy_static",
+ "log",
+ "object-pool",
+ "pretty_env_logger",
+ "rand",
+ "rand_isaac",
+ "rayon",
+ "rust-ini",
+ "serde",
+ "serde_derive",
+ "sliding_windows",
+ "threadpool",
+ "toml",
+ "unicorn",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -640,33 +667,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edc011af0ae98b7f88cf7e4a83b70a54a75d2b8cb013d6efd02e5956207e9eb"
 dependencies = [
  "regex",
-]
-
-[[package]]
-name = "otyugh"
-version = "0.1.0"
-dependencies = [
- "async-test",
- "cached",
- "csv",
- "distance",
- "futures",
- "goblin",
- "indexmap",
- "lazy_static",
- "log",
- "object-pool",
- "pretty_env_logger",
- "rand",
- "rand_isaac",
- "rayon",
- "rust-ini",
- "serde",
- "serde_derive",
- "sliding_windows",
- "threadpool",
- "toml",
- "unicorn",
 ]
 
 [[package]]

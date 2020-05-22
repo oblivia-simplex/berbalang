@@ -10,8 +10,10 @@ target_fitness = 0
 max_length = 100
 
 [observer]
-window_size = 100000
+window_size = 10000
 
 [data]
 path = "./data/i^2+4i-3.tsv"
+#path = "./data/sqrt.tsv"
+#path = "./data/cubed_plus_squared.tsv"
 #path = "./data/square.tsv"
