@@ -159,10 +159,8 @@ pub mod machine {
     impl Display for Inst {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self.op {
-                Op::Set(n) =>
-                    write!(f, "SET  R{}  0x{:X}", self.a, n),
-                _ =>
-                    write!(f, "{}  R{}, R{}", self.op, self.a, self.b)
+                Op::Set(n) => write!(f, "SET  R{}  0x{:X}", self.a, n),
+                _ => write!(f, "{}  R{}, R{}", self.op, self.a, self.b),
             }
         }
     }
@@ -267,8 +265,13 @@ pub mod machine {
                 self.pc += 1;
                 self.eval(inst);
                 self.pc = self.pc % code.len();
-                log::trace!("[{}]\t{}\t{:X?}{}", old_pc, inst, self.registers,
-                            if old_pc+1 == self.pc {""} else {"*"});
+                log::trace!(
+                    "[{}]\t{}\t{:X?}{}",
+                    old_pc,
+                    inst,
+                    self.registers,
+                    if old_pc + 1 == self.pc { "" } else { "*" }
+                );
                 step += 1;
             }
         }
@@ -408,10 +411,10 @@ impl Genome for Creature {
         let (mut m1, mut m2) = self.genotype.0.split_at(split_m);
         let (mut f1, mut f2) = mate.genotype.0.split_at(split_f);
 
-        let mut c1 = m1[0..m1.len().min(params.max_length()/2)].to_vec();
-        c1.extend(f2[0..f2.len().min(params.max_length()/2)].into_iter());
-        let mut c2 = f1[0..f1.len().min(params.max_length()/2)].to_vec();
-        c2.extend(m2[0..m2.len().min(params.max_length()/2)].into_iter());
+        let mut c1 = m1[0..m1.len().min(params.max_length() / 2)].to_vec();
+        c1.extend(f2[0..f2.len().min(params.max_length() / 2)].into_iter());
+        let mut c2 = f1[0..f1.len().min(params.max_length() / 2)].to_vec();
+        c2.extend(m2[0..m2.len().min(params.max_length() / 2)].into_iter());
 
         vec![
             Self {

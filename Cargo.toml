@@ -12,6 +12,7 @@ hello_world = []
 
 [dependencies]
 async-test = "1"
+capstone = "0.7"
 cached = "0"
 csv = "1"
 distance = "0.4"
