@@ -5,13 +5,15 @@ use std::thread::{sleep, spawn, JoinHandle};
 use rand::{thread_rng, Rng};
 use std::time::Duration;
 use threadpool::ThreadPool;
-use unicorn::{uc_handle, Cpu, CpuX86};
+use unicorn::{uc_handle, Cpu, CpuX86, Register};
 use object_pool::Pool;
+use std::iter;
 
 
 pub struct Hatchery<C: Cpu<'static> + Send> {
     pool: Arc<Pool<C>>,
     mode: unicorn::Mode,
+    output_registers: Arc<Vec<<C as Cpu<'static>>::Reg>>,
 }
 
 /*
@@ -83,22 +85,24 @@ fn init_emu<C: Cpu<'static>>(mode: unicorn::Mode) -> Result<C, unicorn::Error> {
 }
 
 impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
-    // TODO: it would be nice if the unicorn::Mode were just determined
-    // by the Cpu type, though this wouldn't work nicely for ARM/Thumb
     pub fn new(mode: unicorn::Mode, num_workers: usize) -> Self {
         let pool = Arc::new(Pool::new(num_workers, || init_emu(mode).unwrap()));
         Self {
             pool,
             mode,
+            output_registers: Arc::new(Vec::new()),
         }
     }
 
-    pub fn pipeline<'a, I: Iterator<Item=Code>>(&self, inbound: I) -> Receiver<Result<Vec<u8>, Error>> {
-        let (tx, rx) = channel::<Result<Vec<u8>, Error>>();
+    pub fn pipeline<I: Iterator<Item=Code>>(&self, inbound: I) -> Receiver<Result<(Code, Vec<i32>), Error>>
+    where <C as Cpu<'static>>::Reg: Sync
+    {
+        let (tx, rx) = channel::<Result<(Code, Vec<i32>), Error>>();
         let mode = self.mode;
         for code in inbound {
             let pool = self.pool.clone();
             let tx = tx.clone();
+            let output_registers = self.output_registers.clone();
             let handle = spawn(move || -> Result<(), Error> {
                 let mut emu = pool.pull(|| {
                     log::warn!("Pool empty, creating new emulator");
@@ -113,9 +117,13 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     10 * unicorn::SECOND_SCALE,
                     1024,
                 )?;
-                let res: Result<Vec<u8>, Error> = emu.mem_read_as_vec(0x3000, 0x1000)
-                    .map_err(Error::from);
-                tx.send(res)
+                //let res: Result<Vec<u8>, Error> = emu.mem_read_as_vec(0x3000, 0x100)
+                //    .map_err(Error::from);
+                let res: Vec<i32> = output_registers
+                    .iter()
+                    .map(|r| emu.reg_read_i32(*r))
+                    .collect::<Result<Vec<i32>, unicorn::Error>>()?;
+                tx.send(Ok((code, res)))
                     .map_err(Error::from)
             });
         }
@@ -170,20 +178,6 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
 
 
 
-fn iter_stuff() {
-    let hatchery: Hatchery<CpuX86> = Hatchery::new(unicorn::Mode::MODE_32, 16);
-
-    let code_iterator = iter::repeat(())
-        .take(1024)
-        .map(|()| random_code);
-
-    let rx: Receiver<_> = hatchery.pipeline(code_iterator);
-    for x in rx.iter() {
-        println!("Returned {:x?}", x);
-    }
-}
-
-
 #[cfg(test)]
 mod test {
     use rand::Rng;
@@ -207,16 +201,12 @@ mod test {
 
         let code_iterator = iter::repeat(())
             .take(1024)
-            .map(|()| random_code);
+            .map(|()| random_code());
 
-        let rx: Receiver<_> = hatchery.pipeline(code_iterator);
-        for x in rx.iter() {
-            println!("Returned {:x?}", x);
-        }
-        //hatchery.pipeline(it).iter()
-        //    .for_each(|c| {
-        //        println!("Returned: {:x?}", c);
-        //    });
+        hatchery.pipeline(code_iterator).iter()
+            .for_each(|out| {
+                log::trace!("Output: {:x?}", out);
+            });
 
     }
 }
