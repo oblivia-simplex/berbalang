@@ -243,7 +243,7 @@ pub mod machine {
             self.registers.iter_mut().for_each(|i| *i = 0);
         }
 
-        fn load_input(&mut self, inputs: &Vec<MachineWord>) {
+        fn load_input(&mut self, inputs: &[MachineWord]) {
             if inputs.len() > NUM_REGISTERS - 1 {
                 log::error!("Too many inputs to load into input registers. Wrapping.");
             }
@@ -252,7 +252,7 @@ pub mod machine {
                 .for_each(|(r, i)| self.set(r, *i));
         }
 
-        fn exec_insts(&mut self, code: &Vec<Inst>) {
+        fn exec_insts(&mut self, code: &[Inst]) {
             let mut step = 0;
             self.pc = 0;
 
@@ -264,7 +264,7 @@ pub mod machine {
                 let inst = fetch(self.pc);
                 self.pc += 1;
                 self.eval(inst);
-                self.pc = self.pc % code.len();
+                self.pc %= code.len();
                 log::trace!(
                     "[{}]\t{}\t{:X?}{}",
                     old_pc,
@@ -280,7 +280,7 @@ pub mod machine {
             self.registers[RETURN_REGISTER]
         }
 
-        pub fn exec(&mut self, code: &Vec<Inst>, input: &Vec<MachineWord>) -> MachineWord {
+        pub fn exec(&mut self, code: &[Inst], input: &[MachineWord]) -> MachineWord {
             self.flush_registers();
             self.load_input(input);
             self.exec_insts(code);
@@ -322,9 +322,9 @@ pub struct Creature {
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, inst) in self.instructions().iter().enumerate() {
-            write!(f, "[{}]  {}\n", i, inst)?;
+            writeln!(f, "[{}]  {}", i, inst)?;
         }
-        write!(f, "\n")
+        writeln!(f)
     }
 }
 
@@ -408,13 +408,14 @@ impl Genome for Creature {
         // refactor this out into a more general method
         let split_m: usize = rng.gen::<usize>() % self.len();
         let split_f: usize = rng.gen::<usize>() % mate.len();
-        let (mut m1, mut m2) = self.genotype.0.split_at(split_m);
-        let (mut f1, mut f2) = mate.genotype.0.split_at(split_f);
+        let (m1, m2) = self.genotype.0.split_at(split_m);
+        let (f1, f2) = mate.genotype.0.split_at(split_f);
 
-        let mut c1 = m1[0..m1.len().min(params.max_length() / 2)].to_vec();
-        c1.extend(f2[0..f2.len().min(params.max_length() / 2)].into_iter());
-        let mut c2 = f1[0..f1.len().min(params.max_length() / 2)].to_vec();
-        c2.extend(m2[0..m2.len().min(params.max_length() / 2)].into_iter());
+        let half = params.max_length()/2;
+        let mut c1 = m1[0..m1.len().min(half)].to_vec();
+        c1.extend(f2[0..f2.len().min(half)].iter());
+        let mut c2 = f1[0..f1.len().min(half)].to_vec();
+        c2.extend(m2[0..m2.len().min(half)].iter());
 
         vec![
             Self {
@@ -492,6 +493,7 @@ mod evaluation {
     use std::sync::Arc;
     use std::thread::{spawn, JoinHandle};
 
+    #[cfg(not(debug_assertions))]
     use rayon::prelude::*;
 
     use crate::evaluator::{Evaluate, FitnessFn};
@@ -543,6 +545,7 @@ mod evaluation {
     }
 
     pub fn fitness_function<P: Phenome>(mut creature: P, params: Arc<Config>) -> P {
+        #[allow(clippy::unnecessary_fold)]
         let fitness = creature
             .problems()
             .as_ref()

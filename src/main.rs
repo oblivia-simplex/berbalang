@@ -27,5 +27,9 @@ fn main() {
 
     config.assert_invariants();
 
+    // test
+    let hatch: emulator::Hatchery<unicorn::CpuARM> = emulator::Hatchery::new(unicorn::Mode::MODE_32, 16);
+    let _p = hatch.pipeline(std::iter::repeat(Vec::new()), std::sync::Arc::new(Vec::new()));
+
     example::run(config);
 }

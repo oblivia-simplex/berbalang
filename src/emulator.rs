@@ -1,16 +1,15 @@
-use std::sync::mpsc::{channel, Receiver, RecvError, SendError, sync_channel};
-use std::sync::Arc;
+use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError};
+use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::Duration;
 
 use object_pool::Pool;
-use rayon::prelude::*;
-use unicorn::{Cpu, Mode};
 use threadpool::ThreadPool;
+use unicorn::{Cpu, Mode};
 
 pub struct Hatchery<C: Cpu<'static> + Send> {
     emu_pool: Arc<Pool<C>>,
-    thread_pool: Arc<ThreadPool>,
+    thread_pool: Arc<Mutex<ThreadPool>>,
     mode: Mode,
     num_workers: usize,
 }
@@ -72,7 +71,6 @@ fn wait_for_emu<'a, C: Cpu<'static>>(
             }
             return c;
         } else if wait_time > wait_limit {
-
             log::warn!(
                 "Waited {} milliseconds for CPU, creating new one",
                 wait_time
@@ -89,28 +87,39 @@ fn wait_for_emu<'a, C: Cpu<'static>>(
 impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
     pub fn new(mode: unicorn::Mode, num_workers: usize) -> Self {
         log::debug!("Creating hatchery with {} workers", num_workers);
-        let emu_pool = Arc::new(Pool::new(num_workers, || init_emu(mode).unwrap()));
-        let thread_pool = Arc::new(ThreadPool::new(num_workers));
+        let emu_pool = Arc::new(Pool::new(num_workers, || {
+            init_emu(mode).expect("failed to initialize emulator")
+        }));
+        let thread_pool = Arc::new(Mutex::new(ThreadPool::new(num_workers)));
         log::debug!("Pool created");
-        Self { emu_pool, thread_pool, mode, num_workers }
+        Self {
+            emu_pool,
+            thread_pool,
+            mode,
+            num_workers,
+        }
     }
 
     /// Example.
     /// Adapting this method for a ROP executor would involve a few changes.
-    pub fn pipeline<I: Iterator<Item = Code> + Send>(
+    pub fn pipeline<I: 'static + Iterator<Item = Code> + Send>(
         &self,
         inbound: I,
         output_registers: Arc<Vec<Register<C>>>,
     ) -> Receiver<Result<(Code, Vec<i32>), Error>> {
         let (tx, rx) = sync_channel::<Result<(Code, Vec<i32>), Error>>(self.num_workers);
         let thread_pool = self.thread_pool.clone();
-        let pipe_handler = spawn(move || {
+        let mode = self.mode;
+        let pool = self.emu_pool.clone();
+        let _pipe_handler = spawn(move || {
             for code in inbound {
-                let pool = self.emu_pool.clone();
                 let tx = tx.clone();
                 let output_registers = output_registers.clone();
-                let mode = self.mode;
-                let _handle = thread_pool.execute(move || {
+                let thread_pool = thread_pool
+                    .lock()
+                    .expect("Failed to unlock thread_pool mutex");
+                let pool = pool.clone();
+                thread_pool.execute(move || {
                     let mut emu = wait_for_emu(&pool, 200, mode);
                     log::trace!("executing code {:02x?}", code);
                     let res = emu
@@ -132,7 +141,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                         .map(|reg| (code, reg))
                         .map_err(Error::from);
 
-                    tx.send(res).map_err(Error::from)
+                    tx.send(res)
+                        .map_err(Error::from)
                         .expect("TX Failure in pipeline");
                 });
             }
@@ -175,9 +185,10 @@ mod test {
             .for_each(|out| {
                 counter += 1;
                 match out {
-                    Ok((_code, regs)) => log::info!("Output: {:x?}", regs),
-                    Err(e) => log::info!("Crash: {:?}", e),
+                    Ok((ref _code, ref regs)) => log::info!("[{}] Output: {:x?}", counter, regs),
+                    Err(ref e) => log::info!("[{}] Crash: {:?}", counter, e),
                 }
+                drop(out);
             });
         assert_eq!(counter, expected_num);
     }
