@@ -6,8 +6,6 @@ use std::time::Duration;
 use indexmap::map::IndexMap;
 use object_pool::Pool;
 use serde_derive::Deserialize;
-use std::cell::RefCell;
-use std::rc::Rc;
 use threadpool::ThreadPool;
 use unicorn::{Arch, Cpu, MemHookType, MemType, Mode};
 
@@ -73,6 +71,19 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     }
 }
 
+impl<C: Cpu<'static>> Profiler<C> {
+    pub fn read_registers(&self, emu: &mut C, read_these_registers: &[Register<'static, C>]) {
+        let mut registers = self.registers.lock().expect("Poison!");
+        read_these_registers
+            .iter()
+            .for_each(|r| {
+                let val = emu.reg_read(*r)
+                    .expect("Failed to read register!");
+                registers.insert(*r, val);
+            });
+    }
+}
+
 #[derive(Debug)]
 pub struct WriteLogEntry {
     pub address: u64,
@@ -112,7 +123,7 @@ mod example {
         let address = 0x1000_u64;
         // let's try adding some hooks
         let profiler = profiler.clone();
-        let callback = move |engine, mem_type, address, num_bytes_written, idk| {
+        let callback = move |_engine, mem_type, address, num_bytes_written, _idk| {
             log::error!("Inside memory hook!");
             if let MemType::WRITE = mem_type {
                 let mut write_log = profiler.write_log.lock()
@@ -232,7 +243,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                 let pool = pool.clone();
                 thread_pool.execute(move || {
                     let mut emu = wait_for_emu(&pool, wait_limit, mode);
-                    let mut profiler = Arc::new(Profiler::default());
+                    let profiler = Arc::new(Profiler::default());
                     log::trace!("executing code {:02x?}", code);
                     // TODO: port the hatchery and memory map code over from ROPER 2
                     // so that this harness will run ROP chains. But make it nice and
@@ -251,16 +262,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                             )
                         })
                         .and_then(|()| {
-                            {
-                                let mut registers = profiler.registers.lock().expect("Poison!");
-                                output_registers
-                                    .iter()
-                                    .for_each(|r| {
-                                        let val = emu.reg_read(*r)
-                                            .expect("Failed to read register!");
-                                        registers.insert(*r, val);
-                                    });
-                            }
+                            profiler.read_registers(&mut emu, &output_registers);
                             Ok(profiler)
                         })
                         .map(|reg| (code, reg))
@@ -316,6 +318,7 @@ mod util {
             .collect::<Result<Vec<Vec<u8>>, unicorn::Error>>()
             .map_err(Error::from)
     }
+
 }
 
 #[cfg(test)]
