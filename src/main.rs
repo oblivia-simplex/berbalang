@@ -10,6 +10,7 @@ use crate::configure::Configure;
 mod scratch; // NOTE: tinkering files
 
 mod configure;
+#[allow(dead_code)] // FIXME
 mod emulator;
 mod evaluator;
 mod evolution;
@@ -26,10 +27,6 @@ fn main() {
     .expect("Failed to parse config.toml");
 
     config.assert_invariants();
-
-    // test
-    let hatch: emulator::Hatchery<unicorn::CpuARM> = emulator::Hatchery::new(unicorn::Mode::MODE_32, 16);
-    let _p = hatch.pipeline(std::iter::repeat(Vec::new()), std::sync::Arc::new(Vec::new()));
 
     example::run(config);
 }

@@ -556,8 +556,11 @@ dependencies = [
  "bitflags",
  "build-helper",
  "libc",
+ "log",
  "os_type",
  "pkg-config",
+ "pretty_env_logger",
+ "serde",
 ]
 
 [[package]]
@@ -727,6 +730,28 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "winapi 0.3.8",
+]
+
+[[package]]
+name = "paste"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a229b1c58c692edcaa5b9b0948084f130f55d2dcc15b02fcc5340b2b4521476"
+dependencies = [
+ "paste-impl",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "paste-impl"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e0bf239e447e67ff6d16a8bb5e4d4bd2343acf5066061c0e8e06ac5ba8ca68c"
+dependencies = [
+ "proc-macro-hack",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1122,6 +1147,11 @@ dependencies = [
  "bitflags",
  "libc",
  "libunicorn-sys",
+ "log",
+ "paste",
+ "pretty_env_logger",
+ "serde",
+ "toml",
 ]
 
 [[package]]

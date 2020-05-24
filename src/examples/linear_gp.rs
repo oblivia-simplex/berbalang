@@ -411,7 +411,7 @@ impl Genome for Creature {
         let (m1, m2) = self.genotype.0.split_at(split_m);
         let (f1, f2) = mate.genotype.0.split_at(split_f);
 
-        let half = params.max_length()/2;
+        let half = params.max_length() / 2;
         let mut c1 = m1[0..m1.len().min(half)].to_vec();
         c1.extend(f2[0..f2.len().min(half)].iter());
         let mut c2 = f1[0..f1.len().min(half)].to_vec();
