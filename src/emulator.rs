@@ -1,5 +1,6 @@
-use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError};
+use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, RecvError, SendError, sync_channel};
 use std::thread::spawn;
 use std::time::Duration;
 
@@ -14,9 +15,9 @@ type Register<C> = <C as Cpu<'static>>::Reg;
 type Address = u64;
 type EmuPrepFn<C> = Box<
     dyn Fn(&mut C, &HatcheryParams, &[u8], &Profiler<C>) -> Result<Address, unicorn::Error>
-    + 'static
-    + Send
-    + Sync,
+        + 'static
+        + Send
+        + Sync,
 >;
 
 pub struct Hatchery<C: Cpu<'static> + Send> {
@@ -94,17 +95,15 @@ impl<C: Cpu<'static>> Profiler<C> {
 
     pub fn read_registers(&self, emu: &mut C) {
         let mut registers = self.registers.lock().expect("Poison!");
-        self.registers_to_read
-            .iter()
-            .for_each(|r| {
-                let val = emu.reg_read(*r)
-                    .expect("Failed to read register!");
-                registers.insert(*r, val);
-            });
+        self.registers_to_read.iter().for_each(|r| {
+            let val = emu.reg_read(*r).expect("Failed to read register!");
+            registers.insert(*r, val);
+        });
     }
 
     pub fn register(&self, reg: Register<C>) -> Option<u64> {
-        self.registers.lock()
+        self.registers
+            .lock()
             .expect("panic getting mutex on Profiler::registers")
             .get(&reg)
             .cloned()
@@ -133,53 +132,6 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
         }
     }
 }
-
-
-mod example {
-    use super::*;
-
-    pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
-        emu: &mut C,
-        _params: &HatcheryParams,
-        code: &[u8],
-        profiler: &Profiler<C>,
-    ) -> Result<Address, unicorn::Error> {
-        let address = 0x1000_u64;
-        // let's try adding some hooks
-        let write_log = profiler.write_log.clone();
-        let callback = move |_engine, mem_type, address, num_bytes_written, _idk| {
-            log::error!("Inside memory hook!");
-            if let MemType::WRITE = mem_type {
-                let mut write_log = write_log.lock()
-                    .expect("Poisoned mutex in callback");
-                let entry = WriteLogEntry {
-                    address,
-                    num_bytes_written,
-                };
-                write_log.push(entry);
-                true // NOTE: I'm not really sure what this return value means, here.
-            } else {
-                false
-            }
-        };
-        for region in emu.mem_regions()? {
-            if region.writeable() {
-                let _hook = emu.add_mem_hook(
-                    MemHookType::MEM_WRITE,
-                    region.begin,
-                    region.end,
-                    callback.clone(),
-                )?;
-            }
-        }
-
-        // now write the payload
-        emu.mem_write(address, code).map(|()| 0x1000_u64)?; // TODO in the ROP case, this will be the address of the first gadget
-        Ok(address)
-    }
-}
-pub use example::*;
-use std::fmt;
 
 macro_rules! notice {
     ($e:expr) => {
@@ -272,8 +224,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     // Initialize the profiler
                     let profiler = Profiler::new(output_registers.clone());
                     // Save the register context
-                    let context = emu.context_save()
-                        .expect("Failed to save context");
+                    let context = emu.context_save().expect("Failed to save context");
 
                     // Prepare the emulator with the user-supplied preparation function.
                     // This function will generally be used to load the payload and install
@@ -283,11 +234,11 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     // If the preparation was successful, launch the emulator and execute
                     // the payload. We want to hang onto the exit code of this task.
                     let result = emu.emu_start(
-                                start_addr,
-                                0,
-                                millisecond_timeout * unicorn::MILLISECOND_SCALE,
-                                0,
-                            );
+                        start_addr,
+                        0,
+                        millisecond_timeout * unicorn::MILLISECOND_SCALE,
+                        0,
+                    );
                     if let Err(error_code) = result {
                         profiler.set_error(error_code)
                     };
@@ -295,7 +246,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
 
                     // cleanup
                     emu.remove_all_hooks().expect("Failed to clean up hooks");
-                    emu.context_restore(&context).expect("Failed to restore context");
+                    emu.context_restore(&context)
+                        .expect("Failed to restore context");
 
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
@@ -308,15 +260,15 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         rx
     }
 }
- // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
-
+// TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
 
 mod util {
-    use super::*;
     use unicorn::MemRegion;
 
+    use super::*;
+
     /// Returns the uppermost readable/writeable memory region, in the emulator's
-    /// memory map.
+        /// memory map.
     pub fn find_stack<C: 'static + Cpu<'static>>(emu: &C) -> Result<MemRegion, Error> {
         let regions = emu.mem_regions()?;
         let mut bottom = 0;
@@ -346,7 +298,6 @@ mod util {
             .collect::<Result<Vec<Vec<u8>>, unicorn::Error>>()
             .map_err(Error::from)
     }
-
 }
 
 #[cfg(test)]
@@ -354,9 +305,54 @@ mod test {
     use std::iter;
 
     use log;
+    use unicorn::{CpuX86, RegisterX86};
+
+    pub use example::*;
 
     use super::*;
-    use unicorn::{CpuX86, RegisterX86};
+
+    mod example {
+        use super::*;
+
+        pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
+            emu: &mut C,
+            _params: &HatcheryParams,
+            code: &[u8],
+            profiler: &Profiler<C>,
+        ) -> Result<Address, unicorn::Error> {
+            let address = 0x1000_u64;
+            // let's try adding some hooks
+            let write_log = profiler.write_log.clone();
+            let callback = move |_engine, mem_type, address, num_bytes_written, _idk| {
+                log::error!("Inside memory hook!");
+                if let MemType::WRITE = mem_type {
+                    let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
+                    let entry = WriteLogEntry {
+                        address,
+                        num_bytes_written,
+                    };
+                    write_log.push(entry);
+                    true // NOTE: I'm not really sure what this return value means, here.
+                } else {
+                    false
+                }
+            };
+            for region in emu.mem_regions()? {
+                if region.writeable() {
+                    let _hook = emu.add_mem_hook(
+                        MemHookType::MEM_WRITE,
+                        region.begin,
+                        region.end,
+                        callback.clone(),
+                    )?;
+                }
+            }
+
+            // now write the payload
+            emu.mem_write(address, code).map(|()| 0x1000_u64)?; // TODO in the ROP case, this will be the address of the first gadget
+            Ok(address)
+        }
+    }
 
     #[test]
     fn test_params() {
