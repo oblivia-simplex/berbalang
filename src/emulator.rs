@@ -239,6 +239,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     // generic. How can we parameterize this?
                     // We could have a few functional fields of Hatchery, maybe.
                     // `prepare_emu`, etc.
+                    let context = emu.context_save()
+                        .expect("Failed to save context");
                     let res = emu_prep_fn(&mut emu, &params, &code, profiler.clone())
                         .and_then(|start_addr| {
                             emu.emu_start(
@@ -247,9 +249,6 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                                 millisecond_timeout * unicorn::MILLISECOND_SCALE,
                                 0,
                             )
-                        })
-                        .and_then(|()| {
-                            emu.remove_all_hooks()
                         })
                         .and_then(|()| {
                             {
@@ -266,6 +265,10 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                         })
                         .map(|reg| (code, reg))
                         .map_err(Error::from);
+
+                    // cleanup
+                    emu.remove_all_hooks().expect("Failed to clean up hooks");
+                    emu.context_restore(&context).expect("Failed to restore context");
 
                     tx.send(res)
                         .map_err(Error::from)
