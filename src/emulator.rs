@@ -9,6 +9,16 @@ use serde_derive::Deserialize;
 use threadpool::ThreadPool;
 use unicorn::{Arch, Cpu, MemHookType, MemType, Mode};
 
+type Code = Vec<u8>;
+type Register<C> = <C as Cpu<'static>>::Reg;
+type Address = u64;
+type EmuPrepFn<C> = Box<
+    dyn Fn(&mut C, &HatcheryParams, &[u8], &Profiler<C>) -> Result<Address, unicorn::Error>
+    + 'static
+    + Send
+    + Sync,
+>;
+
 pub struct Hatchery<C: Cpu<'static> + Send> {
     emu_pool: Arc<Pool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
@@ -60,7 +70,8 @@ impl From<RecvError> for Error {
 pub struct Profiler<C: Cpu<'static>> {
     pub ret_log: Arc<Mutex<Vec<Address>>>,
     pub write_log: Arc<Mutex<Vec<WriteLogEntry>>>,
-    pub registers: Arc<Mutex<IndexMap<Register<'static, C>, u64>>>,
+    pub registers: Arc<Mutex<IndexMap<Register<C>, u64>>>,
+    registers_to_read: Arc<Vec<Register<C>>>,
     pub cpu_error: Arc<Mutex<Option<unicorn::Error>>>,
 }
 
@@ -74,15 +85,29 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
 }
 
 impl<C: Cpu<'static>> Profiler<C> {
-    pub fn read_registers(&self, emu: &mut C, read_these_registers: &[Register<'static, C>]) {
+    fn new(output_registers: Arc<Vec<Register<C>>>) -> Self {
+        Self {
+            registers_to_read: output_registers,
+            ..Default::default()
+        }
+    }
+
+    pub fn read_registers(&self, emu: &mut C) {
         let mut registers = self.registers.lock().expect("Poison!");
-        read_these_registers
+        self.registers_to_read
             .iter()
             .for_each(|r| {
                 let val = emu.reg_read(*r)
                     .expect("Failed to read register!");
                 registers.insert(*r, val);
             });
+    }
+
+    pub fn register(&self, reg: Register<C>) -> Option<u64> {
+        self.registers.lock()
+            .expect("panic getting mutex on Profiler::registers")
+            .get(&reg)
+            .cloned()
     }
 
     pub fn set_error(&self, error: unicorn::Error) {
@@ -104,19 +129,11 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             write_log: Arc::new(Mutex::new(Vec::default())),
             registers: Arc::new(Mutex::new(IndexMap::default())),
             cpu_error: Arc::new(Mutex::new(None)),
+            registers_to_read: Arc::new(Vec::new()),
         }
     }
 }
 
-type Code = Vec<u8>;
-type Register<'a, C> = <C as Cpu<'a>>::Reg;
-type Address = u64;
-type EmuPrepFn<C> = Box<
-    dyn Fn(&mut C, &HatcheryParams, &[u8], Arc<Profiler<C>>) -> Result<Address, unicorn::Error>
-        + 'static
-        + Send
-        + Sync,
->;
 
 mod example {
     use super::*;
@@ -125,15 +142,15 @@ mod example {
         emu: &mut C,
         _params: &HatcheryParams,
         code: &[u8],
-        profiler: Arc<Profiler<C>>,
+        profiler: &Profiler<C>,
     ) -> Result<Address, unicorn::Error> {
         let address = 0x1000_u64;
         // let's try adding some hooks
-        let profiler = profiler.clone();
+        let write_log = profiler.write_log.clone();
         let callback = move |_engine, mem_type, address, num_bytes_written, _idk| {
             log::error!("Inside memory hook!");
             if let MemType::WRITE = mem_type {
-                let mut write_log = profiler.write_log.lock()
+                let mut write_log = write_log.lock()
                     .expect("Poisoned mutex in callback");
                 let entry = WriteLogEntry {
                     address,
@@ -227,11 +244,11 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
     pub fn pipeline<I: 'static + Iterator<Item = Code> + Send>(
         &self,
         inbound: I,
-        output_registers: Arc<Vec<Register<'static, C>>>,
+        output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: EmuPrepFn<C>,
-    ) -> Receiver<(Code, Arc<Profiler<C>>)> {
-        let (tx, rx) = sync_channel::<(Code, Arc<Profiler<C>>)>(self.params.num_workers);
+    ) -> Receiver<(Code, Profiler<C>)> {
+        let (tx, rx) = sync_channel::<(Code, Profiler<C>)>(self.params.num_workers);
         let thread_pool = self.thread_pool.clone();
         let mode = self.params.mode;
         let pool = self.emu_pool.clone();
@@ -253,7 +270,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     // Acquire an emulator from the pool.
                     let mut emu = wait_for_emu(&pool, wait_limit, mode);
                     // Initialize the profiler
-                    let profiler = Arc::new(Profiler::default());
+                    let profiler = Profiler::new(output_registers.clone());
                     // Save the register context
                     let context = emu.context_save()
                         .expect("Failed to save context");
@@ -261,7 +278,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     // Prepare the emulator with the user-supplied preparation function.
                     // This function will generally be used to load the payload and install
                     // callbacks, which should be able to write to the Profiler instance.
-                    let start_addr = emu_prep_fn(&mut emu, &params, &code, profiler.clone())
+                    let start_addr = emu_prep_fn(&mut emu, &params, &code, &profiler)
                         .expect("Failure in the emulator preparation function.");
                     // If the preparation was successful, launch the emulator and execute
                     // the payload. We want to hang onto the exit code of this task.
@@ -274,12 +291,14 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     if let Err(error_code) = result {
                         profiler.set_error(error_code)
                     };
-                    profiler.read_registers(&mut emu, &output_registers);
+                    profiler.read_registers(&mut emu);
 
                     // cleanup
                     emu.remove_all_hooks().expect("Failed to clean up hooks");
                     emu.context_restore(&context).expect("Failed to restore context");
 
+                    // Now send the code back, along with its profile information.
+                    // (The genotype, along with its phenotype.)
                     tx.send((code, profiler))
                         .map_err(Error::from)
                         .expect("TX Failure in pipeline");
@@ -384,7 +403,8 @@ mod test {
         let mut counter = 0;
         let code_iterator = iter::repeat(()).take(expected_num).map(|()| random_code());
 
-        let output_registers = Arc::new(vec![RegisterX86::EAX]);
+        use RegisterX86::*;
+        let output_registers = Arc::new(vec![EAX, ESP, EIP, EBP, EBX, ECX, EFLAGS]);
         hatchery
             .pipeline(
                 code_iterator,
