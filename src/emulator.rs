@@ -61,13 +61,15 @@ pub struct Profiler<C: Cpu<'static>> {
     pub ret_log: Arc<Mutex<Vec<Address>>>,
     pub write_log: Arc<Mutex<Vec<WriteLogEntry>>>,
     pub registers: Arc<Mutex<IndexMap<Register<'static, C>, u64>>>,
+    pub cpu_error: Arc<Mutex<Option<unicorn::Error>>>,
 }
 
 impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ret_log: {:?}; ", self.ret_log.lock().unwrap())?;
         write!(f, "write_log: {:?}; ", self.write_log.lock().unwrap())?;
-        write!(f, "registers: {:?}", self.registers.lock().unwrap())
+        write!(f, "registers: {:?}; ", self.registers.lock().unwrap())?;
+        write!(f, "cpu_error: {:?}", self.cpu_error.lock().unwrap())
     }
 }
 
@@ -81,6 +83,10 @@ impl<C: Cpu<'static>> Profiler<C> {
                     .expect("Failed to read register!");
                 registers.insert(*r, val);
             });
+    }
+
+    pub fn set_error(&self, error: unicorn::Error) {
+        *(self.cpu_error.lock().unwrap()) = Some(error)
     }
 }
 
@@ -97,6 +103,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             ret_log: Arc::new(Mutex::new(Vec::default())),
             write_log: Arc::new(Mutex::new(Vec::default())),
             registers: Arc::new(Mutex::new(IndexMap::default())),
+            cpu_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -166,6 +173,7 @@ macro_rules! notice {
     };
 }
 
+// TODO: Here is where you'll do the ELF loading.
 fn init_emu<C: Cpu<'static>>(mode: unicorn::Mode) -> Result<C, unicorn::Error> {
     let mut emu = notice!(C::new(mode))?;
     notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
@@ -222,8 +230,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         output_registers: Arc<Vec<Register<'static, C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: EmuPrepFn<C>,
-    ) -> Receiver<Result<(Code, Arc<Profiler<C>>), Error>> {
-        let (tx, rx) = sync_channel::<Result<(Code, Arc<Profiler<C>>), Error>>(self.params.num_workers);
+    ) -> Receiver<(Code, Arc<Profiler<C>>)> {
+        let (tx, rx) = sync_channel::<(Code, Arc<Profiler<C>>)>(self.params.num_workers);
         let thread_pool = self.thread_pool.clone();
         let mode = self.params.mode;
         let pool = self.emu_pool.clone();
@@ -242,37 +250,37 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     .expect("Failed to unlock thread_pool mutex");
                 let pool = pool.clone();
                 thread_pool.execute(move || {
+                    // Acquire an emulator from the pool.
                     let mut emu = wait_for_emu(&pool, wait_limit, mode);
+                    // Initialize the profiler
                     let profiler = Arc::new(Profiler::default());
-                    log::trace!("executing code {:02x?}", code);
-                    // TODO: port the hatchery and memory map code over from ROPER 2
-                    // so that this harness will run ROP chains. But make it nice and
-                    // generic. How can we parameterize this?
-                    // We could have a few functional fields of Hatchery, maybe.
-                    // `prepare_emu`, etc.
+                    // Save the register context
                     let context = emu.context_save()
                         .expect("Failed to save context");
-                    let res = emu_prep_fn(&mut emu, &params, &code, profiler.clone())
-                        .and_then(|start_addr| {
-                            emu.emu_start(
+
+                    // Prepare the emulator with the user-supplied preparation function.
+                    // This function will generally be used to load the payload and install
+                    // callbacks, which should be able to write to the Profiler instance.
+                    let start_addr = emu_prep_fn(&mut emu, &params, &code, profiler.clone())
+                        .expect("Failure in the emulator preparation function.");
+                    // If the preparation was successful, launch the emulator and execute
+                    // the payload. We want to hang onto the exit code of this task.
+                    let result = emu.emu_start(
                                 start_addr,
                                 0,
                                 millisecond_timeout * unicorn::MILLISECOND_SCALE,
                                 0,
-                            )
-                        })
-                        .and_then(|()| {
-                            profiler.read_registers(&mut emu, &output_registers);
-                            Ok(profiler)
-                        })
-                        .map(|reg| (code, reg))
-                        .map_err(Error::from);
+                            );
+                    if let Err(error_code) = result {
+                        profiler.set_error(error_code)
+                    };
+                    profiler.read_registers(&mut emu, &output_registers);
 
                     // cleanup
                     emu.remove_all_hooks().expect("Failed to clean up hooks");
                     emu.context_restore(&context).expect("Failed to restore context");
 
-                    tx.send(res)
+                    tx.send((code, profiler))
                         .map_err(Error::from)
                         .expect("TX Failure in pipeline");
                 });
@@ -281,6 +289,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         rx
     }
 }
+ // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
 
 
 mod util {
@@ -356,7 +365,7 @@ mod test {
     fn test_hatchery() {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
-            num_workers: 8,
+            num_workers: 32,
             wait_limit: 150,
             mode: unicorn::Mode::MODE_64,
             arch: unicorn::Arch::X86,
@@ -383,13 +392,9 @@ mod test {
                 Box::new(simple_emu_prep_fn),
             )
             .iter()
-            .for_each(|out| {
+            .for_each(|(code, profile)| {
                 counter += 1;
-                match out {
-                    Ok((ref _code, ref regs)) => log::info!("[{}] Output: {:x?}", counter, regs),
-                    Err(ref e) => log::info!("[{}] Crash: {:?}", counter, e),
-                }
-                drop(out);
+                log::info!("[{}] Output: {:x?}", counter, profile);
             });
         assert_eq!(counter, expected_num);
     }
