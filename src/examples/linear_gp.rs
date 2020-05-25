@@ -103,7 +103,7 @@ pub mod machine {
     }
 
     impl Display for Op {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             use Op::*;
             match self {
                 Add => write!(f, "ADD"),
@@ -157,7 +157,7 @@ pub mod machine {
     }
 
     impl Display for Inst {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self.op {
                 Op::Set(n) => write!(f, "SET  R{}  0x{:X}", self.a, n),
                 _ => write!(f, "{}  R{}, R{}", self.op, self.a, self.b),
@@ -320,7 +320,7 @@ pub struct Creature {
 }
 
 impl Debug for Creature {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, inst) in self.instructions().iter().enumerate() {
             writeln!(f, "[{}]  {}", i, inst)?;
         }

@@ -19,7 +19,7 @@ impl From<std::io::Error> for Error {
 
 impl From<goblin::error::Error> for Error {
     fn from(e: goblin::error::Error) -> Self {
-        ParsingFailure(e)
+        Error::ParsingFailure(e)
     }
 }
 
@@ -138,7 +138,7 @@ impl SegType {
     }
 }
 
-fn load_elf(elf: Elf, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
+fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
     let mut segs: Vec<Seg> = Vec::new();
     let mut page_one = false;
     let shdrs = &elf.section_headers;
@@ -180,7 +180,11 @@ fn load_elf(elf: Elf, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
                 let mut v_off = (shdr.sh_addr - seg.aligned_start()) as usize;
                 for byte in sdata {
                     if v_off >= seg.data.len() {
-                        log::warn!("[x] v_off 0x{:x} > seg.data.len() 0x{:x}", v_off, seg.data.len());
+                        log::warn!(
+                            "[x] v_off 0x{:x} > seg.data.len() 0x{:x}",
+                            v_off,
+                            seg.data.len()
+                        );
                         break;
                     };
                     seg.data[v_off] = byte;
