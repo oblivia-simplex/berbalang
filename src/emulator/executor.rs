@@ -9,6 +9,8 @@ use object_pool::Pool;
 use serde_derive::Deserialize;
 use threadpool::ThreadPool;
 use unicorn::{Arch, Cpu, Mode};
+use crate::emulator::loader;
+
 
 type Code = Vec<u8>;
 type Register<C> = <C as Cpu<'static>>::Reg;
@@ -33,6 +35,10 @@ const fn default_wait_limit() -> u64 {
     200
 }
 
+const fn default_stack_size() -> usize {
+    0x1000
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct HatcheryParams {
     #[serde(default = "default_num_workers")]
@@ -46,17 +52,27 @@ pub struct HatcheryParams {
     pub record_basic_blocks: bool,
     #[serde(default = "Default::default")]
     pub record_memory_writes: bool,
+    #[serde(default = "default_stack_size")]
+    pub stack_size: usize,
+    pub binary_path: Option<String>,
 }
 
 #[derive(Debug)]
 pub enum Error {
-    Unicorn(String),
+    Unicorn(unicorn::Error),
     Channel(String),
+    Loader(loader::Error),
+}
+
+impl From<loader::Error> for Error {
+    fn from(e: loader::Error) -> Error {
+        Error::Loader(e)
+    }
 }
 
 impl From<unicorn::Error> for Error {
     fn from(e: unicorn::Error) -> Error {
-        Error::Unicorn(format!("{:?}", e))
+        Error::Unicorn(e)
     }
 }
 
@@ -80,13 +96,15 @@ pub struct Block {
 }
 
 pub struct Profiler<C: Cpu<'static>> {
-    pub ret_log: Arc<Mutex<Vec<Address>>>,
+    /// The Arc<Mutex<_>> fields need to be writeable for the unicorn callbacks.
+    pub block_log: Arc<Mutex<Vec<Block>>>,
     pub write_log: Arc<Mutex<Vec<MemLogEntry>>>,
+    pub ret_log: Arc<Mutex<Vec<Address>>>,
+    /// These fields are written to after the emulation has finished.
+    pub cpu_error: Option<unicorn::Error>,
+    pub computation_time: Duration,
     pub registers: IndexMap<Register<C>, u64>,
     registers_to_read: Arc<Vec<Register<C>>>,
-    pub cpu_error: Arc<Mutex<Option<unicorn::Error>>>,
-    pub computation_time: Duration,
-    pub block_log: Arc<Mutex<Vec<Block>>>,
 }
 
 impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
@@ -94,7 +112,7 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
         write!(f, "ret_log: {:?}; ", self.ret_log.lock().unwrap())?;
         write!(f, "write_log: {:?}; ", self.write_log.lock().unwrap())?;
         write!(f, "registers: {:?}; ", self.registers)?;
-        write!(f, "cpu_error: {:?}; ", self.cpu_error.lock().unwrap())?;
+        write!(f, "cpu_error: {:?}; ", self.cpu_error)?;
         write!(
             f,
             "computation_time: {} μs; ",
@@ -126,8 +144,8 @@ impl<C: Cpu<'static>> Profiler<C> {
             .cloned()
     }
 
-    pub fn set_error(&self, error: unicorn::Error) {
-        *(self.cpu_error.lock().unwrap()) = Some(error)
+    pub fn set_error(&mut self, error: unicorn::Error) {
+        self.cpu_error = Some(error)
     }
 }
 
@@ -145,7 +163,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             ret_log: Arc::new(Mutex::new(Vec::default())),
             write_log: Arc::new(Mutex::new(Vec::default())),
             registers: IndexMap::default(),
-            cpu_error: Arc::new(Mutex::new(None)),
+            cpu_error: None,
             registers_to_read: Arc::new(Vec::new()),
             computation_time: Duration::default(),
             block_log: Arc::new(Mutex::new(Vec::new())),
@@ -163,9 +181,41 @@ macro_rules! notice {
 }
 
 // TODO: Here is where you'll do the ELF loading.
-fn init_emu<C: Cpu<'static>>(mode: unicorn::Mode) -> Result<C, unicorn::Error> {
-    let mut emu = notice!(C::new(mode))?;
-    notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
+fn init_emu<C: Cpu<'static>>(params: &HatcheryParams) -> Result<C, Error> {
+    let mut emu = notice!(C::new(params.mode))?;
+    if let Some(path) = params.binary_path.as_ref() {
+        let segments = loader::load_from_path(path, params.stack_size)?;
+
+        //notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
+        let mut results = Vec::new();
+        // First, map the non-writeable segments to memory. These can be shared.
+        segments.iter()
+            .for_each(|s| {
+                if !s.is_writeable() {
+                    // This is a bit risky, but we want our many emulator instances to share common regions
+                    // of non-writeable memory.
+                    unsafe {
+                        let data_ptr = s.data.as_ptr();
+                        let res = emu.mem_map_const_ptr(
+                            s.aligned_start(),
+                            s.aligned_size(),
+                            s.perm,
+                            data_ptr,
+                        );
+                        results.push(res);
+                    }
+                } else {
+                    // Next, map the writeable segments
+                    let res = emu.mem_map(s.aligned_start(),
+                                          s.aligned_size(),
+                                          s.perm,
+                    );
+                    results.push(res);
+                }
+            });
+        // Return an error if there's been an error.
+        let _ = results.into_iter().collect::<Result<Vec<_>, unicorn::Error>>()?;
+    };
     Ok(emu)
 }
 
@@ -197,17 +247,17 @@ fn wait_for_emu<C: Cpu<'static>>(
 }
 
 impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
-    pub fn new(params: HatcheryParams) -> Self {
+    pub fn new(params: Arc<HatcheryParams>) -> Self {
         log::debug!("Creating hatchery with {} workers", params.num_workers);
         let emu_pool = Arc::new(Pool::new(params.num_workers, || {
-            init_emu(params.mode).expect("failed to initialize emulator")
+            init_emu(&params).expect("failed to initialize emulator")
         }));
         let thread_pool = Arc::new(Mutex::new(ThreadPool::new(params.num_workers)));
         log::debug!("Pool created");
         Self {
             emu_pool,
             thread_pool,
-            params: Arc::new(params),
+            params,
         }
     }
 
@@ -229,7 +279,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         let params = self.params.clone();
         let millisecond_timeout = self.params.millisecond_timeout.unwrap_or(0);
         let _pipe_handler = spawn(move || {
-            for code in inbound {
+            for payload in inbound {
                 let emu_prep_fn = emu_prep_fn.clone();
                 let params = params.clone();
                 let tx = tx.clone();
@@ -258,7 +308,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     // Prepare the emulator with the user-supplied preparation function.
                     // This function will generally be used to load the payload and install
                     // callbacks, which should be able to write to the Profiler instance.
-                    let start_addr = emu_prep_fn(&mut emu, &params, &code, &profiler)
+                    let start_addr = emu_prep_fn(&mut emu, &params, &payload, &profiler)
                         .expect("Failure in the emulator preparation function.");
                     // If the preparation was successful, launch the emulator and execute
                     // the payload. We want to hang onto the exit code of this task.
@@ -282,7 +332,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
 
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
-                    tx.send((code, profiler))
+                    tx.send((payload, profiler))
                         .map_err(Error::from)
                         .expect("TX Failure in pipeline");
                 });
@@ -377,7 +427,7 @@ mod util {
         }
         match stack {
             Some(m) => Ok(m.clone()),
-            None => Err(Error::Unicorn("Couldn't find the stack.".into())),
+            None => unimplemented!("do this later"),
         }
     }
 
@@ -529,6 +579,8 @@ mod test {
                 millisecond_timeout: None,
                 record_basic_blocks: true,
                 record_memory_writes: true,
+                stack_size: 0x1000, // default
+                binary_path: None,
             }
         );
     }
@@ -544,6 +596,8 @@ mod test {
             millisecond_timeout: Some(100),
             record_basic_blocks: true,
             record_memory_writes: true,
+            stack_size: 0x1000,
+            binary_path: Some("/bin/sh".to_string()),
         };
         fn random_code() -> Vec<u8> {
             iter::repeat(())
@@ -552,7 +606,7 @@ mod test {
                 .collect()
         }
 
-        let hatchery: Hatchery<CpuX86<'_>> = Hatchery::new(params);
+        let hatchery: Hatchery<CpuX86<'_>> = Hatchery::new(Arc::new(params));
 
         let expected_num = 0x100_000;
         let mut counter = 0;

@@ -58,17 +58,21 @@ impl Seg {
         if phdr.is_read() {
             uc_perm |= Protection::READ
         };
-        let mut s = Seg {
-            addr: phdr.vm_range().start as u64,
-            memsz: (phdr.vm_range().end - phdr.vm_range().start) as usize,
+        let addr = phdr.vm_range().start as u64;
+        let memsz = (phdr.vm_range().end - phdr.vm_range().start) as usize;
+        let size = Self::intern_aligned_size(addr, memsz);
+        let data = vec![0x00_u8; size];
+        Self {
+            addr,
+            memsz,
             perm: uc_perm,
             segtype: SegType::new(phdr.p_type),
-            data: Vec::new(),
-        };
-        log::debug!("seg from phdr = {}", s);
-        let size = (s.aligned_end() - s.aligned_start()) as usize;
-        s.data = vec![0x00_u8; size];
-        s
+            data,
+        }
+    }
+
+    pub fn ensure_data_alignment(&mut self) {
+        self.data.resize(self.aligned_size(), 0_u8)
     }
 
     pub fn is_executable(&self) -> bool {
@@ -83,16 +87,28 @@ impl Seg {
         self.perm.intersects(Protection::READ)
     }
 
+    fn intern_aligned_start(addr: u64) -> u64 {
+        addr & 0xFFFF_F000
+    }
+
     pub fn aligned_start(&self) -> u64 {
-        self.addr & 0xFFFF_F000
+        Self::intern_aligned_start(self.addr)
+    }
+
+    fn intern_aligned_end(addr: u64, memsz: usize) -> u64 {
+        (addr + memsz as u64 + 0x1000) & 0xFFFF_F000
     }
 
     pub fn aligned_end(&self) -> u64 {
-        (self.addr + (self.memsz as u64) + 0x1000) & 0xFFFF_F000
+        Self::intern_aligned_end(self.addr, self.memsz)
+    }
+
+    fn intern_aligned_size(addr: u64, memsz: usize) -> usize {
+        (Self::intern_aligned_end(addr, memsz) - Self::intern_aligned_start(addr)) as usize
     }
 
     pub fn aligned_size(&self) -> usize {
-        ((self.addr as usize & 0x0FFF) + self.memsz as usize + 0x1000) & 0xFFFF_F000
+        (self.aligned_end() - self.aligned_start()) as usize
     }
 
     pub fn loadable(&self) -> bool {

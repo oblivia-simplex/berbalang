@@ -32,7 +32,7 @@ serde_derive = "1"
 sliding_windows = "3"
 threadpool = "1.8"
 toml = "0.5"
-unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "development" }
+unicorn = { path = "../unicorn-rs" } #{ git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "development" }
 
 [patch."https://github.com/oblivia-simplex/unicorn-rs".unicorn]
 path = "../unicorn-rs/"
