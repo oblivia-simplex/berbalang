@@ -82,7 +82,7 @@ pub struct Block {
 pub struct Profiler<C: Cpu<'static>> {
     pub ret_log: Arc<Mutex<Vec<Address>>>,
     pub write_log: Arc<Mutex<Vec<MemLogEntry>>>,
-    pub registers: Arc<Mutex<IndexMap<Register<C>, u64>>>,
+    pub registers: IndexMap<Register<C>, u64>,
     registers_to_read: Arc<Vec<Register<C>>>,
     pub cpu_error: Arc<Mutex<Option<unicorn::Error>>>,
     pub computation_time: Duration,
@@ -93,7 +93,7 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ret_log: {:?}; ", self.ret_log.lock().unwrap())?;
         write!(f, "write_log: {:?}; ", self.write_log.lock().unwrap())?;
-        write!(f, "registers: {:?}; ", self.registers.lock().unwrap())?;
+        write!(f, "registers: {:?}; ", self.registers)?;
         write!(f, "cpu_error: {:?}; ", self.cpu_error.lock().unwrap())?;
         write!(
             f,
@@ -101,7 +101,6 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
             self.computation_time.as_micros()
         )?;
         write!(f, "{} blocks", self.block_log.lock().unwrap().len())
-
     }
 }
 
@@ -113,18 +112,16 @@ impl<C: Cpu<'static>> Profiler<C> {
         }
     }
 
-    pub fn read_registers(&self, emu: &mut C) {
-        let mut registers = self.registers.lock().expect("Poison!");
-        self.registers_to_read.iter().for_each(|r| {
+    pub fn read_registers(&mut self, emu: &mut C) {
+        let registers_to_read = self.registers_to_read.clone();
+        registers_to_read.iter().for_each(|r| {
             let val = emu.reg_read(*r).expect("Failed to read register!");
-            registers.insert(*r, val);
+            self.registers.insert(*r, val);
         });
     }
 
     pub fn register(&self, reg: Register<C>) -> Option<u64> {
         self.registers
-            .lock()
-            .expect("panic getting mutex on Profiler::registers")
             .get(&reg)
             .cloned()
     }
@@ -133,7 +130,6 @@ impl<C: Cpu<'static>> Profiler<C> {
         *(self.cpu_error.lock().unwrap()) = Some(error)
     }
 }
-
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MemLogEntry {
@@ -148,7 +144,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
         Self {
             ret_log: Arc::new(Mutex::new(Vec::default())),
             write_log: Arc::new(Mutex::new(Vec::default())),
-            registers: Arc::new(Mutex::new(IndexMap::default())),
+            registers: IndexMap::default(),
             cpu_error: Arc::new(Mutex::new(None)),
             registers_to_read: Arc::new(Vec::new()),
             computation_time: Duration::default(),
@@ -302,27 +298,29 @@ mod util {
 
     use super::*;
 
-    pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(emu: &mut C, profiler: &Profiler<C>) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+    pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
+        emu: &mut C,
+        profiler: &Profiler<C>,
+    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let block_log = profiler.block_log.clone();
         let bb_callback = move |engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
-            let code =
-                match engine.mem_read_as_vec(entry, size) {
-                    Ok(xs) => xs,
-                    Err(e) => {
-                        log::error!("Failed to read basic block from bb_callback at 0x{:x}: {:?}", entry, e);
-                        return
-                    }
-                };
-            let block = Block {
-                entry,
-                size,
-                code,
+            let code = match engine.mem_read_as_vec(entry, size) {
+                Ok(xs) => xs,
+                Err(e) => {
+                    log::error!(
+                        "Failed to read basic block from bb_callback at 0x{:x}: {:?}",
+                        entry,
+                        e
+                    );
+                    return;
+                }
             };
-            block_log.lock()
+            let block = Block { entry, size, code };
+            block_log
+                .lock()
                 .expect("Poisoned mutex in bb_callback")
                 .push(block);
-
         };
 
         let hooks = code_hook_all(emu, CodeHookType::BLOCK, bb_callback)?;
@@ -330,26 +328,30 @@ mod util {
         Ok(hooks)
     }
 
-    pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(emu: &mut C, profiler: &Profiler<C>) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+    pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
+        emu: &mut C,
+        profiler: &Profiler<C>,
+    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
         let write_log = profiler.write_log.clone();
-        let mem_write_callback = move |engine: &Unicorn<'_>, mem_type, address, num_bytes_written, value| {
-            //log::trace!("Inside memory hook!");
-            if let MemType::WRITE = mem_type {
-                let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
-                let entry = MemLogEntry {
-                    program_counter,
-                    mem_address: address,
-                    num_bytes_written,
-                    value,
-                };
-                let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
-                write_log.push(entry);
-                true // NOTE: I'm not really sure what this return value means, here.
-            } else {
-                false
-            }
-        };
+        let mem_write_callback =
+            move |engine: &Unicorn<'_>, mem_type, address, num_bytes_written, value| {
+                //log::trace!("Inside memory hook!");
+                if let MemType::WRITE = mem_type {
+                    let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
+                    let entry = MemLogEntry {
+                        program_counter,
+                        mem_address: address,
+                        num_bytes_written,
+                        value,
+                    };
+                    let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
+                    write_log.push(entry);
+                    true // NOTE: I'm not really sure what this return value means, here.
+                } else {
+                    false
+                }
+            };
 
         let hooks = util::mem_hook_by_prot(
             emu,
@@ -406,7 +408,6 @@ mod util {
         protections: Protection,
         callback: F,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error>
-
     where
         F: 'static
             + FnMut(&'static unicorn::Unicorn<'static>, MemType, u64, usize, i64) -> bool
@@ -473,23 +474,25 @@ mod test {
             // let's try adding some hooks
             let pc: i32 = emu.program_counter().into();
             let write_log = profiler.write_log.clone();
-            let mem_write_callback = move |engine: &Unicorn<'_>, mem_type, address, num_bytes_written, value| {
-                //log::trace!("Inside memory hook!");
-                if let MemType::WRITE = mem_type {
-                    let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
-                    let entry = MemLogEntry {
-                        program_counter,
-                        mem_address: address,
-                        num_bytes_written,
-                        value,
-                    };
-                    let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
-                    write_log.push(entry);
-                    true // NOTE: I'm not really sure what this return value means, here.
-                } else {
-                    false
-                }
-            };
+            let mem_write_callback =
+                move |engine: &Unicorn<'_>, mem_type, address, num_bytes_written, value| {
+                    //log::trace!("Inside memory hook!");
+                    if let MemType::WRITE = mem_type {
+                        let program_counter =
+                            engine.reg_read(pc).expect("Failed to read PC register");
+                        let entry = MemLogEntry {
+                            program_counter,
+                            mem_address: address,
+                            num_bytes_written,
+                            value,
+                        };
+                        let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
+                        write_log.push(entry);
+                        true // NOTE: I'm not really sure what this return value means, here.
+                    } else {
+                        false
+                    }
+                };
 
             let _hooks = util::mem_hook_by_prot(
                 emu,
