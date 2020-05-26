@@ -243,3 +243,18 @@ pub fn load(code_buffer: &[u8], stack_size: usize) -> Result<Vec<Seg>, Error> {
 pub fn load_from_path(path: &str, stack_size: usize) -> Result<Vec<Seg>, Error> {
     load(&std::fs::read(path)?, stack_size)
 }
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_loader() {
+        let res = load_from_path("/bin/sh", 0x1000)
+            .expect("Failed to load /bin/sh");
+        for s in res {
+            log::info!("Segment: {:?}", s);
+        }
+    }
+}

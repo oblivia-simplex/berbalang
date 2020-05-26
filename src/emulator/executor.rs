@@ -372,8 +372,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                             emu.mem_write(seg.aligned_start(),
                                 &seg.data
                             ).unwrap_or_else(|e| {
-                                log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}",
-                                    seg.aligned_start(), seg.aligned_end()
+                                log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
+                                    seg.aligned_start(), seg.aligned_end(), e
                                 )
                             });
                         });
@@ -401,6 +401,7 @@ mod util {
         profiler: &Profiler<C>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let block_log = profiler.block_log.clone();
+        //let ret_log = profiler.ret_log.clone();
         let bb_callback = move |engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
             let code = match engine.mem_read_as_vec(entry, size) {
@@ -414,6 +415,10 @@ mod util {
                     return;
                 }
             };
+            // If the code ends with a return, log it in the ret log.
+            // but how to make this platform-generic? We could define a
+            // return_insn method on the trait, like we did for the special
+            // registers. TODO: low priority
             let block = Block { entry, size, code };
             block_log
                 .lock()
@@ -576,7 +581,6 @@ mod util {
 
     pub fn endian(arch: Arch, mode: Mode) -> Endian {
         use Arch::*;
-        use Mode::*;
         use Endian::*;
 
         match (arch, mode) {
@@ -587,7 +591,6 @@ mod util {
             (PPC, _) => Big,
             (SPARC, _) => Big, // check
             (M68K, _) => Big, // check
-            (_, _) => unimplemented!("invalid arch/mode combination"),
         }
     }
 }
@@ -596,17 +599,16 @@ mod util {
 mod test {
     use std::iter;
 
-    use unicorn::{CpuX86, MemHookType, MemType, RegisterX86};
+    use unicorn::{CpuX86, RegisterX86};
 
     use example::*;
 
-    use byteorder::{BigEndian, LittleEndian, ByteOrder};
+    use byteorder::{LittleEndian, ByteOrder};
     use super::*;
     use rand::{thread_rng, Rng};
 
     mod example {
         use super::*;
-        use unicorn::{Protection, Unicorn};
         use byteorder::{BigEndian, LittleEndian, ByteOrder};
         use crate::emulator::executor::util::Endian;
 
@@ -614,11 +616,8 @@ mod test {
             emu: &mut C,
             _params: &HatcheryParams,
             code: &[u8],
-            profiler: &Profiler<C>,
+            _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
-            let address = 0x41_b000;
-            // let's try adding some hooks
-
             // now write the payload
             let stack = util::find_stack(emu)?;
             let sp = stack.begin + (stack.end - stack.begin)/2;
@@ -675,7 +674,7 @@ mod test {
     fn test_hatchery() {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
-            num_workers: 128,
+            num_workers: 256,
             wait_limit: 150,
             mode: unicorn::Mode::MODE_64,
             arch: unicorn::Arch::X86,
