@@ -43,6 +43,10 @@ pub struct Config {
     pub data: DataConfig,
     problems: Option<Vec<Problem>>,
     max_length: usize,
+    #[serde(default = "Default::default")]
+    pub num_registers: usize,
+    #[serde(default = "Default::default")]
+    pub return_registers: usize,
 }
 
 impl Configure for Config {
@@ -78,6 +82,7 @@ impl Configure for Config {
 
 pub mod machine {
     use std::fmt::{self, Display};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use rand::distributions::{Distribution, Standard};
     use rand::{thread_rng, Rng};
@@ -143,11 +148,11 @@ pub mod machine {
 
     pub type Register = usize;
 
-    pub const NUM_REGISTERS: usize = 4;
     const MAX_STEPS: usize = 0x1000;
+    pub static NUM_REGISTERS: AtomicUsize = AtomicUsize::new(16);
     // TODO make this configurable
-    const FIRST_INPUT_REGISTER: usize = 1;
-    const RETURN_REGISTER: usize = 0;
+    //const FIRST_INPUT_REGISTER: usize = 1;
+    //const RETURN_REGISTER: usize = 0;
 
     #[derive(Clone, Copy, Eq, PartialEq, Debug)]
     pub struct Inst {
@@ -167,21 +172,23 @@ pub mod machine {
 
     impl Inst {
         pub fn random() -> Self {
+            let num_registers = NUM_REGISTERS.load(Ordering::Relaxed);
             Self {
                 op: rand::random::<Op>(),
-                a: rand::random::<usize>() % NUM_REGISTERS,
-                b: rand::random::<usize>() % NUM_REGISTERS,
+                a: rand::random::<usize>() % num_registers,
+                b: rand::random::<usize>() % num_registers,
             }
         }
 
         pub fn mutate(&mut self) {
+            let num_registers = NUM_REGISTERS.load(Ordering::Relaxed);
             let mut rng = thread_rng();
             let mutation = rng.gen::<u8>() % 4;
 
             match mutation {
                 0 => self.op = rand::random(),
-                1 => self.a = (self.a + 1) % NUM_REGISTERS,
-                2 => self.b = (self.b + 1) % NUM_REGISTERS,
+                1 => self.a = (self.a + 1) % num_registers,
+                2 => self.b = (self.b + 1) % num_registers,
                 3 => std::mem::swap(&mut self.a, &mut self.b),
                 _ => unreachable!("out of range"),
             }
@@ -189,15 +196,17 @@ pub mod machine {
     }
 
     pub struct Machine {
-        registers: [MachineWord; NUM_REGISTERS],
+        return_registers: usize,
+        registers: Vec<MachineWord>,
         pc: usize,
         max_steps: usize,
     }
 
     impl Machine {
-        pub(crate) fn new() -> Self {
+        pub(crate) fn new(num_registers: usize, return_registers: usize) -> Self {
             Self {
-                registers: [0; NUM_REGISTERS],
+                return_registers,
+                registers: vec![0; num_registers],
                 pc: 0,
                 max_steps: MAX_STEPS,
             }
@@ -205,7 +214,8 @@ pub mod machine {
 
         #[inline]
         fn set(&mut self, reg: usize, val: MachineWord) {
-            self.registers[reg % NUM_REGISTERS] = val
+            let n = self.registers.len();
+            self.registers[reg % n] = val
         }
 
         fn eval(&mut self, inst: Inst) {
@@ -216,7 +226,7 @@ pub mod machine {
                     self.set(inst.a, $val)
                 };
             }
-            let r = self.registers;
+            let r = &self.registers;
 
             match inst.op {
                 Add => set!(r[inst.a].wrapping_add(r[inst.b])),
@@ -244,10 +254,10 @@ pub mod machine {
         }
 
         fn load_input(&mut self, inputs: &[MachineWord]) {
-            if inputs.len() > NUM_REGISTERS - 1 {
+            if inputs.len() > self.registers.len() - 1 {
                 log::error!("Too many inputs to load into input registers. Wrapping.");
             }
-            (FIRST_INPUT_REGISTER..NUM_REGISTERS)
+            (self.return_registers..(self.registers.len()))
                 .zip(inputs.iter())
                 .for_each(|(r, i)| self.set(r, *i));
         }
@@ -276,11 +286,11 @@ pub mod machine {
             }
         }
 
-        fn return_value(&self) -> MachineWord {
-            self.registers[RETURN_REGISTER]
+        fn return_value<'a>(&'a self) -> &'a [MachineWord] {
+            &self.registers[0..self.return_registers]
         }
 
-        pub fn exec(&mut self, code: &[Inst], input: &[MachineWord]) -> MachineWord {
+        pub fn exec<'a>(&'a mut self, code: &[Inst], input: &[MachineWord]) -> &'a [MachineWord]{
             self.flush_registers();
             self.load_input(input);
             self.exec_insts(code);
@@ -466,7 +476,27 @@ impl Epoch<evaluation::Evaluator, Creature, Config> {
     pub fn new(mut config: Config) -> Self {
         let problems = parse_data(&config.data.path);
         assert!(problems.is_some());
+        // figure out the number of return registers needed
+        let return_registers =
+            problems.as_ref()
+                .unwrap()
+                .iter()
+                .map(|p| p.output)
+                .collect::<std::collections::HashSet<i32>>()
+                .len();
+        // and how many input registers
+        let input_registers =
+            problems.as_ref()
+                .unwrap()[0].input.len();
+
         config.problems = problems;
+        config.return_registers = return_registers;
+        config.num_registers = return_registers + input_registers + 2;
+        machine::NUM_REGISTERS.store(
+            config.num_registers,
+            std::sync::atomic::Ordering::Relaxed
+        );
+        log::info!("Config: {:#?}", config);
         let config = Arc::new(config);
         let population = iter::repeat(())
             .map(|()| Creature::random(&config))
@@ -493,7 +523,7 @@ mod evaluation {
     use std::sync::Arc;
     use std::thread::{spawn, JoinHandle};
 
-    #[cfg(not(debug_assertions))]
+    //#[cfg(not(debug_assertions))]
     use rayon::prelude::*;
 
     use crate::evaluator::{Evaluate, FitnessFn};
@@ -513,9 +543,9 @@ mod evaluation {
     pub fn execute(params: Arc<Config>, mut creature: Creature) -> Creature {
         let problems = params.problems.as_ref().expect("No problems!");
 
-        #[cfg(debug_assertions)]
-        let iterator = problems.iter();
-        #[cfg(not(debug_assertions))]
+        //#[cfg(debug_assertions)]
+        //let iterator = problems.iter();
+        // #[cfg(not(debug_assertions))]
         let iterator = problems.par_iter();
 
         let mut results = iterator
@@ -529,8 +559,12 @@ mod evaluation {
                     // would be a good place to call the fitness function, too.
                     // TODO: is it worth creating a new machine per-thread?
                     // Probably not when it comes to unicorn, but for this, yeah.
-                    let mut machine = Machine::new();
-                    let output = machine.exec(creature.instructions(), &input);
+                    let mut machine = Machine::new(params.num_registers, params.return_registers);
+                    let return_regs = machine.exec(creature.instructions(), &input);
+                    let output = (0..return_regs.len())
+                        .map(|i| return_regs[i])
+                        .fold(0, i32::max);
+
                     Problem {
                         input: input.clone(),
                         output,
@@ -560,9 +594,7 @@ mod evaluation {
                     log::debug!("correct result: {:?}", result);
                     None
                 } else {
-                    let dif = (result.output as i64 - expected.output as i64).abs() as f64;
-                    let score = dif.tanh() * 100.0;
-                    Some(score as usize)
+                    Some(1)
                 }
             })
             .fold(0, |a, b| a + b);

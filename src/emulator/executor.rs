@@ -1,12 +1,13 @@
-use std::fmt;
 use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
+//use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
-use indexmap::map::IndexMap;
+use crate::emulator::profiler::Profiler;
+
 use object_pool::Pool;
 use serde_derive::Deserialize;
 use std::pin::Pin;
@@ -14,14 +15,21 @@ use threadpool::ThreadPool;
 use unicorn::{Arch, Cpu, Mode};
 
 type Code = Vec<u8>;
-type Register<C> = <C as Cpu<'static>>::Reg;
-type Address = u64;
-type EmuPrepFn<C> = Box<
+pub type Register<C> = <C as Cpu<'static>>::Reg;
+pub type Address = u64;
+pub type EmuPrepFn<C> = Box<
     dyn Fn(&mut C, &HatcheryParams, &[u8], &Profiler<C>) -> Result<Address, Error>
         + 'static
         + Send
         + Sync,
 >;
+
+// static TRACING_THREAD: AtomicUsize = AtomicUsize::new(0);
+//
+// fn trace_enabled() -> bool {
+//     let thread: usize = std::thread::current().id().as_u64() as usize;
+//     TRACING_THREAD.compare_and_swap(0, thread, Ordering::Relaxed) == thread
+// }
 
 pub struct Hatchery<C: Cpu<'static> + Send> {
     emu_pool: Arc<Pool<C>>,
@@ -40,15 +48,20 @@ impl<C: Cpu<'static> + Send> Drop for Hatchery<C> {
             // And I think that attempting to access that unmapped segment *may* trigger a
             // use-after-free bug.
             if let Some(mut emu) = self.emu_pool.try_pull() {
-                segments.iter()
+                segments
+                    .iter()
                     .filter(|&s| !s.is_writeable())
                     .for_each(|s| {
-                        log::debug!("Unmapping region 0x{:x} - 0x{:x} [{:?}]", s.aligned_start(), s.aligned_end(), s.perm);
+                        log::debug!(
+                            "Unmapping region 0x{:x} - 0x{:x} [{:?}]",
+                            s.aligned_start(),
+                            s.aligned_end(),
+                            s.perm
+                        );
                         //log::debug!("Unmapping segment at 0x{:x}", s.aligned_start());
                         emu.mem_unmap(s.aligned_start(), s.aligned_size())
                             .unwrap_or_else(|e| log::error!("Failed to unmap segment: {:?}", e));
                     });
-
             }
         }
     }
@@ -114,87 +127,6 @@ impl From<RecvError> for Error {
     }
 }
 
-#[derive(Debug)]
-pub struct Block {
-    pub entry: u64,
-    pub size: usize,
-    pub code: Vec<u8>,
-}
-
-pub struct Profiler<C: Cpu<'static>> {
-    /// The Arc<Mutex<_>> fields need to be writeable for the unicorn callbacks.
-    pub block_log: Arc<Mutex<Vec<Block>>>,
-    pub write_log: Arc<Mutex<Vec<MemLogEntry>>>,
-    pub ret_log: Arc<Mutex<Vec<Address>>>,
-    /// These fields are written to after the emulation has finished.
-    pub cpu_error: Option<unicorn::Error>,
-    pub computation_time: Duration,
-    pub registers: IndexMap<Register<C>, u64>,
-    registers_to_read: Arc<Vec<Register<C>>>,
-}
-
-impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ret_log: {:?}; ", self.ret_log.lock().unwrap())?;
-        write!(f, "write_log: {} entries; ", self.write_log.lock().unwrap().len())?;
-        write!(f, "registers: {:?}; ", self.registers)?;
-        write!(f, "cpu_error: {:?}; ", self.cpu_error)?;
-        write!(
-            f,
-            "computation_time: {} μs; ",
-            self.computation_time.as_micros()
-        )?;
-        write!(f, "{} blocks", self.block_log.lock().unwrap().len())
-    }
-}
-
-impl<C: Cpu<'static>> Profiler<C> {
-    fn new(output_registers: Arc<Vec<Register<C>>>) -> Self {
-        Self {
-            registers_to_read: output_registers,
-            ..Default::default()
-        }
-    }
-
-    pub fn read_registers(&mut self, emu: &mut C) {
-        let registers_to_read = self.registers_to_read.clone();
-        registers_to_read.iter().for_each(|r| {
-            let val = emu.reg_read(*r).expect("Failed to read register!");
-            self.registers.insert(*r, val);
-        });
-    }
-
-    pub fn register(&self, reg: Register<C>) -> Option<u64> {
-        self.registers.get(&reg).cloned()
-    }
-
-    pub fn set_error(&mut self, error: unicorn::Error) {
-        self.cpu_error = Some(error)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct MemLogEntry {
-    pub program_counter: u64,
-    pub mem_address: u64,
-    pub num_bytes_written: usize,
-    pub value: i64,
-}
-
-impl<C: Cpu<'static>> Default for Profiler<C> {
-    fn default() -> Self {
-        Self {
-            ret_log: Arc::new(Mutex::new(Vec::default())),
-            write_log: Arc::new(Mutex::new(Vec::default())),
-            registers: IndexMap::default(),
-            cpu_error: None,
-            registers_to_read: Arc::new(Vec::new()),
-            computation_time: Duration::default(),
-            block_log: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-}
-
 // macro_rules! notice {
 //     ($e:expr) => {
 //         ($e).map_err(|e| {
@@ -215,7 +147,12 @@ fn init_emu<C: Cpu<'static>>(
         let mut results = Vec::new();
         // First, map the non-writeable segments to memory. These can be shared.
         segments.iter().for_each(|s| {
-            log::info!("Mapping segment 0x{:x} - 0x{:x} [{:?}]", s.aligned_start(), s.aligned_end(), s.perm);
+            log::info!(
+                "Mapping segment 0x{:x} - 0x{:x} [{:?}]",
+                s.aligned_start(),
+                s.aligned_end(),
+                s.perm
+            );
             if !s.is_writeable() {
                 // This is a bit risky, but we want our many emulator instances to share common regions
                 // of non-writeable memory.
@@ -240,7 +177,12 @@ fn init_emu<C: Cpu<'static>>(
             .collect::<Result<Vec<_>, unicorn::Error>>()?;
     };
     emu.mem_regions()?.iter().for_each(|rgn| {
-       log::info!("Mapped region: 0x{:x} - 0x{:x} [{:?}]", rgn.begin, rgn.end, rgn.perms);
+        log::info!(
+            "Mapped region: 0x{:x} - 0x{:x} [{:?}]",
+            rgn.begin,
+            rgn.end,
+            rgn.perms
+        );
     });
     Ok(emu)
 }
@@ -395,6 +337,7 @@ mod util {
     use unicorn::{CodeHookType, MemHookType, MemRegion, MemType, Protection, Unicorn};
 
     use super::*;
+    use crate::emulator::profiler::{Block, MemLogEntry};
 
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
@@ -415,6 +358,7 @@ mod util {
                     return;
                 }
             };
+            println!("thread_id: {:?}", std::thread::current().id());
             // If the code ends with a return, log it in the ret log.
             // but how to make this platform-generic? We could define a
             // return_insn method on the trait, like we did for the special
@@ -568,7 +512,7 @@ mod util {
             (PPC, MODE_64) => 8,
             (PPC, _) => 4,
             (SPARC, _) => 4, // check
-            (M68K, _) => 2, // check
+            (M68K, _) => 2,  // check
             (_, _) => unimplemented!("invalid arch/mode combination"),
         }
     }
@@ -584,13 +528,13 @@ mod util {
         use Endian::*;
 
         match (arch, mode) {
-            (ARM, _) => Big,     // this can actually go both ways, check unicorn
+            (ARM, _) => Big, // this can actually go both ways, check unicorn
             (ARM64, _) => Big,
             (MIPS, _) => Big, // check
             (X86, _) => Little,
             (PPC, _) => Big,
             (SPARC, _) => Big, // check
-            (M68K, _) => Big, // check
+            (M68K, _) => Big,  // check
         }
     }
 }
@@ -603,14 +547,14 @@ mod test {
 
     use example::*;
 
-    use byteorder::{LittleEndian, ByteOrder};
     use super::*;
+    use byteorder::{ByteOrder, LittleEndian};
     use rand::{thread_rng, Rng};
 
     mod example {
         use super::*;
-        use byteorder::{BigEndian, LittleEndian, ByteOrder};
         use crate::emulator::executor::util::Endian;
+        use byteorder::{BigEndian, ByteOrder, LittleEndian};
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
             emu: &mut C,
@@ -620,23 +564,17 @@ mod test {
         ) -> Result<Address, Error> {
             // now write the payload
             let stack = util::find_stack(emu)?;
-            let sp = stack.begin + (stack.end - stack.begin)/2;
+            let sp = stack.begin + (stack.end - stack.begin) / 2;
             emu.mem_write(sp, code)?;
             // set the stack pointer to the middle of the stack
             // now "pop" the stack into the program counter
             let word_size = util::word_size(emu.arch(), emu.mode());
             let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
-            let address =
-                match util::endian(emu.arch(), emu.mode()) {
-                Endian::Big => {
-                    BigEndian::read_u64(&a_bytes)
-                }
-                Endian::Little => {
-                    LittleEndian::read_u64(&a_bytes)
-                }
+            let address = match util::endian(emu.arch(), emu.mode()) {
+                Endian::Big => BigEndian::read_u64(&a_bytes),
+                Endian::Little => LittleEndian::read_u64(&a_bytes),
             };
             emu.write_stack_pointer(sp + word_size as u64)?;
-
 
             Ok(address)
         }
@@ -671,10 +609,27 @@ mod test {
     }
 
     #[test]
+    fn test_spawn_hatchery() {
+        let params = HatcheryParams {
+            num_workers: 6,
+            wait_limit: 150,
+            mode: unicorn::Mode::MODE_64,
+            arch: unicorn::Arch::X86,
+            millisecond_timeout: Some(100),
+            record_basic_blocks: true,
+            record_memory_writes: true,
+            stack_size: 0x1000,
+            binary_path: Some("/bin/sh".to_string()),
+        };
+
+        let _: Hatchery<CpuX86<'_>> = Hatchery::new(Arc::new(params));
+    }
+
+    #[test]
     fn test_hatchery() {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
-            num_workers: 256,
+            num_workers: 32,
             wait_limit: 150,
             mode: unicorn::Mode::MODE_64,
             arch: unicorn::Arch::X86,

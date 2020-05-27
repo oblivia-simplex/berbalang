@@ -5,6 +5,8 @@ use goblin::{
 use std::fmt;
 use unicorn::Protection;
 
+pub const PAGE_SIZE: u64 = 0x1000;
+
 #[derive(Debug)]
 pub enum Error {
     ParsingFailure(goblin::error::Error),
@@ -46,6 +48,11 @@ impl fmt::Display for Seg {
     }
 }
 
+#[inline]
+pub fn align(n: u64) -> u64 {
+    (n / PAGE_SIZE) * PAGE_SIZE
+}
+
 impl Seg {
     pub fn from_phdr(phdr: &elf::ProgramHeader) -> Self {
         let mut uc_perm = unicorn::Protection::NONE;
@@ -71,46 +78,58 @@ impl Seg {
         }
     }
 
+    #[inline]
     pub fn ensure_data_alignment(&mut self) {
         self.data.resize(self.aligned_size(), 0_u8)
     }
 
+    #[inline]
     pub fn is_executable(&self) -> bool {
         self.perm.intersects(Protection::EXEC)
     }
 
+    #[inline]
     pub fn is_writeable(&self) -> bool {
         self.perm.intersects(Protection::WRITE)
     }
 
+    #[inline]
     pub fn is_readable(&self) -> bool {
         self.perm.intersects(Protection::READ)
     }
 
+    #[inline]
     fn intern_aligned_start(addr: u64) -> u64 {
-        addr & 0xFFFF_F000
+        align(addr) //addr & 0xFFFF_F000
     }
 
+    #[inline]
     pub fn aligned_start(&self) -> u64 {
         Self::intern_aligned_start(self.addr)
     }
 
+    #[inline]
     fn intern_aligned_end(addr: u64, memsz: usize) -> u64 {
-        (addr + memsz as u64 + 0x1000) & 0xFFFF_F000
+        //(addr + memsz as u64 + 0x1000) & 0xFFFF_F000
+        align(addr + memsz as u64)
     }
 
+    #[inline]
     pub fn aligned_end(&self) -> u64 {
         Self::intern_aligned_end(self.addr, self.memsz)
     }
 
+    #[inline]
     fn intern_aligned_size(addr: u64, memsz: usize) -> usize {
         (Self::intern_aligned_end(addr, memsz) - Self::intern_aligned_start(addr)) as usize
     }
 
+    #[inline]
     pub fn aligned_size(&self) -> usize {
         (self.aligned_end() - self.aligned_start()) as usize
     }
 
+    #[inline]
     pub fn loadable(&self) -> bool {
         self.segtype.loadable()
     }
@@ -218,6 +237,9 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
             bottom = b
         };
     }
+
+    // TODO Reloc tables
+
     segs.push(Seg {
         addr: bottom,
         perm: Protection::READ | Protection::WRITE,
@@ -244,17 +266,21 @@ pub fn load_from_path(path: &str, stack_size: usize) -> Result<Vec<Seg>, Error> 
     load(&std::fs::read(path)?, stack_size)
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
     fn test_loader() {
-        let res = load_from_path("/bin/sh", 0x1000)
-            .expect("Failed to load /bin/sh");
+        pretty_env_logger::init();
+        let res = load_from_path("/bin/sh", 0x1000).expect("Failed to load /bin/sh");
         for s in res {
-            log::info!("Segment: {:?}", s);
+            log::info!("Segment: {}", s);
         }
     }
 }
+
+// TODO:
+// - The elf loader is a bit rough, and not entirely exact. I don't handle relocations, e.g.
+// - We should factor out the unicorn elf loader into its own method or structure. Right now,
+//   it all takes place inside executore::init_emu.

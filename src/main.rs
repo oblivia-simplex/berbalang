@@ -10,6 +10,8 @@ use crate::configure::Configure;
 mod scratch; // NOTE: tinkering files
 
 mod configure;
+mod creature;
+mod disassembler;
 #[allow(dead_code)] // FIXME
 mod emulator;
 mod evaluator;
