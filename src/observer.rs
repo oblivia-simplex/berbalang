@@ -9,7 +9,7 @@ use std::thread::{spawn, JoinHandle};
 use crate::configure::Configure;
 use crate::evolution::Phenome;
 
-pub struct Observer<O: Phenome> {
+pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
     // TODO: add a reporter struct field
@@ -17,14 +17,14 @@ pub struct Observer<O: Phenome> {
 
 pub type ReportFn<T> = Box<dyn Fn(&[T]) -> () + Sync + Send + 'static>;
 
-pub struct Window<O: Phenome> {
+pub struct Window<O> {
     pub frame: Vec<O>,
     i: usize,
     window_size: usize,
     report_fn: ReportFn<O>,
 }
 
-impl<O: Phenome> Window<O> {
+impl<O> Window<O> {
     fn new(window_size: usize, report_fn: ReportFn<O>) -> Self {
         assert!(window_size > 0);
         Self {
@@ -52,7 +52,7 @@ impl<O: Phenome> Window<O> {
     }
 }
 
-impl<O: 'static + Phenome> Observer<O> {
+impl<O: 'static + Send> Observer<O> {
     /// The observe method should take a clone of the observable
     /// and store in something like a sliding observation window.
     pub fn observe(&self, ob: O) {

@@ -284,7 +284,6 @@ mod evaluation {
     }
 
     impl<P: Phenome + 'static> Evaluate<P> for Evaluator<P> {
-        type Fitness = Fitness;
         type Params = Config;
 
         fn evaluate(&self, phenome: P) -> P {

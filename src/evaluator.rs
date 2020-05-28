@@ -10,7 +10,6 @@ pub type FitnessFn<P, C> = Box<dyn Fn(P, Arc<C>) -> P + Sync + Send + 'static>;
 
 pub trait Evaluate<P: Phenome> {
     type Params;
-    type Fitness: FitnessScore;
 
     /// We're assuming that the Phenotype contains a binding to
     /// the resulting fitness score, and that this method sets

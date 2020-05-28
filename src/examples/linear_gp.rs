@@ -636,7 +636,6 @@ mod evaluation {
 
     impl Evaluate<Creature> for Evaluator {
         type Params = Config;
-        type Fitness = Fitness;
 
         fn evaluate(&self, phenome: Creature) -> Creature {
             self.tx.send(phenome).expect("tx failure");
