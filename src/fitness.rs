@@ -9,9 +9,14 @@ pub trait FitnessScoreReq:
 }
 
 pub trait FitnessScore:
-    PartialEq + Debug + Send + Clone + PartialOrd + Serialize + Ord
+    PartialEq + Debug + Send + Clone + PartialOrd + Serialize + PartialOrd
 {
 }
 
+// this smells bad
 impl FitnessScore for usize {}
 impl FitnessScore for (usize, usize) {}
+impl FitnessScore for (usize, f32) {}
+impl FitnessScore for (usize, f32, usize) {}
+impl FitnessScore for (usize, f32, f32, usize) {}
+impl FitnessScore for Vec<f32> {}

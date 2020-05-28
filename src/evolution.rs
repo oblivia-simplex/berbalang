@@ -12,7 +12,7 @@ use crate::evaluator::Evaluate;
 use crate::fitness::FitnessScore;
 use crate::observer::Observer;
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash)]
 pub struct Problem {
     pub input: Vec<i32>,
     // TODO make this more generic
@@ -54,10 +54,6 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
             iteration,
         } = self;
 
-        // try using a heap for the population instead, and then
-        // follow jackie's suggestion to take a random reservoir
-        // sample of combatants.
-
         let tournament_size = config.tournament_size();
         let mut rng = thread_rng();
         let mut combatants = iter::repeat(())
@@ -74,7 +70,12 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
             })
             .collect::<Vec<P>>();
 
-        combatants.sort_by(|a, b| a.fitness().cmp(&b.fitness()));
+        combatants.sort_by(|a, b| {
+            a.fitness()
+                .partial_cmp(&b.fitness())
+                .unwrap_or(Ordering::Equal)
+        });
+        //log::debug!("combatants' fitnesses: {:?}", combatants.iter().map(|c| c.fitness()).collect::<Vec<_>>());
         best = Self::update_best(best, &combatants[0]);
 
         // kill one off for every offspring to be produced
@@ -151,7 +152,6 @@ pub trait Genome: Debug {
     where
         Self: Sized,
     {
-        log::debug!("Mating {:?} and {:?}", self, other);
         let mut offspring = self.crossover::<C>(other, params.clone());
         let mut rng = thread_rng();
         for child in offspring.iter_mut() {
@@ -159,7 +159,6 @@ pub trait Genome: Debug {
                 child.mutate();
             }
         }
-        log::debug!("Offspring: {:?}", offspring);
         offspring
     }
 }
@@ -181,4 +180,6 @@ pub trait Phenome: Clone + Debug + Send + Ord + Genome {
     fn problems(&self) -> Option<&Vec<Problem>>;
 
     fn store_answers(&mut self, results: Vec<Problem>);
+
+    fn len(&self) -> usize;
 }

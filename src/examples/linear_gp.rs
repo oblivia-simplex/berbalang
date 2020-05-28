@@ -10,12 +10,18 @@ use crate::configure::{Configure, ConfigureObserver};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::{Epoch, Genome, Phenome, Problem};
 use crate::observer::{Observer, ReportFn};
+use crate::util::count_min_sketch;
+use crate::util::count_min_sketch::{CountMinSketch, DecayingSketch};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use crate::util::count_min_sketch::CountMinSketch;
 
-pub type Fitness = usize; // TODO: support lexicographic fitness comparisons
-// try setting fitness to (usize, usize);
+pub type BaseFitness = usize;
+pub type GenomicDiversity = f32;
+pub type PhenomicDiversity = f32;
+pub type Length = usize;
+
+pub type Fitness = (BaseFitness, PhenomicDiversity, GenomicDiversity, Length); // TODO: support lexicographic fitness comparisons
+                                 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -86,8 +92,8 @@ impl Configure for Config {
 
 pub mod machine {
     use std::fmt::{self, Display};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::hash::Hash;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use rand::distributions::{Distribution, Standard};
     use rand::{thread_rng, Rng};
@@ -327,22 +333,44 @@ impl Genotype {
         self.0.len()
     }
 
+    // TODO: factor these into generic methods.
+    // every genotype should have some kind of serialization method, something
+    // like .instructions(), and so it should support a derived digrams method.
+    // we need to constrain instructions to be hashable.
     pub fn digrams(&self) -> impl Iterator<Item = (machine::Inst, machine::Inst)> + '_ {
-        self.0.iter().zip(self.0.iter().skip(1)).map(|(a,b)| (*a, *b))
+        self.0
+            .iter()
+            .zip(self.0.iter().skip(1))
+            .map(|(a, b)| (*a, *b))
     }
 
-    pub fn record_genetic_frequency(&self, sketch: &mut CountMinSketch) {
+    pub fn record_genetic_frequency(
+        &self,
+        sketch: &mut DecayingSketch,
+        timestamp: usize,
+    ) -> Result<(), count_min_sketch::Error> {
         for digram in self.digrams() {
-            sketch.insert(digram)
+            sketch.insert(digram, timestamp)?
         }
+        Ok(())
     }
 
-    pub fn measure_genetic_frequency(&self, sketch: &CountMinSketch) -> usize {
+    pub fn measure_genetic_frequency(
+        &self,
+        sketch: &DecayingSketch,
+        timestamp: usize,
+    ) -> Result<f32, count_min_sketch::Error> {
         // The lower the score, the rarer the digrams composing the genome.
         // We divide by the length to avoid penalizing longer genomes.
-        self.digrams().map(|d| sketch.query(d))
-            //.map(|n| ((1_f64 + n as f64).log(2_f64) * 20_f64) as usize)
-            .sum::<usize>() // / self.len()
+        // let mut sum = 0_f32;
+        // for digram in self.digrams() {
+        //     sum += (sketch.query(digram, timestamp)?);
+        // };
+        // Ok(sum)
+        self.digrams()
+            .map(|digram| sketch.query(digram, timestamp))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into_iter().fold(std::f32::MAX, |a,b| a.min(b)))
     }
 }
 
@@ -366,20 +394,26 @@ impl Debug for Creature {
 }
 
 impl Creature {
-    fn len(&self) -> usize {
-        self.genotype.len()
-    }
+
 
     fn instructions(&self) -> &Vec<machine::Inst> {
         &self.genotype.0
     }
 
-    pub fn record_genetic_frequency(&self, sketch: &mut CountMinSketch) {
-        self.genotype.record_genetic_frequency(sketch)
+    pub fn record_genetic_frequency(
+        &self,
+        sketch: &mut DecayingSketch,
+        timestamp: usize,
+    ) -> Result<(), count_min_sketch::Error> {
+        self.genotype.record_genetic_frequency(sketch, timestamp)
     }
 
-    pub fn measure_genetic_frequency(&self, sketch: &CountMinSketch) -> usize {
-        self.genotype.measure_genetic_frequency(sketch)
+    pub fn measure_genetic_frequency(
+        &self,
+        sketch: &DecayingSketch,
+        timestamp: usize,
+    ) -> Result<f32, count_min_sketch::Error> {
+        self.genotype.measure_genetic_frequency(sketch, timestamp)
     }
 }
 
@@ -409,6 +443,10 @@ impl Phenome for Creature {
 
     fn store_answers(&mut self, answers: Vec<Problem>) {
         self.answers = Some(answers);
+    }
+
+    fn len(&self) -> usize {
+        self.genotype.len()
     }
 }
 
@@ -558,7 +596,7 @@ mod evaluation {
 
     use crate::evaluator::{Evaluate, FitnessFn};
     use crate::examples::linear_gp::machine::Machine;
-    use crate::util::count_min_sketch::CountMinSketch;
+    use crate::util::count_min_sketch::{CountMinSketch, DecayingSketch};
 
     use super::*;
 
@@ -609,7 +647,10 @@ mod evaluation {
         creature
     }
 
-    pub fn fitness_function<P: Phenome>(mut creature: P, params: Arc<Config>) -> P {
+    pub fn fitness_function<P: Phenome<Fitness = Fitness>>(
+        mut creature: P,
+        params: Arc<Config>,
+    ) -> P {
         #[allow(clippy::unnecessary_fold)]
         let fitness = creature
             .problems()
@@ -622,15 +663,15 @@ mod evaluation {
                 // Simply counting errors.
                 // TODO: consider trying distance metrics
                 if result.output == expected.output {
-                    log::debug!("correct result: {:?}", result);
                     None
                 } else {
                     Some(1)
                 }
             })
             .fold(0, |a, b| a + b);
-        log::debug!("fitness is {}", fitness);
-        creature.set_fitness(fitness.into());
+        let len = creature.len();
+        // TODO: refactor types
+        creature.set_fitness((fitness, 0.0, 0.0, len));
         creature
     }
 
@@ -648,37 +689,53 @@ mod evaluation {
 
             let handle = spawn(move || {
                 //let mut machine = Machine::new(); // This too could be parameterized
-                let mut sketch = CountMinSketch::default();
+                let mut sketch = DecayingSketch::default();
+                let mut counter = 0;
 
                 for phenome in our_rx {
+                    counter += 1;
+                    // if counter % refresh_every == 0 {
+                    //     sketch.flush()
+                    // }
                     let phenome = execute(params.clone(), phenome);
-                    let update = phenome.fitness().is_none();
+                    //let update = phenome.fitness().is_none();
                     let mut phenome = (fitness_fn)(phenome, params.clone());
                     // register and measure frequency
-                    if update {
-                        phenome.record_genetic_frequency(&mut sketch);
-                        let frequency = phenome.measure_genetic_frequency(&sketch);
-                        log::info!("unadjusted fitness: {:?}, frequency: {}", phenome.fitness(), frequency);
-                        phenome.fitness.as_mut().map(|f| *f += frequency);
-                    }
-
+                    let genomic_frequency = phenome
+                        .measure_genetic_frequency(&sketch, counter)
+                        .expect("Failed to measure genetic diversity. Check timestamps.");
+                    phenome.record_genetic_frequency(&mut sketch, counter);
+                    let phenomic_frequency = sketch.query(phenome.problems(), counter)
+                        .expect("Failed to measure phenomic diversity");
+                    sketch.insert(phenome.problems(), counter)
+                        .expect("Failed to update phenomic diversity");
+                    phenome
+                        .fitness
+                        .as_mut()
+                        .map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
+                    log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());
 
                     our_tx.send(phenome).expect("Channel failure");
                 }
             });
 
-            Self { handle, tx, rx,}
+            Self { handle, tx, rx }
         }
     }
 }
 
 pub fn run(config: Config) -> Option<Creature> {
-    let target_fitness: Fitness = config.target_fitness;
+    let target_fitness = config.target_fitness;
     let mut world = Epoch::<evaluation::Evaluator, Creature, Config>::new(config);
 
     loop {
         world = world.evolve();
-        if world.target_reached(target_fitness) {
+        // Obviously needs refactoring TODO
+        if let Some(true) = world
+            .best
+            .as_ref()
+            .and_then(|b| b.fitness.map(|f| f.0 == target_fitness))
+        {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);
             let best = std::mem::take(&mut world.best).unwrap();
