@@ -21,6 +21,7 @@ mod examples;
 mod fitness;
 mod observer;
 mod util;
+mod roper;
 
 fn main() {
     logger::init();

@@ -14,7 +14,7 @@ use crate::{
     observer::{Observer, ReportFn},
 };
 
-pub type Fitness = usize;
+pub type Fitness = Vec<f32>;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ObserverConfig {
@@ -71,14 +71,23 @@ impl Configure for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct Genotype {
-    genes: String,
+    pub genes: String,
     fitness: Option<Fitness>,
     tag: u64,
     // used for sorting in heap
     generation: usize,
 }
+
+impl PartialEq for Genotype {
+    fn eq(&self, other: &Self) -> bool {
+        self.tag == other.tag
+    }
+}
+
+impl Eq for Genotype {}
+
 
 impl PartialOrd for Genotype {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -88,7 +97,7 @@ impl PartialOrd for Genotype {
 
 impl Ord for Genotype {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.tag.cmp(&other.tag)
+        self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
 }
 
@@ -97,8 +106,8 @@ impl Phenome for Genotype {
     type Inst = ();
     type Fitness = Fitness;
 
-    fn fitness(&self) -> Option<Fitness> {
-        self.fitness
+    fn fitness(&self) -> Option<&Fitness> {
+        self.fitness.as_ref()
     }
 
     fn set_fitness(&mut self, f: Fitness) {
@@ -119,6 +128,10 @@ impl Phenome for Genotype {
 
     fn store_answers(&mut self, _results: Vec<Problem>) {
         unimplemented!("n/a") // CODE SMELL FIXME!
+    }
+
+    fn len(&self) -> usize {
+        self.genes.len()
     }
 }
 
@@ -208,18 +221,19 @@ impl Genome for Genotype {
 }
 
 fn report(window: &[Genotype]) {
-    let fitnesses: Vec<Fitness> = window.iter().filter_map(|g| g.fitness).collect();
+    let fitnesses: Vec<Fitness> = window.iter().filter_map(|g| g.fitness.clone()).collect();
+    let len = fitnesses.len();
     let avg_fit = fitnesses
         .iter()
-        .fold(0_usize, |a: Fitness, b: &Fitness| a + *b) as f32
-        / fitnesses.len() as f32;
-    let min_fit = fitnesses.iter().min();
+        .fold(vec![0.0; len], |a: Fitness, b: &Fitness| a.iter().zip(b.iter()).map(|(a,b)| a+b).collect::<Vec<f32>>())
+        .iter()
+        .map(|v| v / len as f32)
+        .collect::<Vec<f32>>();
     let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f32 / window.len() as f32;
 
     log::info!(
-        "AVERAGE FITNESS: {}; MIN FIT: {:?}; AVG GEN: {}",
+        "AVERAGE FITNESS: {:?}; AVG GEN: {}",
         avg_fit,
-        min_fit,
         avg_gen
     );
 }
@@ -227,7 +241,7 @@ fn report(window: &[Genotype]) {
 fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
     if phenome.fitness.is_none() {
         let fitness = distance::damerau_levenshtein(&phenome.genes, &params.target);
-        phenome.set_fitness(fitness)
+        phenome.set_fitness(vec![fitness as f32])
     };
     phenome
 }
@@ -255,12 +269,12 @@ impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
 }
 
 pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness: Fitness = config.target_fitness;
+    let target_fitness = config.target_fitness as f32;
     let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype, Config>::new(config);
 
     loop {
         world = world.evolve();
-        if world.target_reached(target_fitness) {
+        if let Some(true) = world.best.as_ref().and_then(|b| b.fitness.as_ref()).map(|f| f[0] == target_fitness) {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);
             return world.best;
@@ -270,38 +284,49 @@ pub fn run(config: Config) -> Option<Genotype> {
 
 mod evaluation {
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::thread::{spawn, JoinHandle};
 
     use crate::evaluator::FitnessFn;
 
     use super::*;
+    use crate::util::count_min_sketch::DecayingSketch;
 
-    pub struct Evaluator<P: Phenome> {
+    pub struct Evaluator<Genotype> {
         pub handle: JoinHandle<()>,
-        tx: Sender<P>,
-        rx: Receiver<P>,
+        tx: Sender<Genotype>,
+        rx: Receiver<Genotype>,
     }
 
-    impl<P: Phenome + 'static> Evaluate<P> for Evaluator<P> {
+    impl Evaluate<Genotype> for Evaluator<Genotype> {
         type Params = Config;
 
-        fn evaluate(&self, phenome: P) -> P {
+        fn evaluate(&self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<P, Self::Params>) -> Self {
-            let (tx, our_rx): (Sender<P>, Receiver<P>) = channel();
-            let (our_tx, rx): (Sender<P>, Receiver<P>) = channel();
+        fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<Genotype, Self::Params>) -> Self {
+            let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
+            let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
+                let sketch = Arc::new(Mutex::new(DecayingSketch::default()));
+                let mut counter = 0;
                 for phenome in our_rx {
+                    counter += 1;
+                    let sketch = sketch.clone();
                     let our_tx = our_tx.clone();
                     let params = params.clone();
                     let fitness_fn = fitness_fn.clone();
-                    let _handle = spawn(move || {
-                        let phenome = fitness_fn(phenome, params.clone());
+                    let _handle = rayon::spawn(move || {
+                        let mut phenome = fitness_fn(phenome, params.clone());
+                        let mut sketch = sketch.lock().unwrap();
+                        sketch.insert(&phenome.genes, counter)
+                            .expect("Failed to insert genes into sketch");
+                        let freq = sketch.query(&phenome.genes)
+                            .expect("Failed to query sketch");
+                        phenome.fitness.as_mut().map(|f| f.push(freq));
                         our_tx.send(phenome).expect("Channel failure");
                     });
                 }

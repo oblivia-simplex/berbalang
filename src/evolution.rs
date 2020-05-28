@@ -127,12 +127,12 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
         }
     }
 
-    pub fn target_reached(&self, target: &<P as Phenome>::Fitness) -> bool {
-        self.best
-            .as_ref()
-            .and_then(|b| b.fitness())
-            .map_or(false, |f| f <= target)
-    }
+    // pub fn target_reached(&self, target: &<P as Phenome>::Fitness) -> bool {
+    //     self.best
+    //         .as_ref()
+    //         .and_then(|b| b.fitness())
+    //         .map_or(false, |f| f[0] <= target)
+    // }
 }
 
 pub trait Genome: Debug {
