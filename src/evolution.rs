@@ -127,7 +127,7 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
         }
     }
 
-    pub fn target_reached(&self, target: <P as Phenome>::Fitness) -> bool {
+    pub fn target_reached(&self, target: &<P as Phenome>::Fitness) -> bool {
         self.best
             .as_ref()
             .and_then(|b| b.fitness())
@@ -169,7 +169,7 @@ pub trait Phenome: Clone + Debug + Send + Ord + Genome {
     type Inst;
 
     /// This method is intended for reporting, not measuring, fitness.
-    fn fitness(&self) -> Option<Self::Fitness>;
+    fn fitness(&self) -> Option<&Self::Fitness>;
 
     fn set_fitness(&mut self, f: Self::Fitness);
 

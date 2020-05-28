@@ -20,7 +20,8 @@ pub type GenomicDiversity = f32;
 pub type PhenomicDiversity = f32;
 pub type Length = usize;
 
-pub type Fitness = (BaseFitness, PhenomicDiversity, GenomicDiversity, Length); // TODO: support lexicographic fitness comparisons
+//pub type Fitness = (BaseFitness, PhenomicDiversity, GenomicDiversity, Length); // TODO: support lexicographic fitness comparisons
+pub type Fitness = Vec<f32>;
                                  // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
@@ -358,7 +359,6 @@ impl Genotype {
     pub fn measure_genetic_frequency(
         &self,
         sketch: &DecayingSketch,
-        timestamp: usize,
     ) -> Result<f32, count_min_sketch::Error> {
         // The lower the score, the rarer the digrams composing the genome.
         // We divide by the length to avoid penalizing longer genomes.
@@ -368,7 +368,7 @@ impl Genotype {
         // };
         // Ok(sum)
         self.digrams()
-            .map(|digram| sketch.query(digram, timestamp))
+            .map(|digram| sketch.query(digram))
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.into_iter().fold(std::f32::MAX, |a,b| a.min(b)))
     }
@@ -411,9 +411,8 @@ impl Creature {
     pub fn measure_genetic_frequency(
         &self,
         sketch: &DecayingSketch,
-        timestamp: usize,
     ) -> Result<f32, count_min_sketch::Error> {
-        self.genotype.measure_genetic_frequency(sketch, timestamp)
+        self.genotype.measure_genetic_frequency(sketch)
     }
 }
 
@@ -421,8 +420,8 @@ impl Phenome for Creature {
     type Inst = machine::Inst;
     type Fitness = Fitness;
 
-    fn fitness(&self) -> Option<Fitness> {
-        self.fitness
+    fn fitness(&self) -> Option<&Fitness> {
+        self.fitness.as_ref()
     }
 
     fn set_fitness(&mut self, f: Fitness) {
@@ -669,9 +668,9 @@ mod evaluation {
                 }
             })
             .fold(0, |a, b| a + b);
-        let len = creature.len();
         // TODO: refactor types
-        creature.set_fitness((fitness, 0.0, 0.0, len));
+        //creature.set_fitness((fitness, 0.0, 0.0, len));
+        creature.set_fitness(vec![fitness as f32]);
         creature
     }
 
@@ -701,18 +700,19 @@ mod evaluation {
                     //let update = phenome.fitness().is_none();
                     let mut phenome = (fitness_fn)(phenome, params.clone());
                     // register and measure frequency
-                    let genomic_frequency = phenome
-                        .measure_genetic_frequency(&sketch, counter)
-                        .expect("Failed to measure genetic diversity. Check timestamps.");
                     phenome.record_genetic_frequency(&mut sketch, counter);
-                    let phenomic_frequency = sketch.query(phenome.problems(), counter)
+                    let genomic_frequency = phenome
+                        .measure_genetic_frequency(&sketch)
+                        .expect("Failed to measure genetic diversity. Check timestamps.");
+                    let phenomic_frequency = sketch.query(phenome.problems())
                         .expect("Failed to measure phenomic diversity");
                     sketch.insert(phenome.problems(), counter)
                         .expect("Failed to update phenomic diversity");
                     phenome
                         .fitness
                         .as_mut()
-                        .map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
+                        .map(|f| { /*f[0] += (1.0+phenomic_frequency).log(2.0); */ f.push(phenomic_frequency); f.push(genomic_frequency) });
+                        //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
                     log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());
 
                     our_tx.send(phenome).expect("Channel failure");
@@ -731,10 +731,11 @@ pub fn run(config: Config) -> Option<Creature> {
     loop {
         world = world.evolve();
         // Obviously needs refactoring TODO
-        if let Some(true) = world
-            .best
-            .as_ref()
-            .and_then(|b| b.fitness.map(|f| f.0 == target_fitness))
+        // if let Some(true) = world
+        //     .best
+        //     .as_ref()
+        //     .and_then(|b| b.fitness.map(|f| f.0 == target_fitness))
+        if false// TODO: find way to state stop condition
         {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);

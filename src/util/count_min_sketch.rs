@@ -28,7 +28,7 @@ fn hash<T: Hash>(thing: &T, index: usize) -> usize {
 
 #[derive(Debug)]
 pub struct DecayingSketch {
-    freq_table: Vec<Vec<usize>>,
+    freq_table: Vec<Vec<f32>>,
     time_table: Vec<Vec<usize>>,
     num_hash_funcs: usize,
     width: usize,
@@ -40,63 +40,82 @@ impl Default for DecayingSketch {
     fn default() -> Self {
         let num_hash_funcs = 1 << 3;
         let width = 1 << 10;
-        let elapsed = 0;
         let half_life = 1024_f32; // FIXME tweak
-        Self {
-            num_hash_funcs,
-            width,
-            elapsed,
-            half_life,
-            freq_table: vec![vec![0_usize; width]; num_hash_funcs],
-            time_table: vec![vec![0_usize; width]; num_hash_funcs],
-        }
+        Self::new(num_hash_funcs, width, half_life)
+
     }
 }
 
 impl DecayingSketch {
-    fn decay_factor(&self, timestamp: usize, current_time: usize) -> Result<f32, Error> {
-        if current_time < timestamp {
+
+    fn new(num_hash_funcs: usize, width: usize, half_life: f32) -> Self {
+        assert!(half_life > 0.0, "half_life for DecayingSketch cannot be less than or equal to 0");
+        let time_table = vec![vec![0_usize; width]; num_hash_funcs];
+        let freq_table = vec![vec![0_f32; width]; num_hash_funcs];
+        Self {
+            num_hash_funcs,
+            width,
+            elapsed: 0,
+            half_life,
+            freq_table,
+            time_table,
+        }
+
+    }
+
+    fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f32, Error> {
+        if current_timestamp < prior_timestamp {
             return Err(Error::InvalidTimestamp {
-                timestamp,
-                elapsed: current_time,
+                timestamp: prior_timestamp,
+                elapsed: current_timestamp,
             });
         }
-        let age = current_time - timestamp;
+        let age = current_timestamp - prior_timestamp;
         let decay = 2_f32.powf(-(age as f32 / self.half_life));
         log::debug!(
             "decay factor for timestamp {}, current_time {} = {}",
-            timestamp,
-            current_time,
+            prior_timestamp,
+            current_timestamp,
             decay
         );
         Ok(decay)
     }
 
-    pub fn insert<T: Hash>(&mut self, thing: T, timestamp: usize) -> Result<(), Error> {
-        if timestamp < self.elapsed {
+    pub fn insert<T: Hash>(&mut self, thing: T, current_timestamp: usize) -> Result<(), Error> {
+        if current_timestamp < self.elapsed {
             return Err(Error::InvalidTimestamp {
-                timestamp,
+                timestamp: current_timestamp,
                 elapsed: self.elapsed,
             });
         }
-        self.elapsed = timestamp;
 
         for i in 0..self.num_hash_funcs {
             let loc = hash(&thing, i) % self.width;
-            self.freq_table[i][loc] += 1;
-            self.time_table[i][loc] = timestamp;
+            // FIXME decay, and THEN add (convert to floats)
+            let s = self.freq_table[i][loc];
+            let prior_timestamp = self.time_table[i][loc];
+            self.freq_table[i][loc] = 1.0 + s * self.decay_factor(prior_timestamp, current_timestamp)?;
+            self.time_table[i][loc] = current_timestamp;
         }
 
+        self.elapsed = current_timestamp;
         Ok(())
     }
 
-    pub fn query<T: Hash>(&self, thing: T, current_time: usize) -> Result<f32, Error> {
+    pub fn query<T: Hash>(&self, thing: T) -> Result<f32, Error> {
+        let current_time = self.elapsed;
         let (freq, timestamp) = (0..self.num_hash_funcs)
             .map(|i| {
                 let loc = hash(&thing, i) % self.width;
                 (self.freq_table[i][loc], self.time_table[i][loc])
             })
-            .fold((std::usize::MAX, std::usize::MAX), std::cmp::min);
+            .fold((std::f32::MAX, std::usize::MAX), |(a_freq, a_time), (b_freq, b_time)| {
+                if a_freq < b_freq {
+                    (a_freq, a_time)
+                } else {
+                    (b_freq, b_time)
+                }
+            });
         self.decay_factor(timestamp, current_time)
             .map(|d| d * freq as f32)
     }
@@ -105,7 +124,7 @@ impl DecayingSketch {
         for i in 0..self.num_hash_funcs {
             for j in 0..self.width {
                 self.time_table[i][j] = 0;
-                self.freq_table[i][j] = 0;
+                self.freq_table[i][j] = 0.0;
             }
         }
     }
