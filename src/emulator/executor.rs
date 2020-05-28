@@ -13,9 +13,9 @@ use serde_derive::Deserialize;
 use std::pin::Pin;
 use threadpool::ThreadPool;
 //use rayon::{ThreadPoolBuilder, };
+use indexmap::map::IndexMap;
 use rayon::prelude::*;
 use unicorn::{Arch, Cpu, Mode};
-use indexmap::map::IndexMap;
 
 type Code = Vec<u8>;
 pub type Register<C> = <C as Cpu<'static>>::Reg;
@@ -568,8 +568,8 @@ mod test {
 
     use super::*;
     use byteorder::{ByteOrder, LittleEndian};
-    use rand::{thread_rng, Rng};
     use indexmap::indexmap;
+    use rand::{thread_rng, Rng};
 
     mod example {
         use super::*;
@@ -684,19 +684,22 @@ mod test {
 
         use RegisterX86::*;
         let output_registers = Arc::new(vec![RAX, RSP, RIP, RBP, RBX, RCX, EFLAGS]);
-        let inputs = Arc::new(vec![indexmap!{ RCX => 0xdead_beef, RDX => 0xcafe_babe }]);
+        let mut inputs = vec![indexmap! { RCX => 0xdead_beef, RDX => 0xcafe_babe }];
+        for _ in 0..100 {
+            inputs.push(indexmap! { RCX => rand::random(), RAX => rand::random() });
+        }
         for (_code, _profile) in hatchery
             .pipeline(
                 code_iterator,
-                inputs,
+                Arc::new(inputs),
                 output_registers,
                 Box::new(simple_emu_prep_fn),
             )
             .iter()
         {
             counter += 1;
-            //log::info!("[{}] Output: {:#?}", counter, profile);
-            log::info!("{} processed", counter);
+            log::info!("[{}] Output: {:#?}", counter, _profile.paths);
+            //log::info!("{} processed", counter);
             drop(_profile);
         }
         assert_eq!(counter, expected_num);

@@ -20,6 +20,7 @@ mod evolution;
 mod examples;
 mod fitness;
 mod observer;
+mod util;
 
 fn main() {
     logger::init();

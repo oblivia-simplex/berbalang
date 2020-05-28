@@ -1,53 +1,31 @@
 use crate::emulator::executor::Register;
+use crate::evolution::Problem;
 use byteorder::{BigEndian, ByteOrder};
 use indexmap::map::IndexMap;
-use radix_trie::{Trie, TrieKey};
+use prefix_tree::PrefixSet;
 use std::cmp::{Ord, PartialOrd};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use unicorn::Cpu;
-use crate::evolution::Problem;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+// TODO: why store the size at all, if you're just going to
+// throw it away?
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Block {
     pub entry: u64,
     pub size: usize,
     //pub code: Vec<u8>,
 }
 
-impl TrieKey for Block {
-    fn encode_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        BigEndian::write_u64(&mut buf, self.entry);
-        BigEndian::write_u64(&mut buf, self.size as u64);
-        buf
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Blocks(pub Vec<Block>);
-
-impl From<Vec<Block>> for Blocks {
-    fn from(blocks: Vec<Block>) -> Self {
-        Self(blocks)
-    }
-}
-
-impl TrieKey for Blocks {
-    fn encode_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        for block in &self.0 {
-            let mut b = [0; 8];
-            BigEndian::write_u64(&mut b, block.entry);
-            buf.extend_from_slice(&b);
-            let mut b = [0; 8];
-            BigEndian::write_u64(&mut b, block.size as u64);
-            buf.extend_from_slice(&b);
-        }
-        // ensure that 8 bytes were written per field
-        assert_eq!(buf.len(), self.0.len() * 16);
-        buf
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "[BLOCK 0x{:08x} - 0x{:08x}]",
+            self.entry,
+            self.entry + self.size as u64
+        )
     }
 }
 
@@ -69,7 +47,7 @@ impl<C: Cpu<'static>> Profiler<C> {
 
 #[derive(Debug)]
 pub struct Profile<C: Cpu<'static>> {
-    pub block_trie: Trie<Blocks, ()>,
+    pub paths: PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
     pub registers: Vec<IndexMap<Register<C>, u64>>,
@@ -77,8 +55,8 @@ pub struct Profile<C: Cpu<'static>> {
 
 impl<C: Cpu<'static>> Profile<C> {
     pub fn collate(profilers: Vec<Profiler<C>>) -> Self {
-        let mut block_trie = Trie::new();
         //let mut write_trie = Trie::new();
+        let mut paths = PrefixSet::new();
         let mut cpu_errors = IndexMap::new();
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
@@ -92,7 +70,13 @@ impl<C: Cpu<'static>> Profile<C> {
             ..
         } in profilers.into_iter()
         {
-            block_trie.insert((*block_log.lock().unwrap()).clone().into(), ());
+            paths.insert::<Vec<Block>>(
+                (*block_log.lock().unwrap())
+                    .iter()
+                    .map(Clone::clone)
+                    //.map(|b| (b.entry, b.size))
+                    .collect::<Vec<Block>>(),
+            );
             //write_trie.insert((*write_log.lock().unwrap()).clone(), ());
             if let Some(c) = cpu_error {
                 *cpu_errors.entry(c).or_insert(0) += 1;
@@ -102,7 +86,7 @@ impl<C: Cpu<'static>> Profile<C> {
         }
 
         Self {
-            block_trie,
+            paths,
             //write_trie,
             cpu_errors,
             computation_times,
@@ -177,5 +161,46 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             computation_time: Duration::default(),
             block_log: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use unicorn::CpuX86;
+
+    #[test]
+    fn test_collate() {
+        let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
+            Profiler {
+                block_log: Arc::new(Mutex::new(vec![
+                    Block { entry: 1, size: 2 },
+                    Block { entry: 3, size: 4 },
+                ])),
+                cpu_error: None,
+                computation_time: Default::default(),
+                registers: IndexMap::new(),
+                registers_to_read: vec![],
+            },
+            Profiler {
+                block_log: Arc::new(Mutex::new(vec![
+                    Block { entry: 1, size: 2 },
+                    Block { entry: 6, size: 6 },
+                ])),
+                cpu_error: None,
+                computation_time: Default::default(),
+                registers: IndexMap::new(),
+                registers_to_read: vec![],
+            },
+        ];
+
+        let profile: Profile<CpuX86<'_>> = profilers.into();
+
+        println!("{:#?}", profile);
+        println!(
+            "size of profile in mem: {}",
+            std::mem::size_of_val(&profile.paths)
+        );
     }
 }

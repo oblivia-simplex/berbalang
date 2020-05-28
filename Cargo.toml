@@ -33,6 +33,7 @@ serde_derive = "1"
 sliding_windows = "3"
 threadpool = "1.8"
 radix_trie = "0.1"
+prefix-tree = "0.5"
 toml = "0.5"
 unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "development" }
 

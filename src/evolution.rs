@@ -166,6 +166,7 @@ pub trait Genome: Debug {
 
 pub trait Phenome: Clone + Debug + Send + Ord + Genome {
     type Fitness: FitnessScore + From<usize>;
+    // TODO: generalize fitness. should be able to use vecs, etc.
     type Inst;
 
     /// This method is intended for reporting, not measuring, fitness.
