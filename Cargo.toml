@@ -32,6 +32,7 @@ serde = { version = "1", features = ["derive"] }
 serde_derive = "1"
 sliding_windows = "3"
 threadpool = "1.8"
+radix_trie = "0.1"
 toml = "0.5"
 unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "development" }
 

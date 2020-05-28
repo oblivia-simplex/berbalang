@@ -226,24 +226,27 @@ pub mod machine {
                     self.set(inst.a, $val)
                 };
             }
-            let r = &self.registers;
 
             match inst.op {
-                Add => set!(r[inst.a].wrapping_add(r[inst.b])),
+                Add => set!(self.registers[inst.a].wrapping_add(self.registers[inst.b])),
                 Div => {
-                    let b = if r[inst.b] == 0 { 1 } else { r[inst.b] };
-                    set!(r[inst.a].wrapping_div(b))
+                    let b = if self.registers[inst.b] == 0 {
+                        1
+                    } else {
+                        self.registers[inst.b]
+                    };
+                    set!(self.registers[inst.a].wrapping_div(b))
                 }
-                Mov => set!(r[inst.b]),
-                Mult => set!(r[inst.a].wrapping_mul(r[inst.b])),
-                Sub => set!(r[inst.a].wrapping_sub(r[inst.b])),
-                Xor => set!(r[inst.a] ^ r[inst.b]),
+                Mov => set!(self.registers[inst.b]),
+                Mult => set!(self.registers[inst.a].wrapping_mul(self.registers[inst.b])),
+                Sub => set!(self.registers[inst.a].wrapping_sub(self.registers[inst.b])),
+                Xor => set!(self.registers[inst.a] ^ self.registers[inst.b]),
                 Set(n) => set!(n),
-                Lsl => set!(r[inst.a].wrapping_shl(r[inst.b] as u32)),
-                And => set!(r[inst.a] & r[inst.b]),
+                Lsl => set!(self.registers[inst.a].wrapping_shl(self.registers[inst.b] as u32)),
+                And => set!(self.registers[inst.a] & self.registers[inst.b]),
                 Jle => {
-                    if r[inst.a] <= 0 {
-                        self.pc = r[inst.b] as usize
+                    if self.registers[inst.a] <= 0 {
+                        self.pc = self.registers[inst.b] as usize
                     }
                 }
             }
@@ -286,11 +289,11 @@ pub mod machine {
             }
         }
 
-        fn return_value<'a>(&'a self) -> &'a [MachineWord] {
+        fn return_value(&self) -> &[MachineWord] {
             &self.registers[0..self.return_registers]
         }
 
-        pub fn exec<'a>(&'a mut self, code: &[Inst], input: &[MachineWord]) -> &'a [MachineWord]{
+        pub fn exec<'a>(&'a mut self, code: &[Inst], input: &[MachineWord]) -> &'a [MachineWord] {
             self.flush_registers();
             self.load_input(input);
             self.exec_insts(code);
@@ -477,25 +480,20 @@ impl Epoch<evaluation::Evaluator, Creature, Config> {
         let problems = parse_data(&config.data.path);
         assert!(problems.is_some());
         // figure out the number of return registers needed
-        let return_registers =
-            problems.as_ref()
-                .unwrap()
-                .iter()
-                .map(|p| p.output)
-                .collect::<std::collections::HashSet<i32>>()
-                .len();
+        let return_registers = problems
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|p| p.output)
+            .collect::<std::collections::HashSet<i32>>()
+            .len();
         // and how many input registers
-        let input_registers =
-            problems.as_ref()
-                .unwrap()[0].input.len();
+        let input_registers = problems.as_ref().unwrap()[0].input.len();
 
         config.problems = problems;
         config.return_registers = return_registers;
         config.num_registers = return_registers + input_registers + 2;
-        machine::NUM_REGISTERS.store(
-            config.num_registers,
-            std::sync::atomic::Ordering::Relaxed
-        );
+        machine::NUM_REGISTERS.store(config.num_registers, std::sync::atomic::Ordering::Relaxed);
         log::info!("Config: {:#?}", config);
         let config = Arc::new(config);
         let population = iter::repeat(())

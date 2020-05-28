@@ -11,6 +11,7 @@ mod scratch; // NOTE: tinkering files
 
 mod configure;
 mod creature;
+#[allow(dead_code)] // FIXME
 mod disassembler;
 #[allow(dead_code)] // FIXME
 mod emulator;

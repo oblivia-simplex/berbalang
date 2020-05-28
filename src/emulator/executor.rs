@@ -6,13 +6,16 @@ use std::time::{Duration, Instant};
 
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
-use crate::emulator::profiler::Profiler;
+use crate::emulator::profiler::{Profile, Profiler};
 
 use object_pool::Pool;
 use serde_derive::Deserialize;
 use std::pin::Pin;
 use threadpool::ThreadPool;
+//use rayon::{ThreadPoolBuilder, };
+use rayon::prelude::*;
 use unicorn::{Arch, Cpu, Mode};
+use indexmap::map::IndexMap;
 
 type Code = Vec<u8>;
 pub type Register<C> = <C as Cpu<'static>>::Reg;
@@ -82,17 +85,20 @@ const fn default_stack_size() -> usize {
 pub struct HatcheryParams {
     #[serde(default = "default_num_workers")]
     pub num_workers: usize,
+    #[serde(default = "default_num_workers")]
+    pub num_emulators: usize,
     #[serde(default = "default_wait_limit")]
     pub wait_limit: u64,
     pub arch: Arch,
     pub mode: Mode,
+    pub max_emu_steps: Option<usize>,
     pub millisecond_timeout: Option<u64>,
     #[serde(default = "Default::default")]
     pub record_basic_blocks: bool,
     #[serde(default = "Default::default")]
     pub record_memory_writes: bool,
     #[serde(default = "default_stack_size")]
-    pub stack_size: usize,
+    pub emulator_stack_size: usize,
     pub binary_path: Option<String>,
 }
 
@@ -219,7 +225,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         log::debug!("Creating hatchery with {} workers", params.num_workers);
         let memory = if let Some(path) = params.binary_path.as_ref() {
             Arc::new(Some(Pin::new(
-                loader::load_from_path(path, params.stack_size)
+                loader::load_from_path(path, params.emulator_stack_size)
                     .expect("Failed to load binary from path"),
             )))
         } else {
@@ -229,6 +235,13 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
             init_emu(&params, &memory).expect("failed to initialize emulator")
         }));
         let thread_pool = Arc::new(Mutex::new(ThreadPool::new(params.num_workers)));
+        // let _thread_pool = ThreadPoolBuilder::new()
+        //     .num_threads(params.num_workers)
+        //     //.stack_size(0x1000_000)
+        //     .build_global();
+        // .map(Mutex::new)
+        // .map(Arc::new)
+        // .expect("Failed to build thread pool");
         log::debug!("Pool created");
         Self {
             emu_pool,
@@ -243,19 +256,22 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
     pub fn pipeline<I: 'static + Iterator<Item = Code> + Send>(
         &self,
         inbound: I,
+        inputs: Arc<Vec<IndexMap<Register<C>, u64>>>,
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: EmuPrepFn<C>,
-    ) -> Receiver<(Code, Profiler<C>)> {
-        let (tx, rx) = sync_channel::<(Code, Profiler<C>)>(self.params.num_workers);
-        let thread_pool = self.thread_pool.clone();
+    ) -> Receiver<(Code, Profile<C>)> {
+        let (tx, rx) = sync_channel::<(Code, Profile<C>)>(self.params.num_workers);
+        //let thread_pool = self.thread_pool.clone();
         let mode = self.params.mode;
         let pool = self.emu_pool.clone();
         let wait_limit = self.params.wait_limit;
         let emu_prep_fn = Arc::new(emu_prep_fn);
         let params = self.params.clone();
         let millisecond_timeout = self.params.millisecond_timeout.unwrap_or(0);
+        let max_emu_steps = self.params.max_emu_steps.unwrap_or(0);
         let memory = self.memory.clone();
+        let thread_pool = self.thread_pool.clone();
         let _pipe_handler = spawn(move || {
             for payload in inbound {
                 let emu_prep_fn = emu_prep_fn.clone();
@@ -267,77 +283,91 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                     .expect("Failed to unlock thread_pool mutex");
                 let pool = pool.clone();
                 let memory = memory.clone();
+                let inputs = inputs.clone();
                 thread_pool.execute(move || {
-                    // Acquire an emulator from the pool.
-                    let mut emu = wait_for_emu(&pool, wait_limit, mode);
-                    // Initialize the profiler
-                    let mut profiler = Profiler::new(output_registers.clone());
-                    // Save the register context
-                    let context = emu.context_save().expect("Failed to save context");
+                    let profile = inputs.par_iter().map(|input| {
+                        // Acquire an emulator from the pool.
+                        let mut emu = wait_for_emu(&pool, wait_limit, mode);
+                        // Initialize the profiler
+                        let mut profiler = Profiler::new(&output_registers);
+                        // Save the register context
+                        let context = emu.context_save().expect("Failed to save context");
 
-                    if params.record_basic_blocks {
-                        let _hooks = util::install_basic_block_hook(&mut (*emu), &profiler)
-                            .expect("Failed to install basic_block_hook");
-                    }
+                        if params.record_basic_blocks {
+                            let _hooks = util::install_basic_block_hook(&mut (*emu), &profiler)
+                                .expect("Failed to install basic_block_hook");
+                        }
 
-                    if params.record_memory_writes {
-                        let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
-                            .expect("Failed to install mem_write_hook");
-                    }
-                    // Prepare the emulator with the user-supplied preparation function.
-                    // This function will generally be used to load the payload and install
-                    // callbacks, which should be able to write to the Profiler instance.
-                    let start_addr = emu_prep_fn(&mut emu, &params, &payload, &profiler)
-                        .expect("Failure in the emulator preparation function.");
-                    // If the preparation was successful, launch the emulator and execute
-                    // the payload. We want to hang onto the exit code of this task.
-                    let start_time = Instant::now();
-                    let result = emu.emu_start(
-                        start_addr,
-                        0,
-                        millisecond_timeout * unicorn::MILLISECOND_SCALE,
-                        0,
-                    );
-                    profiler.computation_time = start_time.elapsed();
-                    if let Err(error_code) = result {
-                        profiler.set_error(error_code)
-                    };
-                    profiler.read_registers(&mut emu);
+                        // if params.record_memory_writes {
+                        //     let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
+                        //         .expect("Failed to install mem_write_hook");
+                        // }
+                        // Prepare the emulator with the user-supplied preparation function.
+                        // This function will generally be used to load the payload and install
+                        // callbacks, which should be able to write to the Profiler instance.
+                        let start_addr = emu_prep_fn(&mut emu, &params, &payload, &profiler)
+                            .expect("Failure in the emulator preparation function.");
+                        // load the inputs
+                        // TODO refactor into separate method
+                        for (reg,val) in input.iter() {
+                            emu.reg_write(*reg, *val)
+                                .expect("Failed to load registers");
+                        }
+                        // If the preparation was successful, launch the emulator and execute
+                        // the payload. We want to hang onto the exit code of this task.
+                        let start_time = Instant::now();
+                        let result = emu.emu_start(
+                            start_addr,
+                            0,
+                            millisecond_timeout * unicorn::MILLISECOND_SCALE,
+                            max_emu_steps,
+                        );
+                        profiler.computation_time = start_time.elapsed();
+                        if let Err(error_code) = result {
+                            profiler.set_error(error_code)
+                        };
+                        profiler.read_registers(&mut emu);
 
-                    // cleanup
-                    emu.remove_all_hooks().expect("Failed to clean up hooks");
-                    emu.context_restore(&context)
-                        .expect("Failed to restore context");
-                    // clean up writeable memory
-                    if let Some(memory) = memory.as_ref() {
-                        memory.iter().filter(|s| s.is_writeable()).for_each(|seg| {
-                            emu.mem_write(seg.aligned_start(),
-                                &seg.data
-                            ).unwrap_or_else(|e| {
-                                log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
+                        // cleanup
+                        emu.remove_all_hooks().expect("Failed to clean up hooks");
+                        emu.context_restore(&context)
+                            .expect("Failed to restore context");
+                        // clean up writeable memory
+                        if let Some(memory) = memory.as_ref() {
+                            memory.iter().filter(|s| s.is_writeable()).for_each(|seg| {
+                                emu.mem_write(seg.aligned_start(),
+                                              &seg.data
+                                ).unwrap_or_else(|e| {
+                                    log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
                                     seg.aligned_start(), seg.aligned_end(), e
                                 )
+                                });
                             });
-                        });
-                    }
+                        }
+                        profiler
+
+                    }).collect::<Vec<Profiler<C>>>().into();
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
-                    tx.send((payload, profiler))
+                    tx.send((payload, profile))
                         .map_err(Error::from)
                         .expect("TX Failure in pipeline");
                 });
             }
         });
+        // println!("joining pipe_handler");
+        // pipe_handler.join().unwrap();
+        // println!("joined pipe_handler");
         rx
     }
 }
 // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
 
 mod util {
-    use unicorn::{CodeHookType, MemHookType, MemRegion, MemType, Protection, Unicorn};
+    use unicorn::{CodeHookType, MemHookType, MemRegion, MemType, Protection};
 
     use super::*;
-    use crate::emulator::profiler::{Block, MemLogEntry};
+    use crate::emulator::profiler::Block;
 
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
@@ -345,25 +375,14 @@ mod util {
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let block_log = profiler.block_log.clone();
         //let ret_log = profiler.ret_log.clone();
-        let bb_callback = move |engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
+        let bb_callback = move |_engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
-            let code = match engine.mem_read_as_vec(entry, size) {
-                Ok(xs) => xs,
-                Err(e) => {
-                    log::error!(
-                        "Failed to read basic block from bb_callback at 0x{:x}: {:?}",
-                        entry,
-                        e
-                    );
-                    return;
-                }
-            };
-            println!("thread_id: {:?}", std::thread::current().id());
+
             // If the code ends with a return, log it in the ret log.
             // but how to make this platform-generic? We could define a
             // return_insn method on the trait, like we did for the special
             // registers. TODO: low priority
-            let block = Block { entry, size, code };
+            let block = Block { entry, size };
             block_log
                 .lock()
                 .expect("Poisoned mutex in bb_callback")
@@ -375,40 +394,40 @@ mod util {
         Ok(hooks)
     }
 
-    pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
-        emu: &mut C,
-        profiler: &Profiler<C>,
-    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
-        let pc: i32 = emu.program_counter().into();
-        let write_log = profiler.write_log.clone();
-        let mem_write_callback =
-            move |engine: &Unicorn<'_>, mem_type, address, num_bytes_written, value| {
-                //log::trace!("Inside memory hook!");
-                if let MemType::WRITE = mem_type {
-                    let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
-                    let entry = MemLogEntry {
-                        program_counter,
-                        mem_address: address,
-                        num_bytes_written,
-                        value,
-                    };
-                    let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
-                    write_log.push(entry);
-                    true // NOTE: I'm not really sure what this return value means, here.
-                } else {
-                    false
-                }
-            };
-
-        let hooks = util::mem_hook_by_prot(
-            emu,
-            MemHookType::MEM_WRITE,
-            Protection::WRITE,
-            mem_write_callback,
-        )?;
-
-        Ok(hooks)
-    }
+    // pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
+    //     emu: &mut C,
+    //     profiler: &Profiler<C>,
+    // ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+    //     let pc: i32 = emu.program_counter().into();
+    //     let write_log = profiler.write_log.clone();
+    //     let mem_write_callback =
+    //         move |engine: &Unicorn<'_>, mem_type, address, num_bytes_written, value| {
+    //             //log::trace!("Inside memory hook!");
+    //             if let MemType::WRITE = mem_type {
+    //                 let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
+    //                 let entry = MemLogEntry {
+    //                     program_counter,
+    //                     mem_address: address,
+    //                     num_bytes_written,
+    //                     value,
+    //                 };
+    //                 let mut write_log = write_log.lock().expect("Poisoned mutex in callback");
+    //                 write_log.push(entry);
+    //                 true // NOTE: I'm not really sure what this return value means, here.
+    //             } else {
+    //                 false
+    //             }
+    //         };
+    //
+    //     let hooks = util::mem_hook_by_prot(
+    //         emu,
+    //         MemHookType::MEM_WRITE,
+    //         Protection::WRITE,
+    //         mem_write_callback,
+    //     )?;
+    //
+    //     Ok(hooks)
+    // }
 
     /// Returns the uppermost readable/writeable memory region, in the emulator's
     /// memory map.
@@ -550,11 +569,12 @@ mod test {
     use super::*;
     use byteorder::{ByteOrder, LittleEndian};
     use rand::{thread_rng, Rng};
+    use indexmap::indexmap;
 
     mod example {
         use super::*;
         use crate::emulator::executor::util::Endian;
-        use byteorder::{BigEndian, ByteOrder, LittleEndian};
+        use byteorder::{BigEndian, LittleEndian};
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
             emu: &mut C,
@@ -596,13 +616,15 @@ mod test {
             params,
             HatcheryParams {
                 num_workers: 8,
+                num_emulators: 8,
                 wait_limit: 150,
                 mode: unicorn::Mode::MODE_64,
                 arch: unicorn::Arch::X86,
+                max_emu_steps: None,
                 millisecond_timeout: None,
                 record_basic_blocks: true,
                 record_memory_writes: true,
-                stack_size: 0x1000, // default
+                emulator_stack_size: 0x1000, // default
                 binary_path: None,
             }
         );
@@ -611,14 +633,16 @@ mod test {
     #[test]
     fn test_spawn_hatchery() {
         let params = HatcheryParams {
-            num_workers: 6,
+            num_workers: 32,
+            num_emulators: 32,
             wait_limit: 150,
             mode: unicorn::Mode::MODE_64,
             arch: unicorn::Arch::X86,
+            max_emu_steps: None,
             millisecond_timeout: Some(100),
             record_basic_blocks: true,
             record_memory_writes: true,
-            stack_size: 0x1000,
+            emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
         };
 
@@ -629,14 +653,16 @@ mod test {
     fn test_hatchery() {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
-            num_workers: 32,
-            wait_limit: 150,
+            num_workers: 500,
+            num_emulators: 510,
+            wait_limit: 50,
             mode: unicorn::Mode::MODE_64,
             arch: unicorn::Arch::X86,
+            max_emu_steps: Some(0x10000),
             millisecond_timeout: Some(100),
             record_basic_blocks: true,
-            record_memory_writes: true,
-            stack_size: 0x1000,
+            record_memory_writes: false,
+            emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
         };
         fn random_rop() -> Vec<u8> {
@@ -652,23 +678,28 @@ mod test {
 
         let hatchery: Hatchery<CpuX86<'_>> = Hatchery::new(Arc::new(params));
 
-        let expected_num = 0x1000;
+        let expected_num = 0x10000;
         let mut counter = 0;
         let code_iterator = iter::repeat(()).take(expected_num).map(|()| random_rop());
 
         use RegisterX86::*;
         let output_registers = Arc::new(vec![RAX, RSP, RIP, RBP, RBX, RCX, EFLAGS]);
-        hatchery
+        let inputs = Arc::new(vec![indexmap!{ RCX => 0xdead_beef, RDX => 0xcafe_babe }]);
+        for (_code, _profile) in hatchery
             .pipeline(
                 code_iterator,
+                inputs,
                 output_registers,
                 Box::new(simple_emu_prep_fn),
             )
             .iter()
-            .for_each(|(_code, profile)| {
-                counter += 1;
-                log::info!("[{}] Output: {:x?}", counter, profile);
-            });
+        {
+            counter += 1;
+            //log::info!("[{}] Output: {:#?}", counter, profile);
+            log::info!("{} processed", counter);
+            drop(_profile);
+        }
         assert_eq!(counter, expected_num);
+        log::info!("FINISHED");
     }
 }

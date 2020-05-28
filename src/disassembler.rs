@@ -1,4 +1,4 @@
-use capstone::{Capstone, NO_EXTRA_MODE, Error};
+use capstone::{Capstone, Error, NO_EXTRA_MODE};
 
 pub struct Disassembler(pub Capstone);
 
@@ -6,14 +6,13 @@ impl Disassembler {
     pub fn new(arch: unicorn::Arch, mode: unicorn::Mode) -> Result<Self, Error> {
         let arch = convert_arch(arch);
         let mode = convert_mode(mode);
-        Capstone::new_raw(arch, mode, NO_EXTRA_MODE, None)
-            .map(Self)
+        Capstone::new_raw(arch, mode, NO_EXTRA_MODE, None).map(Self)
     }
 
-    pub fn disas(&self, code: &[u8], address: u64, count: Option<usize>) -> Result<String, Error>{
+    pub fn disas(&self, code: &[u8], address: u64, count: Option<usize>) -> Result<String, Error> {
         let res = match count {
             Some(count) => self.0.disasm_count(code, address, count),
-            None => self.0.disasm_all(code, address)
+            None => self.0.disasm_all(code, address),
         };
         res.map(|res| format!("{}", res))
     }
