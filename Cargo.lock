@@ -44,8 +44,8 @@ dependencies = [
  "distance",
  "futures",
  "goblin",
+ "hamming",
  "indexmap",
- "lazy_static",
  "log",
  "object-pool",
  "prefix-tree",
@@ -402,6 +402,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamming"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65043da274378d68241eb9a8f8f8aa54e349136f7b8e12f63e3ef44043cc30e1"
+
+[[package]]
 name = "hashbrown"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,6 +448,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "076f042c5b7b98f31d205f1249267e12a6518c1481e9dae9764af19b707d2292"
 dependencies = [
  "autocfg",
+ "serde",
 ]
 
 [[package]]

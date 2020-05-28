@@ -88,7 +88,6 @@ impl PartialEq for Genotype {
 
 impl Eq for Genotype {}
 
-
 impl PartialOrd for Genotype {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.tag.partial_cmp(&other.tag)
@@ -192,7 +191,8 @@ impl Genome for Genotype {
                 let bytes = self.genes.as_bytes_mut();
                 let mut c: u8 = 0;
                 while c < 0x20 || 0x7E < c {
-                    c = rng.gen::<u8>();
+                    c = bytes[i] ^ (1 << rng.gen_range(1_u8, 7_u8));
+                    //c = rng.gen::<u8>();
                 }
                 bytes[i] = c;
             },
@@ -225,23 +225,56 @@ fn report(window: &[Genotype]) {
     let len = fitnesses.len();
     let avg_fit = fitnesses
         .iter()
-        .fold(vec![0.0; len], |a: Fitness, b: &Fitness| a.iter().zip(b.iter()).map(|(a,b)| a+b).collect::<Vec<f32>>())
+        .fold(vec![0.0; len], |a: Fitness, b: &Fitness| {
+            a.iter()
+                .zip(b.iter())
+                .map(|(a, b)| a + b)
+                .collect::<Vec<f32>>()
+        })
         .iter()
         .map(|v| v / len as f32)
         .collect::<Vec<f32>>();
     let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f32 / window.len() as f32;
 
-    log::info!(
-        "AVERAGE FITNESS: {:?}; AVG GEN: {}",
-        avg_fit,
-        avg_gen
-    );
+    log::info!("AVERAGE FITNESS: {:?}; AVG GEN: {}", avg_fit, avg_gen);
+}
+
+use cached::{cached_key, UnboundCache};
+
+cached_key! {
+    FF_CACHE: UnboundCache<String, Vec<f32>> = UnboundCache::new();
+
+    Key = { format!("{}\x00\x00{}", phenome, target ) };
+
+    fn ff_helper(phenome: &str, target: &str) -> Vec<f32> = {
+        let l_fitness = distance::damerau_levenshtein(phenome, target);
+        let (short, long) = if phenome.len() < target.len() {
+            (phenome, target)
+        } else {
+            (target, phenome)
+        };
+        let dif = long.len() - short.len();
+        let short = short.as_bytes();
+        let long = &long.as_bytes()[0..short.len()];
+        let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
+        vec![h_fitness as f32, l_fitness as f32]
+    }
 }
 
 fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
     if phenome.fitness.is_none() {
-        let fitness = distance::damerau_levenshtein(&phenome.genes, &params.target);
-        phenome.set_fitness(vec![fitness as f32])
+        // let l_fitness = distance::damerau_levenshtein(&phenome.genes, &params.target);
+        // let (short, long) = if phenome.genes.len() < params.target.len() {
+        //     (&phenome.genes, &params.target)
+        // } else {
+        //     (&params.target, &phenome.genes)
+        // };
+        // let dif = long.len() - short.len();
+        // let short = short.as_bytes();
+        // let long = &long.as_bytes()[0..short.len()];
+        // let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
+
+        phenome.set_fitness(ff_helper(&phenome.genes, &params.target));
     };
     phenome
 }
@@ -274,7 +307,12 @@ pub fn run(config: Config) -> Option<Genotype> {
 
     loop {
         world = world.evolve();
-        if let Some(true) = world.best.as_ref().and_then(|b| b.fitness.as_ref()).map(|f| f[0] == target_fitness) {
+        if let Some(true) = world
+            .best
+            .as_ref()
+            .and_then(|b| b.fitness.as_ref())
+            .map(|f| f[0] == target_fitness)
+        {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);
             return world.best;
@@ -322,9 +360,11 @@ mod evaluation {
                     let _handle = rayon::spawn(move || {
                         let mut phenome = fitness_fn(phenome, params.clone());
                         let mut sketch = sketch.lock().unwrap();
-                        sketch.insert(&phenome.genes, counter)
+                        sketch
+                            .insert(&phenome.genes, counter)
                             .expect("Failed to insert genes into sketch");
-                        let freq = sketch.query(&phenome.genes)
+                        let freq = sketch
+                            .query(&phenome.genes)
                             .expect("Failed to query sketch");
                         phenome.fitness.as_mut().map(|f| f.push(freq));
                         our_tx.send(phenome).expect("Channel failure");

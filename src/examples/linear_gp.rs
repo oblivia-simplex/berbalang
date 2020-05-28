@@ -10,19 +10,10 @@ use crate::configure::{Configure, ConfigureObserver};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::{Epoch, Genome, Phenome, Problem};
 use crate::observer::{Observer, ReportFn};
-use crate::util::count_min_sketch;
-use crate::util::count_min_sketch::{CountMinSketch, DecayingSketch};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::util::count_min_sketch::{self, DecayingSketch};
 
-pub type BaseFitness = usize;
-pub type GenomicDiversity = f32;
-pub type PhenomicDiversity = f32;
-pub type Length = usize;
-
-//pub type Fitness = (BaseFitness, PhenomicDiversity, GenomicDiversity, Length); // TODO: support lexicographic fitness comparisons
 pub type Fitness = Vec<f32>;
-                                 // try setting fitness to (usize, usize);
+// try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -370,7 +361,7 @@ impl Genotype {
         self.digrams()
             .map(|digram| sketch.query(digram))
             .collect::<Result<Vec<_>, _>>()
-            .map(|v| v.into_iter().fold(std::f32::MAX, |a,b| a.min(b)))
+            .map(|v| v.into_iter().fold(std::f32::MAX, |a, b| a.min(b)))
     }
 }
 
@@ -394,8 +385,6 @@ impl Debug for Creature {
 }
 
 impl Creature {
-
-
     fn instructions(&self) -> &Vec<machine::Inst> {
         &self.genotype.0
     }
@@ -587,7 +576,7 @@ impl Epoch<evaluation::Evaluator, Creature, Config> {
 
 mod evaluation {
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::thread::{spawn, JoinHandle};
 
     //#[cfg(not(debug_assertions))]
@@ -595,7 +584,7 @@ mod evaluation {
 
     use crate::evaluator::{Evaluate, FitnessFn};
     use crate::examples::linear_gp::machine::Machine;
-    use crate::util::count_min_sketch::{CountMinSketch, DecayingSketch};
+    use crate::util::count_min_sketch::DecayingSketch;
 
     use super::*;
 
@@ -700,19 +689,24 @@ mod evaluation {
                     //let update = phenome.fitness().is_none();
                     let mut phenome = (fitness_fn)(phenome, params.clone());
                     // register and measure frequency
-                    phenome.record_genetic_frequency(&mut sketch, counter);
+                    phenome
+                        .record_genetic_frequency(&mut sketch, counter)
+                        .expect("Failed to record phenomic frequency");
                     let genomic_frequency = phenome
                         .measure_genetic_frequency(&sketch)
                         .expect("Failed to measure genetic diversity. Check timestamps.");
-                    let phenomic_frequency = sketch.query(phenome.problems())
+                    let phenomic_frequency = sketch
+                        .query(phenome.problems())
                         .expect("Failed to measure phenomic diversity");
-                    sketch.insert(phenome.problems(), counter)
+                    sketch
+                        .insert(phenome.problems(), counter)
                         .expect("Failed to update phenomic diversity");
-                    phenome
-                        .fitness
-                        .as_mut()
-                        .map(|f| { /*f[0] += (1.0+phenomic_frequency).log(2.0); */ f.push(phenomic_frequency); f.push(genomic_frequency) });
-                        //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
+                    phenome.fitness.as_mut().map(|f| {
+                        /*f[0] += (1.0+phenomic_frequency).log(2.0); */
+                        f.push(phenomic_frequency);
+                        f.push(genomic_frequency)
+                    });
+                    //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
                     log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());
 
                     our_tx.send(phenome).expect("Channel failure");
@@ -725,7 +719,7 @@ mod evaluation {
 }
 
 pub fn run(config: Config) -> Option<Creature> {
-    let target_fitness = config.target_fitness;
+    //let target_fitness = config.target_fitness;
     let mut world = Epoch::<evaluation::Evaluator, Creature, Config>::new(config);
 
     loop {
@@ -735,7 +729,8 @@ pub fn run(config: Config) -> Option<Creature> {
         //     .best
         //     .as_ref()
         //     .and_then(|b| b.fitness.map(|f| f.0 == target_fitness))
-        if false// TODO: find way to state stop condition
+        if false
+        // TODO: find way to state stop condition
         {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);

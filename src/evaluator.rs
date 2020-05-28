@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::evolution::Phenome;
-use crate::fitness::FitnessScore;
 
 pub type FitnessFn<P, C> = Box<dyn Fn(P, Arc<C>) -> P + Sync + Send + 'static>;
 

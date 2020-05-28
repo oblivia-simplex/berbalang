@@ -7,7 +7,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
 
 use crate::configure::Configure;
-use crate::evolution::Phenome;
 
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,

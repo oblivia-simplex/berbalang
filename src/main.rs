@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "cargo-clippy", allow(clippy::option_map_unit_fn))]
+
 use pretty_env_logger as logger;
 
 #[cfg(not(feature = "linear_gp"))]
@@ -20,8 +22,10 @@ mod evolution;
 mod examples;
 mod fitness;
 mod observer;
-mod util;
+#[allow(dead_code)] // FIXME
 mod roper;
+#[allow(dead_code)] // FIXME
+mod util;
 
 fn main() {
     logger::init();

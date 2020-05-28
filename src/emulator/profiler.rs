@@ -1,6 +1,4 @@
 use crate::emulator::executor::Register;
-use crate::evolution::Problem;
-use byteorder::{BigEndian, ByteOrder};
 use indexmap::map::IndexMap;
 use prefix_tree::PrefixSet;
 use std::cmp::{Ord, PartialOrd};

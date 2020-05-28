@@ -3,9 +3,13 @@ use goblin::{
     Object,
 };
 use std::fmt;
+use std::sync::Once;
 use unicorn::Protection;
 
 pub const PAGE_SIZE: u64 = 0x1000;
+
+pub static mut MEM_IMAGE: MemoryImage = MemoryImage(Vec::new());
+static INIT_MEM_IMAGE: Once = Once::new();
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,6 +26,26 @@ impl From<std::io::Error> for Error {
 impl From<goblin::error::Error> for Error {
     fn from(e: goblin::error::Error) -> Self {
         Error::ParsingFailure(e)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryImage(pub Vec<Seg>);
+
+impl MemoryImage {
+    fn try_dereference(&self, addr: u64) -> Option<&[u8]> {
+        for s in self.0.iter() {
+            if s.addr <= addr && addr < s.addr + s.memsz as u64 {
+                // we found the segment
+                let offset = (addr - s.addr) as usize;
+                return Some(&s.data[offset..]);
+            }
+        }
+        None
+    }
+
+    fn segments(&self) -> &Vec<Seg> {
+        &self.0
     }
 }
 
@@ -250,16 +274,36 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
     segs
 }
 
-pub fn load(code_buffer: &[u8], stack_size: usize) -> Result<Vec<Seg>, Error> {
-    let obj = Object::parse(code_buffer)?;
-    let segs = match obj {
-        Object::Elf(elf) => load_elf(elf, code_buffer, stack_size),
-        _ => unimplemented!("Only ELF binaries are supported at this time."),
-    };
-    for seg in &segs {
-        log::info!("{}, data len: {:x}", seg, seg.data.len());
+fn initialize_memory_image(segments: &[Seg]) {
+    unsafe { MEM_IMAGE = MemoryImage(segments.to_owned()) }
+}
+
+pub fn get_static_memory_image() -> &'static MemoryImage {
+    if INIT_MEM_IMAGE.is_completed() {
+        unsafe { &MEM_IMAGE }
+    } else {
+        panic!("MEM_IMAGE has not been initialized")
     }
-    Ok(segs)
+}
+
+pub fn load(code_buffer: &[u8], stack_size: usize) -> Result<Vec<Seg>, Error> {
+    if INIT_MEM_IMAGE.is_completed() {
+        unsafe { Ok(MEM_IMAGE.segments().clone()) }
+    } else {
+        let obj = Object::parse(code_buffer)?;
+        let segs = match obj {
+            Object::Elf(elf) => load_elf(elf, code_buffer, stack_size),
+            _ => unimplemented!("Only ELF binaries are supported at this time."),
+        };
+        for seg in &segs {
+            log::info!("{}, data len: {:x}", seg, seg.data.len());
+        }
+
+        // Cache the memory image as a globally accessible static
+        INIT_MEM_IMAGE.call_once(|| initialize_memory_image(&segs));
+
+        Ok(segs)
+    }
 }
 
 pub fn load_from_path(path: &str, stack_size: usize) -> Result<Vec<Seg>, Error> {
