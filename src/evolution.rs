@@ -145,17 +145,17 @@ pub trait Genome<C: Configure>: Debug {
     where
         Self: Sized;
 
-    fn mutate(&mut self);
+    fn mutate(&mut self, params: &C);
 
     fn mate(&self, other: &Self, params: &C) -> Vec<Self>
     where
         Self: Sized,
     {
-        let mut offspring = self.crossover(other, params.clone());
+        let mut offspring = self.crossover(other, params);
         let mut rng = thread_rng();
         for child in offspring.iter_mut() {
             if rng.gen::<f32>() < params.mutation_rate() {
-                child.mutate();
+                child.mutate(&params);
             }
         }
         offspring

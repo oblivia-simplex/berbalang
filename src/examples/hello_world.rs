@@ -180,7 +180,7 @@ impl Genome<Config> for Genotype {
         ]
     }
 
-    fn mutate(&mut self) {
+    fn mutate(&mut self, _params: &Config) {
         let mut rng: ThreadRng = thread_rng();
         let mutation = rng.gen::<u8>() % 4;
         match mutation {

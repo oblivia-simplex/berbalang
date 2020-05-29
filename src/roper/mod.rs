@@ -31,12 +31,14 @@ pub struct Config {
     pub arch: unicorn::Arch,
     pub mode: unicorn::Mode,
     pub population_size: usize,
+    pub num_offspring: usize,
     pub mutation_rate: f32,
     pub tournament_size: usize,
     #[serde(default = "default_min_init_len")]
     pub min_init_len: usize,
     #[serde(default = "default_max_init_len")]
     pub max_init_len: usize,
+    pub max_final_len: usize,
     pub observer_window_size: usize,
     pub data_file: Option<String>,
     pub register_pattern: Option<RegisterPatternConfig>,
@@ -48,27 +50,27 @@ impl Configure for Config {
     }
 
     fn mutation_rate(&self) -> f32 {
-        unimplemented!()
+        self.mutation_rate
     }
 
     fn tournament_size(&self) -> usize {
-        unimplemented!()
+        self.tournament_size
     }
 
     fn population_size(&self) -> usize {
-        unimplemented!()
+        self.population_size
     }
 
     fn observer_window_size(&self) -> usize {
-        unimplemented!()
+        self.observer_window_size
     }
 
     fn num_offspring(&self) -> usize {
-        unimplemented!()
+        self.num_offspring
     }
 
     fn max_length(&self) -> usize {
-        unimplemented!()
+        self.max_final_len
     }
 }
 
@@ -166,5 +168,8 @@ impl Genome<Config> for Genotype {
         ]
     }
 
-    fn mutate(&mut self) {}
+    fn mutate(&mut self, params: &Config) {
+
+
+    }
 }

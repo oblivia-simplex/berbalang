@@ -459,10 +459,9 @@ impl PartialEq for Creature {
 impl Eq for Creature {}
 
 // means "has a genome", not "is a genome"
-impl Genome for Creature {
-    type Params = Config;
+impl Genome<Config> for Creature {
 
-    fn random(params: &Self::Params) -> Self {
+    fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.init_len);
         let genotype = Genotype::random(len);
@@ -473,7 +472,7 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover<C: Configure>(&self, mate: &Self, params: Arc<C>) -> Vec<Self> {
+    fn crossover(&self, mate: &Self, params: &Config) -> Vec<Self> {
         let mut rng = thread_rng();
         // TODO: note how similar this is to the GA crossover.
         // refactor this out into a more general method
@@ -502,7 +501,7 @@ impl Genome for Creature {
         ]
     }
 
-    fn mutate(&mut self) {
+    fn mutate(&mut self, _params: &Config) {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
         self.genotype.0[i].mutate();
