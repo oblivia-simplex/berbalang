@@ -141,7 +141,6 @@ impl Genotype {
 }
 
 impl Genome<Config> for Genotype {
-
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.init_len);

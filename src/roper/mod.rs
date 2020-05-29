@@ -1,19 +1,24 @@
+use std::sync::Arc;
+
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use indexmap::map::IndexMap;
+use rand::seq::IteratorRandom;
+use rand::{thread_rng, Rng};
+use serde_derive::Deserialize;
+use toml;
+use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
+
+use crate::configure::Configure;
+use crate::emulator::executor;
+use crate::util::architecture::Endian::Little;
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
     emulator::loader,
     evolution::{Epoch, Genome, Phenome},
     fitness::FitnessScore,
+    util::architecture::{endian, word_size, Endian},
 };
-
-use crate::configure::Configure;
-use indexmap::map::IndexMap;
-use rand::seq::IteratorRandom;
-use rand::{thread_rng, Rng};
-use serde_derive::Deserialize;
-use std::sync::Arc;
-use toml;
-use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
 
 fn default_min_init_len() -> usize {
     1
@@ -117,7 +122,6 @@ pub struct Genotype {
 }
 
 impl Genome<Config> for Genotype {
-
     fn random(params: &Config) -> Self {
         let mut rng = rand::thread_rng();
         let length = rng.gen_range(params.min_init_len, params.max_init_len);
@@ -169,7 +173,56 @@ impl Genome<Config> for Genotype {
     }
 
     fn mutate(&mut self, params: &Config) {
+        let mut rng = thread_rng();
+        let i = rng.gen_range(0, self.chromosome.len());
 
-
+        match rng.gen_range(0, 5) {
+            0 => {
+                // Dereference mutation
+                let memory = loader::get_static_memory_image();
+                if let Some(bytes) = memory.try_dereference(self.chromosome[i]) {
+                    if bytes.len() > 8 {
+                        let endian = endian(params.arch, params.mode);
+                        let word_size = word_size(params.arch, params.mode);
+                        let word = match (endian, word_size) {
+                            (Endian::Little, 8) => LittleEndian::read_u64(bytes),
+                            (Endian::Big, 8) => BigEndian::read_u64(bytes),
+                            (Endian::Little, 4) => LittleEndian::read_u32(bytes) as u64,
+                            (Endian::Big, 4) => BigEndian::read_u32(bytes) as u64,
+                            (Endian::Little, 2) => LittleEndian::read_u16(bytes) as u64,
+                            (Endian::Big, 2) => BigEndian::read_u16(bytes) as u64,
+                            (_, _) => unimplemented!("I think we've covered the bases"),
+                        };
+                        self.chromosome[i] = word;
+                    }
+                }
+            }
+            1 => {
+                // Indirection mutation
+                let memory = loader::get_static_memory_image();
+                let word_size = word_size(params.arch, params.mode);
+                let mut bytes = vec![0; word_size];
+                let word = self.chromosome[i];
+                match (endian(params.arch, params.mode), word_size) {
+                    (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
+                    (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
+                    (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),
+                    (Endian::Big, 4) => BigEndian::write_u32(&mut bytes, word as u32),
+                    (Endian::Little, 2) => LittleEndian::write_u16(&mut bytes, word as u16),
+                    (Endian::Big, 2) => BigEndian::write_u16(&mut bytes, word as u16),
+                    (_, _) => unimplemented!("I think we've covered the bases"),
+                }
+                if let Some(address) = memory.seek_from_random_address(&bytes) {
+                    self.chromosome[i] = address;
+                }
+            }
+            3 => {
+                self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
+            }
+            4 => {
+                self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+            }
+            _ => unimplemented!("out of range"),
+        }
     }
 }

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::emulator::profiler::{Profile, Profiler};
+use crate::util::architecture::{endian, word_size, Endian};
 
 use object_pool::Pool;
 use serde_derive::Deserialize;
@@ -514,48 +515,6 @@ mod util {
         }
         Ok(hooks)
     }
-
-    pub fn word_size(arch: Arch, mode: Mode) -> usize {
-        use Arch::*;
-        use Mode::*;
-
-        match (arch, mode) {
-            (ARM, THUMB) => 2,
-            (ARM, _) => 4,
-            (ARM64, THUMB) => 2,
-            (ARM64, _) => 8,
-            (MIPS, _) => 4, // check
-            (X86, MODE_16) => 2,
-            (X86, MODE_32) => 4,
-            (X86, MODE_64) => 8,
-            (PPC, MODE_64) => 8,
-            (PPC, _) => 4,
-            (SPARC, _) => 4, // check
-            (M68K, _) => 2,  // check
-            (_, _) => unimplemented!("invalid arch/mode combination"),
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Endian {
-        Big,
-        Little,
-    }
-
-    pub fn endian(arch: Arch, mode: Mode) -> Endian {
-        use Arch::*;
-        use Endian::*;
-
-        match (arch, mode) {
-            (ARM, _) => Big, // this can actually go both ways, check unicorn
-            (ARM64, _) => Big,
-            (MIPS, _) => Big, // check
-            (X86, _) => Little,
-            (PPC, _) => Big,
-            (SPARC, _) => Big, // check
-            (M68K, _) => Big,  // check
-        }
-    }
 }
 
 #[cfg(test)]
@@ -573,7 +532,6 @@ mod test {
 
     mod example {
         use super::*;
-        use crate::emulator::executor::util::Endian;
         use byteorder::{BigEndian, LittleEndian};
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
@@ -588,9 +546,9 @@ mod test {
             emu.mem_write(sp, code)?;
             // set the stack pointer to the middle of the stack
             // now "pop" the stack into the program counter
-            let word_size = util::word_size(emu.arch(), emu.mode());
+            let word_size = word_size(emu.arch(), emu.mode());
             let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
-            let address = match util::endian(emu.arch(), emu.mode()) {
+            let address = match endian(emu.arch(), emu.mode()) {
                 Endian::Big => BigEndian::read_u64(&a_bytes),
                 Endian::Little => LittleEndian::read_u64(&a_bytes),
             };

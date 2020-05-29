@@ -136,7 +136,6 @@ impl<E: Evaluate<P>, P: Phenome + Genome<C>, C: Configure> Epoch<E, P, C> {
 }
 
 pub trait Genome<C: Configure>: Debug {
-
     fn random(params: &C) -> Self
     where
         Self: Sized;

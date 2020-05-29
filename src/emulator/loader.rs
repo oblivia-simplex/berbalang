@@ -2,6 +2,7 @@ use goblin::{
     elf::{self, Elf},
     Object,
 };
+use rand::{thread_rng, Rng};
 use std::fmt;
 use std::sync::Once;
 use unicorn::Protection;
@@ -33,18 +34,56 @@ impl From<goblin::error::Error> for Error {
 pub struct MemoryImage(pub Vec<Seg>);
 
 impl MemoryImage {
-    fn try_dereference(&self, addr: u64) -> Option<&[u8]> {
+    pub fn first_address(&self) -> u64 {
+        self.0[0].aligned_start()
+    }
+
+    pub fn containing_seg(&self, addr: u64) -> Option<&Seg> {
         for s in self.0.iter() {
-            if s.addr <= addr && addr < s.addr + s.memsz as u64 {
-                // we found the segment
-                let offset = (addr - s.addr) as usize;
-                return Some(&s.data[offset..]);
+            if s.aligned_start() <= addr && addr < s.aligned_end() {
+                return Some(s);
             }
         }
         None
     }
 
-    fn segments(&self) -> &Vec<Seg> {
+    pub fn try_dereference(&self, addr: u64) -> Option<&[u8]> {
+        self.containing_seg(addr).map(|s| {
+            let bump = (s.addr - s.aligned_start()) as usize;
+            let offset = bump + (addr - s.aligned_start()) as usize;
+            &s.data[offset..]
+        })
+    }
+
+    pub fn random_address(&self) -> u64 {
+        let mut rng = thread_rng();
+        let num_segs = self.0.len();
+        let seg = &self.0[rng.gen_range(0, num_segs)];
+        rng.gen_range(seg.aligned_start(), seg.aligned_end())
+    }
+
+    pub fn seek(&self, offset: u64, sequence: &[u8]) -> Option<u64> {
+        if let Some(s) = self.containing_seg(offset) {
+            let start = (offset - s.aligned_start()) as usize;
+            let mut ptr = start;
+            for window in s.data[start..].windows(sequence.len()) {
+                if window == sequence {
+                    return Some(ptr as u64);
+                } else {
+                    ptr += 1
+                }
+            }
+            None
+        } else {
+            None
+        }
+    }
+
+    pub fn seek_from_random_address(&self, sequence: &[u8]) -> Option<u64> {
+        self.seek(self.random_address(), sequence)
+    }
+
+    pub fn segments(&self) -> &Vec<Seg> {
         &self.0
     }
 }
@@ -291,10 +330,11 @@ pub fn load(code_buffer: &[u8], stack_size: usize) -> Result<Vec<Seg>, Error> {
         unsafe { Ok(MEM_IMAGE.segments().clone()) }
     } else {
         let obj = Object::parse(code_buffer)?;
-        let segs = match obj {
+        let mut segs = match obj {
             Object::Elf(elf) => load_elf(elf, code_buffer, stack_size),
             _ => unimplemented!("Only ELF binaries are supported at this time."),
         };
+        segs.sort_by_key(|s| s.aligned_start());
         for seg in &segs {
             log::info!("{}, data len: {:x}", seg, seg.data.len());
         }

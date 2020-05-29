@@ -460,7 +460,6 @@ impl Eq for Creature {}
 
 // means "has a genome", not "is a genome"
 impl Genome<Config> for Creature {
-
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.init_len);
