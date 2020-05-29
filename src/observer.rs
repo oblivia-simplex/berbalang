@@ -5,6 +5,7 @@ use std::sync::Arc;
 // a hack to make the imports more meaningful
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
+use serde::Deserialize;
 
 use crate::configure::Configure;
 
@@ -14,20 +15,38 @@ pub struct Observer<O: Send> {
     // TODO: add a reporter struct field
 }
 
-pub type ReportFn<T> = Box<dyn Fn(&[T]) -> () + Sync + Send + 'static>;
+#[derive(Debug, Clone, Deserialize)]
+pub struct ObserverConfig {
+    pub window_size: usize,
+}
 
-pub struct Window<O> {
+impl Default for ObserverConfig {
+    fn default() -> Self {
+        Self {
+            window_size: 0x1000,
+        }
+    }
+}
+
+pub type ReportFn<T> = Box<dyn Fn(&[T], usize, &ObserverConfig) -> () + Sync + Send + 'static>;
+
+pub struct Window<'a, O> {
     pub frame: Vec<O>,
+    pub params: &'a ObserverConfig,
+    counter: usize,
     i: usize,
     window_size: usize,
     report_fn: ReportFn<O>,
 }
 
-impl<O> Window<O> {
-    fn new(window_size: usize, report_fn: ReportFn<O>) -> Self {
+impl<'a, O> Window<'a, O> {
+    fn new(report_fn: ReportFn<O>, params: &'a ObserverConfig) -> Self {
+        let window_size = params.window_size;
         assert!(window_size > 0);
         Self {
             frame: Vec::new(),
+            params,
+            counter: 0,
             i: 0,
             window_size,
             report_fn,
@@ -35,6 +54,7 @@ impl<O> Window<O> {
     }
 
     fn insert(&mut self, thing: O) {
+        self.counter += 1;
         self.i = (self.i + 1) % self.window_size;
         if self.frame.len() < self.window_size {
             self.frame.push(thing)
@@ -47,7 +67,7 @@ impl<O> Window<O> {
     }
 
     fn report(&self) {
-        (self.report_fn)(&self.frame);
+        (self.report_fn)(&self.frame, self.counter, &self.params);
     }
 }
 
@@ -58,13 +78,12 @@ impl<O: 'static + Send> Observer<O> {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn<C: Configure>(params: Arc<C>, report_fn: ReportFn<O>) -> Observer<O> {
+    pub fn spawn<C: 'static + Configure>(params: Arc<C>, report_fn: ReportFn<O>) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
 
-        let window_size: usize = params.observer_window_size();
-
         let handle: JoinHandle<()> = spawn(move || {
-            let mut window: Window<O> = Window::new(window_size, report_fn);
+            let observer_config = params.observer_config();
+            let mut window: Window<'_, O> = Window::new(report_fn, &observer_config);
             for observable in rx {
                 window.insert(observable);
             }

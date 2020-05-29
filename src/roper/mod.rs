@@ -5,24 +5,26 @@ use indexmap::map::IndexMap;
 use rand::seq::IteratorRandom;
 use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
-use toml;
 use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
 
 use crate::configure::Configure;
 use crate::emulator::executor;
-use crate::util::architecture::Endian::Little;
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
     emulator::loader,
     evolution::{Epoch, Genome, Phenome},
     fitness::FitnessScore,
+    util,
     util::architecture::{endian, word_size, Endian},
+    util::bitwise::bit,
 };
+use crate::observer::ObserverConfig;
 
 fn default_min_init_len() -> usize {
     1
 }
+
 fn default_max_init_len() -> usize {
     64
 }
@@ -45,6 +47,7 @@ pub struct Config {
     pub max_init_len: usize,
     pub max_final_len: usize,
     pub observer_window_size: usize,
+    pub observer: ObserverConfig,
     pub data_file: Option<String>,
     pub register_pattern: Option<RegisterPatternConfig>,
 }
@@ -52,6 +55,10 @@ pub struct Config {
 impl Configure for Config {
     fn assert_invariants(&self) {
         unimplemented!()
+    }
+
+    fn observer_config(&self) -> ObserverConfig{
+        self.observer.clone()
     }
 
     fn mutation_rate(&self) -> f32 {
@@ -108,10 +115,6 @@ register_pattern_converter!(CpuMIPS<'static>);
 register_pattern_converter!(CpuSPARC<'static>);
 register_pattern_converter!(CpuM68K<'static>);
 
-fn bit(n: u64, bit: usize) -> bool {
-    (n >> (bit as u64 % 64)) & 1 == 1
-}
-
 #[derive(Debug)]
 pub struct Genotype {
     pub crossover_mask: u64,
@@ -122,6 +125,17 @@ pub struct Genotype {
 }
 
 impl Genome<Config> for Genotype {
+    type Allele = u64;
+
+    fn chromosome(&self) -> &[Self::Allele] {
+        &self.chromosome
+    }
+
+    fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
+        &mut self.chromosome
+    }
+
+
     fn random(params: &Config) -> Self {
         let mut rng = rand::thread_rng();
         let length = rng.gen_range(params.min_init_len, params.max_init_len);
@@ -148,7 +162,8 @@ impl Genome<Config> for Genotype {
     where
         Self: Sized,
     {
-        // TODO experiment with different mask combiners
+        // NOTE: this bitmask schema implements an implicit incest prohibition
+
         let mask = self.crossover_mask ^ mate.crossover_mask;
         let cross = |mother: &Vec<u64>, father: &Vec<u64>| -> Self {
             let mut chromosome = mother.clone();
@@ -161,7 +176,7 @@ impl Genome<Config> for Genotype {
                 crossover_mask: mask,
                 chromosome,
                 tag: rand::random::<u64>(),
-                name: "".to_string(),
+                name: util::name::random(4),
                 parents: vec![self.name.clone(), mate.name.clone()],
             }
         };
@@ -176,7 +191,7 @@ impl Genome<Config> for Genotype {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.chromosome.len());
 
-        match rng.gen_range(0, 5) {
+        match rng.gen_range(0, 6) {
             0 => {
                 // Dereference mutation
                 let memory = loader::get_static_memory_image();
@@ -217,10 +232,13 @@ impl Genome<Config> for Genotype {
                 }
             }
             3 => {
-                self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
+                self.chromosome[i] = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
             }
             4 => {
-                self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+                self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+            }
+            5 => {
+                self.crossover_mask ^= 1 << rng.gen_range(0, 64);
             }
             _ => unimplemented!("out of range"),
         }

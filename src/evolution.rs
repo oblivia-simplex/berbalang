@@ -11,6 +11,7 @@ use crate::configure::Configure;
 use crate::evaluator::Evaluate;
 use crate::fitness::FitnessScore;
 use crate::observer::Observer;
+use rand::rngs::ThreadRng;
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash)]
 pub struct Problem {
@@ -136,6 +137,12 @@ impl<E: Evaluate<P>, P: Phenome + Genome<C>, C: Configure> Epoch<E, P, C> {
 }
 
 pub trait Genome<C: Configure>: Debug {
+    type Allele: Clone + Debug;
+
+    fn chromosome(&self) -> &[Self::Allele];
+
+    fn chromosome_mut(&mut self) -> &mut[Self::Allele];
+
     fn random(params: &C) -> Self
     where
         Self: Sized;
@@ -143,6 +150,43 @@ pub trait Genome<C: Configure>: Debug {
     fn crossover(&self, mate: &Self, params: &C) -> Vec<Self>
     where
         Self: Sized;
+
+    fn crossover_by_distribution<D: rand_distr::Distribution<f64>>(
+        distribution: &D,
+        parents: &[&[Self::Allele]],
+    ) -> (Vec<Self::Allele>, Vec<usize>) {
+
+        let mut chromosome = Vec::new();
+        let mut parentage = Vec::new();
+        let mut rng = thread_rng();
+        let mut ptrs = vec![0_usize; parents.len()];
+        let switch = |rng: &mut ThreadRng| rng.gen_range(0, parents.len());
+        let sample = |rng: &mut ThreadRng| distribution.sample(rng).round() as usize + 1;
+
+        loop {
+            let src = switch(&mut rng);
+            let take_from = ptrs[src];
+            if take_from >= parents[src].len() {
+                break;
+            }
+            let take_to = std::cmp::min(ptrs[src] + sample(&mut rng), parents[src].len());
+            let slice = &parents[src][take_from..take_to];
+            chromosome.extend_from_slice(slice);
+            for _ in 0..(take_to - take_from) {
+                parentage.push(src)
+            }
+
+            ptrs[src] = take_to;
+            // now slide the other ptrs ahead a random interval
+            for i in 0..ptrs.len() {
+                if i != src {
+                    ptrs[i] += sample(&mut rng);
+                }
+            }
+        }
+
+        (chromosome, parentage)
+    }
 
     fn mutate(&mut self, params: &C);
 

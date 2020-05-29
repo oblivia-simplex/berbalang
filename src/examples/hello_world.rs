@@ -8,7 +8,7 @@ use rand::prelude::*;
 use serde_derive::Deserialize;
 
 use crate::{
-    configure::{Configure, ConfigureObserver},
+    configure::{Configure},
     evaluator::{Evaluate, FitnessFn},
     evolution::*,
     observer::{Observer, ReportFn},
@@ -16,16 +16,6 @@ use crate::{
 
 pub type Fitness = Vec<f32>;
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct ObserverConfig {
-    window_size: usize,
-}
-
-impl ConfigureObserver for ObserverConfig {
-    fn window_size(&self) -> usize {
-        self.window_size
-    }
-}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
@@ -68,6 +58,10 @@ impl Configure for Config {
 
     fn max_length(&self) -> usize {
         self.max_length
+    }
+
+    fn observer_config(&self) -> ObserverConfig {
+        self.observer.clone()
     }
 }
 
@@ -141,6 +135,16 @@ impl Genotype {
 }
 
 impl Genome<Config> for Genotype {
+    type Allele = char;
+
+    fn chromosome(&self) -> &[Self::Allele] {
+        unimplemented!("rust makes treating strings as &[char] tricky")
+    }
+
+    fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
+        unimplemented!("rust makes treating strings as &[char] tricky")
+    }
+
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.init_len);
@@ -187,12 +191,7 @@ impl Genome<Config> for Genotype {
             0 => unsafe {
                 let i: usize = rng.gen::<usize>() % self.len();
                 let bytes = self.genes.as_bytes_mut();
-                let mut c: u8 = 0;
-                while c < 0x20 || 0x7E < c {
-                    c = bytes[i] ^ (1 << rng.gen_range(1_u8, 7_u8));
-                    //c = rng.gen::<u8>();
-                }
-                bytes[i] = c;
+                bytes[i] = rng.gen_range(0x20, 0x7e);
             },
             // swaps halves of the string
             1 => {
@@ -218,7 +217,7 @@ impl Genome<Config> for Genotype {
     }
 }
 
-fn report(window: &[Genotype]) {
+fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
     let fitnesses: Vec<Fitness> = window.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
     let avg_fit = fitnesses
@@ -234,10 +233,11 @@ fn report(window: &[Genotype]) {
         .collect::<Vec<f32>>();
     let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f32 / window.len() as f32;
 
-    log::info!("AVERAGE FITNESS: {:?}; AVG GEN: {}", avg_fit, avg_gen);
+    log::info!("[{}] AVERAGE FITNESS: {:?}; AVG GEN: {}", counter, avg_fit, avg_gen);
 }
 
 use cached::{cached_key, TimedCache};
+use crate::observer::ObserverConfig;
 
 cached_key! {
     FF_CACHE: TimedCache<String, Vec<f32>> = TimedCache::with_lifespan(2);
@@ -255,7 +255,7 @@ cached_key! {
         let short = short.as_bytes();
         let long = &long.as_bytes()[0..short.len()];
         let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
-        vec![h_fitness as f32, l_fitness as f32]
+        vec![l_fitness as f32, h_fitness as f32]
     }
 }
 
@@ -273,6 +273,13 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
         // let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
 
         phenome.set_fitness(ff_helper(&phenome.genes, &params.target));
+
+        // let's try to implement genlin's char-dist
+        // let length_diff = (phenome.genes.len() as f32 - params.target.len() as f32).abs();
+        // let code_diff = phenome.genes.chars().zip(params.target.chars())
+        //     .map(|(a,b)| (a as i32 - b as i32).abs() as f32)
+        //     .sum::<f32>();
+        // phenome.set_fitness(vec![length_diff, code_diff]);
     };
     phenome
 }
@@ -309,7 +316,7 @@ pub fn run(config: Config) -> Option<Genotype> {
             .best
             .as_ref()
             .and_then(|b| b.fitness.as_ref())
-            .map(|f| f[0] == target_fitness)
+            .map(|f| f[0] <= target_fitness && f[1] <= target_fitness)
         {
             println!("\n***** Success after {} epochs! *****", world.iteration);
             println!("{:#?}", world.best);
@@ -355,7 +362,7 @@ mod evaluation {
                     let our_tx = our_tx.clone();
                     let params = params.clone();
                     let fitness_fn = fitness_fn.clone();
-                    let _handle = rayon::spawn(move || {
+                    rayon::spawn(move || {
                         let mut phenome = fitness_fn(phenome, params.clone());
                         let mut sketch = sketch.lock().unwrap();
                         sketch

@@ -1,11 +1,14 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::option_map_unit_fn))]
+#![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_range_loop))]
 
 use pretty_env_logger as logger;
+//
+// #[cfg(not(feature = "linear_gp"))]
+// use examples::hello_world as example;
+// #[cfg(feature = "linear_gp")]
+// use examples::linear_gp as example;
 
-#[cfg(not(feature = "linear_gp"))]
-use examples::hello_world as example;
-#[cfg(feature = "linear_gp")]
-use examples::linear_gp as example;
+use crate::examples::{linear_gp, hello_world};
 
 use crate::configure::Configure;
 
@@ -30,12 +33,22 @@ mod util;
 fn main() {
     logger::init();
 
-    let config: example::Config = toml::from_str(
-        &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
-    )
-    .expect("Failed to parse config.toml");
+    // TODO: maybe just define a single, shared config struct. Simple enough to do.
+    // with sub-fields.
+    let args = std::env::args().collect::<String>();
+    if args.contains("hello_world") {
+        let config: hello_world::Config = toml::from_str(
+            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml")
+        ).expect("Failed to parse config.toml");
+        config.assert_invariants();
+        hello_world::run(config);
+    } else {
+        let config: linear_gp::Config = toml::from_str(
+            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
+        )
+            .expect("Failed to parse config.toml");
+        config.assert_invariants();
+        linear_gp::run(config);
+    }
 
-    config.assert_invariants();
-
-    example::run(config);
 }

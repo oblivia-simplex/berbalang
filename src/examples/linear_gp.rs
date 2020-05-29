@@ -6,26 +6,17 @@ use std::{fmt, iter};
 use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 
-use crate::configure::{Configure, ConfigureObserver};
+use crate::configure::{Configure};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::{Epoch, Genome, Phenome, Problem};
-use crate::observer::{Observer, ReportFn};
+use crate::observer::{Observer, ReportFn, ObserverConfig};
+use crate::util;
 use crate::util::count_min_sketch::{self, DecayingSketch};
 
 pub type Fitness = Vec<f32>;
 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct ObserverConfig {
-    window_size: usize,
-}
-
-impl ConfigureObserver for ObserverConfig {
-    fn window_size(&self) -> usize {
-        self.window_size
-    }
-}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DataConfig {
@@ -49,6 +40,7 @@ pub struct Config {
     pub num_registers: usize,
     #[serde(default = "Default::default")]
     pub return_registers: usize,
+    pub crossover_period: f64,
 }
 
 impl Configure for Config {
@@ -71,6 +63,10 @@ impl Configure for Config {
 
     fn observer_window_size(&self) -> usize {
         self.observer.window_size
+    }
+
+    fn observer_config(&self) -> ObserverConfig {
+        self.observer.clone()
     }
 
     fn num_offspring(&self) -> usize {
@@ -369,16 +365,31 @@ pub type Answer = Vec<Problem>;
 
 #[derive(Clone, Default)]
 pub struct Creature {
-    genotype: Genotype,
+    chromosome: Genotype,
+    chromosome_parentage: Vec<usize>,
     answers: Option<Answer>,
     pub fitness: Option<Fitness>,
     tag: u64,
+    crossover_mask: u64,
+    name: String,
+    parents: Vec<String>,
 }
 
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Name: {}", self.name)?;
         for (i, inst) in self.instructions().iter().enumerate() {
-            writeln!(f, "[{}]  {}", i, inst)?;
+            writeln!(
+                f,
+                "[{}][{}]  {}",
+                if self.parents.is_empty() {
+                    "seed"
+                } else {
+                    &self.parents[self.chromosome_parentage[i]]
+                },
+                i,
+                inst
+            )?;
         }
         writeln!(f)
     }
@@ -386,7 +397,7 @@ impl Debug for Creature {
 
 impl Creature {
     fn instructions(&self) -> &Vec<machine::Inst> {
-        &self.genotype.0
+        &self.chromosome.0
     }
 
     pub fn record_genetic_frequency(
@@ -394,14 +405,14 @@ impl Creature {
         sketch: &mut DecayingSketch,
         timestamp: usize,
     ) -> Result<(), count_min_sketch::Error> {
-        self.genotype.record_genetic_frequency(sketch, timestamp)
+        self.chromosome.record_genetic_frequency(sketch, timestamp)
     }
 
     pub fn measure_genetic_frequency(
         &self,
         sketch: &DecayingSketch,
     ) -> Result<f32, count_min_sketch::Error> {
-        self.genotype.measure_genetic_frequency(sketch)
+        self.chromosome.measure_genetic_frequency(sketch)
     }
 }
 
@@ -434,7 +445,7 @@ impl Phenome for Creature {
     }
 
     fn len(&self) -> usize {
-        self.genotype.len()
+        self.chromosome.len()
     }
 }
 
@@ -458,57 +469,77 @@ impl PartialEq for Creature {
 
 impl Eq for Creature {}
 
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    start: usize,
+    end: usize,
+}
+
 // means "has a genome", not "is a genome"
 impl Genome<Config> for Creature {
+    type Allele = machine::Inst;
+
+    fn chromosome(&self) -> &[Self::Allele] {
+        &self.chromosome.0
+    }
+
+    fn chromosome_mut(&mut self) -> &mut[Self::Allele] {
+        &mut self.chromosome.0
+    }
+
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.init_len);
         let genotype = Genotype::random(len);
         Self {
-            genotype,
+            chromosome: genotype,
             tag: rng.gen::<u64>(),
+            crossover_mask: rng.gen::<u64>(),
+            name: crate::util::name::random(4),
             ..Default::default()
         }
     }
 
     fn crossover(&self, mate: &Self, params: &Config) -> Vec<Self> {
-        let mut rng = thread_rng();
-        // TODO: note how similar this is to the GA crossover.
-        // refactor this out into a more general method
-        let split_m: usize = rng.gen::<usize>() % self.len();
-        let split_f: usize = rng.gen::<usize>() % mate.len();
-        let (m1, m2) = self.genotype.0.split_at(split_m);
-        let (f1, f2) = mate.genotype.0.split_at(split_f);
-
-        let half = params.max_length() / 2;
-        let mut c1 = m1[0..m1.len().min(half)].to_vec();
-        c1.extend(f2[0..f2.len().min(half)].iter());
-        let mut c2 = f1[0..f1.len().min(half)].to_vec();
-        c2.extend(m2[0..m2.len().min(half)].iter());
-
-        vec![
+        let distribution = rand_distr::Exp::new(params.crossover_period)
+            .expect("Failed to create random distribution");
+        let cross = |mother: &[Self::Allele], father: &[Self::Allele]| -> Self {
+            let (chromosome, chromosome_parentage) =
+                Self::crossover_by_distribution(&distribution, &[mother, father]);
             Self {
-                genotype: Genotype(c1),
-                tag: rng.gen::<u64>(),
+                chromosome: Genotype(chromosome),
+                chromosome_parentage,
+                tag: rand::random::<u64>(),
+                name: util::name::random(4),
+                parents: vec![self.name.clone(), mate.name.clone()],
                 ..Default::default()
-            },
-            Self {
-                genotype: Genotype(c2),
-                tag: rng.gen::<u64>(),
-                ..Default::default()
-            },
-        ]
+            }
+        };
+
+        iter::repeat(())
+            .take(params.num_offspring)
+            .map(|()| cross(self.chromosome(), mate.chromosome()))
+            .collect::<Vec<Self>>()
+
     }
 
     fn mutate(&mut self, _params: &Config) {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
-        self.genotype.0[i].mutate();
+        self.crossover_mask ^= 1 << rng.gen_range(0, 64);
+        self.chromosome_mut()[i].mutate();
     }
 }
 
-fn report(_window: &[Creature]) {
-    log::error!("report fn not yet implemented")
+fn report(window: &[Creature], counter: usize, _params: &ObserverConfig) {
+    let avg_len = window.iter().map(|c| c.len()).sum::<usize>() as f32 / window.len() as f32;
+    let mut sketch = DecayingSketch::default();
+    for g in window {
+        g.record_genetic_frequency(&mut sketch, 1).unwrap();
+    }
+    let avg_freq= window.iter().map(|g| g.measure_genetic_frequency(&sketch).unwrap())
+        .sum::<f32>() / window.len() as f32;
+    log::info!("[{}] Average length: {}, average genetic frequency: {}", counter, avg_len, avg_freq);
 }
 
 fn parse_data(path: &str) -> Option<Vec<Problem>> {

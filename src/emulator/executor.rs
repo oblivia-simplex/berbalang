@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::emulator::profiler::{Profile, Profiler};
-use crate::util::architecture::{endian, word_size, Endian};
 
 use object_pool::Pool;
 use serde_derive::Deserialize;
@@ -529,6 +528,7 @@ mod test {
     use byteorder::{ByteOrder, LittleEndian};
     use indexmap::indexmap;
     use rand::{thread_rng, Rng};
+    use crate::util::architecture::{Endian, word_size, endian};
 
     mod example {
         use super::*;
