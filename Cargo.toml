@@ -1,7 +1,8 @@
 [package]
 name = "berbalang"
 version = "0.1.0"
-authors = ["Oblivia Simplex <oblivia@paranoici.org>"]
+authors = ["Lucca Fraser", "lucca@inventati.org"]
+license = "AGPL-3.0-or-later"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
