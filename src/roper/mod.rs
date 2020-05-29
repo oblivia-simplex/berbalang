@@ -42,6 +42,36 @@ pub struct Config {
     pub register_pattern: Option<RegisterPatternConfig>,
 }
 
+impl Configure for Config {
+    fn assert_invariants(&self) {
+        unimplemented!()
+    }
+
+    fn mutation_rate(&self) -> f32 {
+        unimplemented!()
+    }
+
+    fn tournament_size(&self) -> usize {
+        unimplemented!()
+    }
+
+    fn population_size(&self) -> usize {
+        unimplemented!()
+    }
+
+    fn observer_window_size(&self) -> usize {
+        unimplemented!()
+    }
+
+    fn num_offspring(&self) -> usize {
+        unimplemented!()
+    }
+
+    fn max_length(&self) -> usize {
+        unimplemented!()
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegisterPatternConfig(pub IndexMap<String, u64>);
 
@@ -84,10 +114,9 @@ pub struct Genotype {
     pub parents: Vec<String>,
 }
 
-impl Genome for Genotype {
-    type Params = Config;
+impl Genome<Config> for Genotype {
 
-    fn random(params: &Self::Params) -> Self {
+    fn random(params: &Config) -> Self {
         let mut rng = rand::thread_rng();
         let length = rng.gen_range(params.min_init_len, params.max_init_len);
         let chromosome = params
@@ -109,7 +138,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover<C: Configure>(&self, mate: &Self, _params: Arc<C>) -> Vec<Self>
+    fn crossover(&self, mate: &Self, _params: &Config) -> Vec<Self>
     where
         Self: Sized,
     {

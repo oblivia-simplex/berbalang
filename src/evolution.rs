@@ -42,7 +42,7 @@ pub struct Epoch<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'stat
     pub evaluator: E,
 }
 
-impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
+impl<E: Evaluate<P>, P: Phenome + Genome<C>, C: Configure> Epoch<E, P, C> {
     pub fn evolve(self) -> Self {
         // destruct the Epoch
         let Self {
@@ -93,7 +93,7 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
         // TODO implement breeder, similar to observer, etc?
         let mother = combatants.pop().unwrap();
         let father = combatants.pop().unwrap();
-        let offspring: Vec<P> = mother.mate(&father, config.clone());
+        let offspring: Vec<P> = mother.mate(&father, &config);
 
         // return everyone to the population
         population.push(mother);
@@ -135,24 +135,23 @@ impl<E: Evaluate<P>, P: Phenome, C: Configure> Epoch<E, P, C> {
     // }
 }
 
-pub trait Genome: Debug {
-    type Params;
+pub trait Genome<C: Configure>: Debug {
 
-    fn random(params: &Self::Params) -> Self
+    fn random(params: &C) -> Self
     where
         Self: Sized;
 
-    fn crossover<C: Configure>(&self, mate: &Self, params: Arc<C>) -> Vec<Self>
+    fn crossover(&self, mate: &Self, params: &C) -> Vec<Self>
     where
         Self: Sized;
 
     fn mutate(&mut self);
 
-    fn mate<C: Configure>(&self, other: &Self, params: Arc<C>) -> Vec<Self>
+    fn mate(&self, other: &Self, params: &C) -> Vec<Self>
     where
         Self: Sized,
     {
-        let mut offspring = self.crossover::<C>(other, params.clone());
+        let mut offspring = self.crossover(other, params.clone());
         let mut rng = thread_rng();
         for child in offspring.iter_mut() {
             if rng.gen::<f32>() < params.mutation_rate() {
@@ -163,7 +162,7 @@ pub trait Genome: Debug {
     }
 }
 
-pub trait Phenome: Clone + Debug + Send + Ord + Genome {
+pub trait Phenome: Clone + Debug + Send + Ord {
     type Fitness: FitnessScore;
     // TODO: generalize fitness. should be able to use vecs, etc.
     type Inst;

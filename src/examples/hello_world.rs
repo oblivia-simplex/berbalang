@@ -140,10 +140,9 @@ impl Genotype {
     }
 }
 
-impl Genome for Genotype {
-    type Params = Config;
+impl Genome<Config> for Genotype {
 
-    fn random(params: &Self::Params) -> Self {
+    fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.init_len);
         let s: String = iter::repeat(())
@@ -158,7 +157,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover<Config>(&self, mate: &Self, _params: Arc<Config>) -> Vec<Self> {
+    fn crossover(&self, mate: &Self, _params: &Config) -> Vec<Self> {
         let mut rng = thread_rng();
         let split_m: usize = rng.gen::<usize>() % self.len();
         let split_f: usize = rng.gen::<usize>() % mate.len();
@@ -239,10 +238,10 @@ fn report(window: &[Genotype]) {
     log::info!("AVERAGE FITNESS: {:?}; AVG GEN: {}", avg_fit, avg_gen);
 }
 
-use cached::{cached_key, UnboundCache};
+use cached::{cached_key, TimedCache};
 
 cached_key! {
-    FF_CACHE: UnboundCache<String, Vec<f32>> = UnboundCache::new();
+    FF_CACHE: TimedCache<String, Vec<f32>> = TimedCache::with_lifespan(2);
 
     Key = { format!("{}\x00\x00{}", phenome, target ) };
 
