@@ -1,8 +1,9 @@
-mut_rate = 0.9
-crossover_period = 5
+mut_rate = 0.1
+crossover_period = 7
+crossover_rate = 1.0 # versus clone
 init_len = 32
-pop_size = 50
-tournament_size = 4
+pop_size = 1024 
+tournament_size = 16
 num_offspring = 2
 # target = "Mares eat oats and does eat oats and little lambs eat ivy."
 #target = "Hello, World!"

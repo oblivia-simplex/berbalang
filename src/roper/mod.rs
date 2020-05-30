@@ -9,6 +9,7 @@ use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
 
 use crate::configure::Configure;
 use crate::emulator::executor;
+use crate::observer::ObserverConfig;
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
@@ -19,7 +20,6 @@ use crate::{
     util::architecture::{endian, word_size, Endian},
     util::bitwise::bit,
 };
-use crate::observer::ObserverConfig;
 
 fn default_min_init_len() -> usize {
     1
@@ -50,6 +50,7 @@ pub struct Config {
     pub observer: ObserverConfig,
     pub data_file: Option<String>,
     pub register_pattern: Option<RegisterPatternConfig>,
+    pub crossover_rate: f32,
 }
 
 impl Configure for Config {
@@ -57,8 +58,12 @@ impl Configure for Config {
         unimplemented!()
     }
 
-    fn observer_config(&self) -> ObserverConfig{
+    fn observer_config(&self) -> ObserverConfig {
         self.observer.clone()
+    }
+
+    fn crossover_rate(&self) -> f32 {
+        self.crossover_rate
     }
 
     fn mutation_rate(&self) -> f32 {
@@ -134,7 +139,6 @@ impl Genome<Config> for Genotype {
     fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
         &mut self.chromosome
     }
-
 
     fn random(params: &Config) -> Self {
         let mut rng = rand::thread_rng();

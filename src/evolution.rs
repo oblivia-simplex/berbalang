@@ -76,6 +76,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome<C>, C: Configure> Epoch<E, P, C> {
                 .partial_cmp(&b.fitness())
                 .unwrap_or(Ordering::Equal)
         });
+
         //log::debug!("combatants' fitnesses: {:?}", combatants.iter().map(|c| c.fitness()).collect::<Vec<_>>());
         best = Self::update_best(best, &combatants[0]);
 
@@ -141,7 +142,7 @@ pub trait Genome<C: Configure>: Debug {
 
     fn chromosome(&self) -> &[Self::Allele];
 
-    fn chromosome_mut(&mut self) -> &mut[Self::Allele];
+    fn chromosome_mut(&mut self) -> &mut [Self::Allele];
 
     fn random(params: &C) -> Self
     where
@@ -155,7 +156,6 @@ pub trait Genome<C: Configure>: Debug {
         distribution: &D,
         parents: &[&[Self::Allele]],
     ) -> (Vec<Self::Allele>, Vec<usize>) {
-
         let mut chromosome = Vec::new();
         let mut parentage = Vec::new();
         let mut rng = thread_rng();
@@ -194,10 +194,10 @@ pub trait Genome<C: Configure>: Debug {
     where
         Self: Sized,
     {
-        let mut offspring = self.crossover(other, params);
         let mut rng = thread_rng();
+        let mut offspring = self.crossover(other, params);
         for child in offspring.iter_mut() {
-            if rng.gen::<f32>() < params.mutation_rate() {
+            if rng.gen_range(0.0, 1.0) < params.mutation_rate() {
                 child.mutate(&params);
             }
         }

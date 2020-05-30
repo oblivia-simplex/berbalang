@@ -8,14 +8,13 @@ use rand::prelude::*;
 use serde_derive::Deserialize;
 
 use crate::{
-    configure::{Configure},
+    configure::Configure,
     evaluator::{Evaluate, FitnessFn},
     evolution::*,
     observer::{Observer, ReportFn},
 };
 
-pub type Fitness = Vec<f32>;
-
+pub type Fitness = Vec<f64>;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
@@ -28,6 +27,7 @@ pub struct Config {
     pub target_fitness: usize,
     observer: ObserverConfig,
     max_length: usize,
+    crossover_rate: f32,
 }
 
 impl Configure for Config {
@@ -38,6 +38,10 @@ impl Configure for Config {
 
     fn mutation_rate(&self) -> f32 {
         self.mut_rate
+    }
+
+    fn crossover_rate(&self) -> f32 {
+        self.crossover_rate
     }
 
     fn population_size(&self) -> usize {
@@ -226,25 +230,30 @@ fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
             a.iter()
                 .zip(b.iter())
                 .map(|(a, b)| a + b)
-                .collect::<Vec<f32>>()
+                .collect::<Vec<f64>>()
         })
         .iter()
-        .map(|v| v / len as f32)
-        .collect::<Vec<f32>>();
-    let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f32 / window.len() as f32;
+        .map(|v| v / len as f64)
+        .collect::<Vec<f64>>();
+    let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f64 / window.len() as f64;
 
-    log::info!("[{}] AVERAGE FITNESS: {:?}; AVG GEN: {}", counter, avg_fit, avg_gen);
+    log::info!(
+        "[{}] AVERAGE FITNESS: {:?}; AVG GEN: {}",
+        counter,
+        avg_fit,
+        avg_gen
+    );
 }
 
-use cached::{cached_key, TimedCache};
 use crate::observer::ObserverConfig;
+use cached::{cached_key, TimedCache};
 
 cached_key! {
-    FF_CACHE: TimedCache<String, Vec<f32>> = TimedCache::with_lifespan(2);
+    FF_CACHE: TimedCache<String, Vec<f64>> = TimedCache::with_lifespan(2);
 
     Key = { format!("{}\x00\x00{}", phenome, target ) };
 
-    fn ff_helper(phenome: &str, target: &str) -> Vec<f32> = {
+    fn ff_helper(phenome: &str, target: &str) -> Vec<f64> = {
         let l_fitness = distance::damerau_levenshtein(phenome, target);
         let (short, long) = if phenome.len() < target.len() {
             (phenome, target)
@@ -255,7 +264,7 @@ cached_key! {
         let short = short.as_bytes();
         let long = &long.as_bytes()[0..short.len()];
         let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
-        vec![l_fitness as f32, h_fitness as f32]
+        vec![l_fitness as f64, h_fitness as f64]
     }
 }
 
@@ -275,10 +284,10 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
         phenome.set_fitness(ff_helper(&phenome.genes, &params.target));
 
         // let's try to implement genlin's char-dist
-        // let length_diff = (phenome.genes.len() as f32 - params.target.len() as f32).abs();
+        // let length_diff = (phenome.genes.len() as f64 - params.target.len() as f64).abs();
         // let code_diff = phenome.genes.chars().zip(params.target.chars())
-        //     .map(|(a,b)| (a as i32 - b as i32).abs() as f32)
-        //     .sum::<f32>();
+        //     .map(|(a,b)| (a as i32 - b as i32).abs() as f64)
+        //     .sum::<f64>();
         // phenome.set_fitness(vec![length_diff, code_diff]);
     };
     phenome
@@ -307,7 +316,7 @@ impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
 }
 
 pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness = config.target_fitness as f32;
+    let target_fitness = config.target_fitness as f64;
     let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype, Config>::new(config);
 
     loop {

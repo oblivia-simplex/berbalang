@@ -525,10 +525,10 @@ mod test {
     use example::*;
 
     use super::*;
+    use crate::util::architecture::{endian, word_size, Endian};
     use byteorder::{ByteOrder, LittleEndian};
     use indexmap::indexmap;
     use rand::{thread_rng, Rng};
-    use crate::util::architecture::{Endian, word_size, endian};
 
     mod example {
         use super::*;

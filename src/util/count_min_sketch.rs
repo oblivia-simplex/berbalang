@@ -28,31 +28,32 @@ fn hash<T: Hash>(thing: &T, index: usize) -> usize {
 
 #[derive(Debug)]
 pub struct DecayingSketch {
-    freq_table: Vec<Vec<f32>>,
+    freq_table: Vec<Vec<f64>>,
     time_table: Vec<Vec<usize>>,
     num_hash_funcs: usize,
     width: usize,
     elapsed: usize,
-    half_life: f32,
+    half_life: f64,
+    counter: usize,
 }
 
 impl Default for DecayingSketch {
     fn default() -> Self {
         let num_hash_funcs = 1 << 3;
         let width = 1 << 10;
-        let half_life = 1024_f32; // FIXME tweak
+        let half_life = 1024_f64; // FIXME tweak
         Self::new(num_hash_funcs, width, half_life)
     }
 }
 
 impl DecayingSketch {
-    fn new(num_hash_funcs: usize, width: usize, half_life: f32) -> Self {
+    fn new(num_hash_funcs: usize, width: usize, half_life: f64) -> Self {
         assert!(
             half_life > 0.0,
             "half_life for DecayingSketch cannot be less than or equal to 0"
         );
         let time_table = vec![vec![0_usize; width]; num_hash_funcs];
-        let freq_table = vec![vec![0_f32; width]; num_hash_funcs];
+        let freq_table = vec![vec![0_f64; width]; num_hash_funcs];
         Self {
             num_hash_funcs,
             width,
@@ -60,10 +61,11 @@ impl DecayingSketch {
             half_life,
             freq_table,
             time_table,
+            counter: 0,
         }
     }
 
-    fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f32, Error> {
+    fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f64, Error> {
         if current_timestamp < prior_timestamp {
             return Err(Error::InvalidTimestamp {
                 timestamp: prior_timestamp,
@@ -71,7 +73,7 @@ impl DecayingSketch {
             });
         }
         let age = current_timestamp - prior_timestamp;
-        let decay = 2_f32.powf(-(age as f32 / self.half_life));
+        let decay = 2_f64.powf(-(age as f64 / self.half_life));
         log::debug!(
             "decay factor for timestamp {}, current_time {} = {}",
             prior_timestamp,
@@ -82,12 +84,15 @@ impl DecayingSketch {
     }
 
     pub fn insert<T: Hash>(&mut self, thing: T, current_timestamp: usize) -> Result<(), Error> {
+
         if current_timestamp < self.elapsed {
             return Err(Error::InvalidTimestamp {
                 timestamp: current_timestamp,
                 elapsed: self.elapsed,
             });
         }
+
+        self.counter += 1;
 
         for i in 0..self.num_hash_funcs {
             let loc = hash(&thing, i) % self.width;
@@ -103,7 +108,7 @@ impl DecayingSketch {
         Ok(())
     }
 
-    pub fn query<T: Hash>(&self, thing: T) -> Result<f32, Error> {
+    pub fn query<T: Hash>(&self, thing: T) -> Result<f64, Error> {
         let current_time = self.elapsed;
         let (freq, timestamp) = (0..self.num_hash_funcs)
             .map(|i| {
@@ -111,7 +116,7 @@ impl DecayingSketch {
                 (self.freq_table[i][loc], self.time_table[i][loc])
             })
             .fold(
-                (std::f32::MAX, std::usize::MAX),
+                (std::f64::MAX, std::usize::MAX),
                 |(a_freq, a_time), (b_freq, b_time)| {
                     if a_freq < b_freq {
                         (a_freq, a_time)
@@ -121,7 +126,9 @@ impl DecayingSketch {
                 },
             );
         self.decay_factor(timestamp, current_time)
-            .map(|d| d * freq as f32)
+            // and we divide the score by the counter because we're interested in
+            // *relative* frequency
+            .map(|d| d * freq as f64 / self.counter as f64)
     }
 
     pub fn flush(&mut self) {
@@ -196,20 +203,20 @@ impl CountMinSketch {
 //     num_hash_funcs: usize,
 //     width: usize,
 //     elapsed: AtomicUsize,
-//     half_life: f32,
+//     half_life: f64,
 // }
 //
 // impl Default for AtomicDecayingSketch {
 //     fn default() -> Self {
 //         let num_hash_funcs = 1 << 3;
 //         let width = 1 << 10;
-//         let half_life = 1024_f32; // FIXME tweak
+//         let half_life = 1024_f64; // FIXME tweak
 //         Self::new(num_hash_funcs, width, half_life)
 //     }
 // }
 //
 // impl AtomicDecayingSketch {
-//     fn new(num_hash_funcs: usize, width: usize, half_life: f32) -> Self {
+//     fn new(num_hash_funcs: usize, width: usize, half_life: f64) -> Self {
 //         assert!(
 //             half_life > 0.0,
 //             "half_life for AtomicDecayingSketch cannot be less than or equal to 0"
@@ -231,7 +238,7 @@ impl CountMinSketch {
 //         }
 //     }
 //
-//     fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f32, Error> {
+//     fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f64, Error> {
 //         if current_timestamp < prior_timestamp {
 //             return Err(Error::InvalidTimestamp {
 //                 timestamp: prior_timestamp,
@@ -239,7 +246,7 @@ impl CountMinSketch {
 //             });
 //         }
 //         let age = current_timestamp - prior_timestamp;
-//         let decay = 2_f32.powf(-(age as f32 / self.half_life));
+//         let decay = 2_f64.powf(-(age as f64 / self.half_life));
 //         log::debug!(
 //             "decay factor for timestamp {}, current_time {} = {}",
 //             prior_timestamp,
@@ -265,7 +272,7 @@ impl CountMinSketch {
 //             //let s = self.freq_table[i][loc];
 //             let prior_timestamp = self.time_table[i][loc].swap(current_timestamp, Ordering::Relaxed);
 //             let decay_factor = self.decay_factor(prior_timestamp, current_timestamp)?;
-//             self.freq_table[i][loc].fetch_update(|s| (1000.0 + s as f32 * decay_factor * 1000.0) as usize,
+//             self.freq_table[i][loc].fetch_update(|s| (1000.0 + s as f64 * decay_factor * 1000.0) as usize,
 //                 Ordering::Relaxed,
 //                 Ordering::Relaxed,
 //             );
@@ -276,7 +283,7 @@ impl CountMinSketch {
 //         Ok(())
 //     }
 //
-//     pub fn query<T: Hash>(&self, thing: T) -> Result<f32, Error> {
+//     pub fn query<T: Hash>(&self, thing: T) -> Result<f64, Error> {
 //         let current_time = self.elapsed;
 //         let (freq, timestamp) = (0..self.num_hash_funcs)
 //             .map(|i| {
@@ -284,17 +291,17 @@ impl CountMinSketch {
 //                 (self.freq_table[i][loc].load(Ordering::Relaxed), self.time_table[i][loc].load(Ordering::Relaxed))
 //             })
 //             .fold(
-//                 (std::f32::MAX, std::usize::MAX),
+//                 (std::f64::MAX, std::usize::MAX),
 //                 |(a_freq, a_time), (b_freq, b_time)| {
 //                     if a_freq < b_freq {
-//                         (a_freq as f32, a_time)
+//                         (a_freq as f64, a_time)
 //                     } else {
-//                         (b_freq as f32, b_time)
+//                         (b_freq as f64, b_time)
 //                     }
 //                 },
 //             );
 //         self.decay_factor(timestamp, current_time)
-//             .map(|d| d * freq as f32)
+//             .map(|d| d * freq as f64)
 //     }
 //
 //     pub fn flush(&mut self) {

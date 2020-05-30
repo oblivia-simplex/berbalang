@@ -8,7 +8,7 @@ use pretty_env_logger as logger;
 // #[cfg(feature = "linear_gp")]
 // use examples::linear_gp as example;
 
-use crate::examples::{linear_gp, hello_world};
+use crate::examples::{hello_world, linear_gp};
 
 use crate::configure::Configure;
 
@@ -38,17 +38,17 @@ fn main() {
     let args = std::env::args().collect::<String>();
     if args.contains("hello_world") {
         let config: hello_world::Config = toml::from_str(
-            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml")
-        ).expect("Failed to parse config.toml");
+            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
+        )
+        .expect("Failed to parse config.toml");
         config.assert_invariants();
         hello_world::run(config);
     } else {
         let config: linear_gp::Config = toml::from_str(
             &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
         )
-            .expect("Failed to parse config.toml");
+        .expect("Failed to parse config.toml");
         config.assert_invariants();
         linear_gp::run(config);
     }
-
 }

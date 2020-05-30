@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 // a hack to make the imports more meaningful
+use serde::Deserialize;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
-use serde::Deserialize;
 
 use crate::configure::Configure;
 

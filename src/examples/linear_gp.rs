@@ -6,17 +6,18 @@ use std::{fmt, iter};
 use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 
-use crate::configure::{Configure};
+use crate::configure::Configure;
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::{Epoch, Genome, Phenome, Problem};
-use crate::observer::{Observer, ReportFn, ObserverConfig};
+use crate::observer::{Observer, ObserverConfig, ReportFn};
 use crate::util;
 use crate::util::count_min_sketch::{self, DecayingSketch};
+use crate::fitness::{Lexical,Pareto};
+use crate::{pareto, lexical};
 
-pub type Fitness = Vec<f32>;
+pub type Fitness = Pareto<f64>;
 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
-
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DataConfig {
@@ -41,6 +42,7 @@ pub struct Config {
     #[serde(default = "Default::default")]
     pub return_registers: usize,
     pub crossover_period: f64,
+    pub crossover_rate: f32,
 }
 
 impl Configure for Config {
@@ -51,6 +53,10 @@ impl Configure for Config {
 
     fn mutation_rate(&self) -> f32 {
         self.mut_rate
+    }
+
+    fn crossover_rate(&self) -> f32 {
+        self.crossover_rate
     }
 
     fn population_size(&self) -> usize {
@@ -346,10 +352,10 @@ impl Genotype {
     pub fn measure_genetic_frequency(
         &self,
         sketch: &DecayingSketch,
-    ) -> Result<f32, count_min_sketch::Error> {
+    ) -> Result<f64, count_min_sketch::Error> {
         // The lower the score, the rarer the digrams composing the genome.
         // We divide by the length to avoid penalizing longer genomes.
-        // let mut sum = 0_f32;
+        // let mut sum = 0_f64;
         // for digram in self.digrams() {
         //     sum += (sketch.query(digram, timestamp)?);
         // };
@@ -357,7 +363,7 @@ impl Genotype {
         self.digrams()
             .map(|digram| sketch.query(digram))
             .collect::<Result<Vec<_>, _>>()
-            .map(|v| v.into_iter().fold(std::f32::MAX, |a, b| a.min(b)))
+            .map(|v| v.into_iter().fold(std::f64::MAX, |a, b| a.min(b)))
     }
 }
 
@@ -411,7 +417,7 @@ impl Creature {
     pub fn measure_genetic_frequency(
         &self,
         sketch: &DecayingSketch,
-    ) -> Result<f32, count_min_sketch::Error> {
+    ) -> Result<f64, count_min_sketch::Error> {
         self.chromosome.measure_genetic_frequency(sketch)
     }
 }
@@ -483,7 +489,7 @@ impl Genome<Config> for Creature {
         &self.chromosome.0
     }
 
-    fn chromosome_mut(&mut self) -> &mut[Self::Allele] {
+    fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
         &mut self.chromosome.0
     }
 
@@ -503,24 +509,34 @@ impl Genome<Config> for Creature {
     fn crossover(&self, mate: &Self, params: &Config) -> Vec<Self> {
         let distribution = rand_distr::Exp::new(params.crossover_period)
             .expect("Failed to create random distribution");
-        let cross = |mother: &[Self::Allele], father: &[Self::Allele]| -> Self {
-            let (chromosome, chromosome_parentage) =
-                Self::crossover_by_distribution(&distribution, &[mother, father]);
+        let cross = |parents: &[&[Self::Allele]]| -> Self {
+            let mut rng = thread_rng();
+            let (chromosome, chromosome_parentage, parent_names) =
+                // Check to see if we're performing a crossover or just cloning
+                if rng.gen_range(0.0, 1.0) < params.crossover_rate() {
+                    let (c, p) = Self::crossover_by_distribution(&distribution, parents);
+                    (c, p, vec![self.name.clone(), mate.name.clone()])
+                } else {
+                    let parent = parents[rng.gen_range(0,2)];
+                    let chromosome = parent.to_vec();
+                    let parentage =
+                        chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
+                    (chromosome, parentage, vec![self.name.clone()])
+                };
             Self {
                 chromosome: Genotype(chromosome),
                 chromosome_parentage,
                 tag: rand::random::<u64>(),
                 name: util::name::random(4),
-                parents: vec![self.name.clone(), mate.name.clone()],
+                parents: parent_names,
                 ..Default::default()
             }
         };
 
         iter::repeat(())
             .take(params.num_offspring)
-            .map(|()| cross(self.chromosome(), mate.chromosome()))
+            .map(|()| cross(&[self.chromosome(), mate.chromosome()]))
             .collect::<Vec<Self>>()
-
     }
 
     fn mutate(&mut self, _params: &Config) {
@@ -532,14 +548,22 @@ impl Genome<Config> for Creature {
 }
 
 fn report(window: &[Creature], counter: usize, _params: &ObserverConfig) {
-    let avg_len = window.iter().map(|c| c.len()).sum::<usize>() as f32 / window.len() as f32;
+    let avg_len = window.iter().map(|c| c.len()).sum::<usize>() as f64 / window.len() as f64;
     let mut sketch = DecayingSketch::default();
     for g in window {
         g.record_genetic_frequency(&mut sketch, 1).unwrap();
     }
-    let avg_freq= window.iter().map(|g| g.measure_genetic_frequency(&sketch).unwrap())
-        .sum::<f32>() / window.len() as f32;
-    log::info!("[{}] Average length: {}, average genetic frequency: {}", counter, avg_len, avg_freq);
+    let avg_freq = window
+        .iter()
+        .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
+        .sum::<f64>() as f64
+        / window.len() as f64;
+    log::info!(
+        "[{}] Average length: {}, average genetic frequency: {}",
+        counter,
+        avg_len,
+        avg_freq
+    );
 }
 
 fn parse_data(path: &str) -> Option<Vec<Problem>> {
@@ -688,7 +712,7 @@ mod evaluation {
             .fold(0, |a, b| a + b);
         // TODO: refactor types
         //creature.set_fitness((fitness, 0.0, 0.0, len));
-        creature.set_fitness(vec![fitness as f32]);
+        creature.set_fitness(vec![fitness as f64].into());
         creature
     }
 
@@ -724,15 +748,18 @@ mod evaluation {
                     let genomic_frequency = phenome
                         .measure_genetic_frequency(&sketch)
                         .expect("Failed to measure genetic diversity. Check timestamps.");
-                    let phenomic_frequency = sketch
-                        .query(phenome.problems())
-                        .expect("Failed to measure phenomic diversity");
                     sketch
                         .insert(phenome.problems(), counter)
                         .expect("Failed to update phenomic diversity");
+                    let phenomic_frequency = sketch
+                        .query(phenome.problems())
+                        .expect("Failed to measure phenomic diversity");
+
                     phenome.fitness.as_mut().map(|f| {
                         /*f[0] += (1.0+phenomic_frequency).log(2.0); */
+                        let fit = f.pop().unwrap();
                         f.push(phenomic_frequency);
+                        f.push(fit);
                         f.push(genomic_frequency)
                     });
                     //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
