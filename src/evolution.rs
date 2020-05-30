@@ -231,7 +231,6 @@ pub trait Genome: Debug {
 pub trait Phenome: Clone + Debug + Send + Ord {
     type Fitness: FitnessScore;
     // TODO: generalize fitness. should be able to use vecs, etc.
-    type Inst;
 
     /// This method is intended for reporting, not measuring, fitness.
     fn fitness(&self) -> Option<&Self::Fitness>;

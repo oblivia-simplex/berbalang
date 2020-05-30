@@ -128,9 +128,9 @@ impl<O: 'static + Send> Observer<O> {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn(params: Arc<Config>, report_fn: ReportFn<O>) -> Observer<O> {
+    pub fn spawn(params: &Config, report_fn: ReportFn<O>) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
-
+        let params = Arc::new(params.clone());
         let handle: JoinHandle<()> = spawn(move || {
             let observer_config = params.observer_config();
             let mut window: Window<O> = Window::new(report_fn, observer_config);

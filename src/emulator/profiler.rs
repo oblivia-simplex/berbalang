@@ -53,7 +53,7 @@ fn convert_register_map<C: Cpu<'static>>(
     map
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Profile {
     pub paths: PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,

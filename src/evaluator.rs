@@ -20,9 +20,9 @@ pub trait Evaluate<P: Phenome> {
     /// is to allow the use of asynchronous evaluation pipelines.
     fn evaluate(&self, ob: P) -> P;
 
-    fn pipeline<I: 'static + Iterator<Item = P> + Send>(&self, inbound: I) -> Receiver<P> {
+    fn eval_bath<I: 'static + Iterator<Item = P> + Send>(&self, _inbound: I) -> Vec<P> {
         unimplemented!("Pipeline not implemented")
     }
 
-    fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<P, Self::Params>) -> Self;
+    fn spawn(params: &Self::Params, fitness_fn: FitnessFn<P, Self::Params>) -> Self;
 }

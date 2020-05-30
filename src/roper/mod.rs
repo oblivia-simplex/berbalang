@@ -1,4 +1,7 @@
+use std::cmp::Ordering;
+use std::fmt::Formatter;
 use std::sync::Arc;
+use std::{fmt, iter};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use indexmap::map::IndexMap;
@@ -7,8 +10,10 @@ use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
 
-use crate::configure::Config;
+use crate::configure::{Config, Problem};
 use crate::emulator::executor;
+use crate::emulator::pack::Pack;
+use crate::fitness::Pareto;
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
@@ -19,16 +24,8 @@ use crate::{
     util::architecture::{endian, word_size, Endian},
     util::bitwise::bit,
 };
-use std::fmt::Formatter;
-use std::{fmt, iter};
 
-fn default_min_init_len() -> usize {
-    1
-}
-
-fn default_max_init_len() -> usize {
-    64
-}
+type Fitness = Pareto;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegisterPatternConfig(pub IndexMap<String, u64>);
@@ -59,6 +56,7 @@ register_pattern_converter!(CpuMIPS<'static>);
 register_pattern_converter!(CpuSPARC<'static>);
 register_pattern_converter!(CpuM68K<'static>);
 
+#[derive(Clone)]
 pub struct Creature {
     //pub crossover_mask: u64,
     pub chromosome: Vec<u64>,
@@ -68,6 +66,28 @@ pub struct Creature {
     pub parents: Vec<String>,
     pub generation: usize,
     pub profile: Option<Profile>,
+}
+
+impl Pack for Creature {
+    fn pack(&self, word_size: usize, endian: Endian) -> Vec<u8> {
+        let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
+            (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
+            (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
+            (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),
+            (Endian::Big, 4) => BigEndian::write_u32(&mut bytes, word as u32),
+            (Endian::Little, 2) => LittleEndian::write_u16(&mut bytes, word as u16),
+            (Endian::Big, 2) => BigEndian::write_u16(&mut bytes, word as u16),
+            (_, _) => unimplemented!("I think we've covered the bases"),
+        };
+        let chromosome = self.chromosome();
+        let mut buffer = vec![0_u8; chromosome.len() * word_size];
+        let mut ptr = 0;
+        for word in self.chromosome() {
+            packer(word, &mut buffer[ptr..]);
+            ptr += word_size;
+        }
+        buffer
+    }
 }
 
 impl fmt::Debug for Creature {
@@ -217,11 +237,51 @@ impl Genome for Creature {
     }
 }
 
+impl Phenome for Creature {
+    type Fitness = Fitness;
+
+    fn fitness(&self) -> Option<&Self::Fitness> {
+        unimplemented!()
+    }
+
+    fn set_fitness(&mut self, f: Self::Fitness) {
+        unimplemented!()
+    }
+
+    fn tag(&self) -> u64 {
+        self.tag
+    }
+
+    fn set_tag(&mut self, tag: u64) {
+        self.tag = tag
+    }
+
+    fn problems(&self) -> Option<&Vec<Problem>> {
+        unimplemented!()
+    }
+
+    fn store_answers(&mut self, results: Vec<Problem>) {
+        unimplemented!()
+    }
+
+    fn len(&self) -> usize {
+        self.chromosome().len()
+    }
+}
+
+crate::make_phenome_heap_friendly!(Creature);
+
 mod evaluation {
-    use super::Creature;
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::Arc;
+    use std::thread::{spawn, JoinHandle};
+
+    use unicorn::Cpu;
+
+    use crate::evaluator::FitnessFn;
     use crate::{
         configure::Config,
-        emulator::executor::{Hatchery, HatcheryParams, Register},
+        emulator::executor::{self, Hatchery, HatcheryParams, Register},
         emulator::loader,
         evaluator::Evaluate,
         evolution::{Epoch, Genome, Phenome},
@@ -229,16 +289,63 @@ mod evaluation {
         util,
         util::architecture::{endian, word_size, Endian},
         util::bitwise::bit,
+        util::count_min_sketch::DecayingSketch,
     };
-    use std::sync::mpsc::{Receiver, Sender};
-    use std::thread::JoinHandle;
-    use unicorn::Cpu;
 
-    pub struct Evaluator<C: Cpu<'static> + Send> {
-        handle: JoinHandle<()>,
+    use super::Creature;
+    use crate::emulator::profiler::Profiler;
+    use byteorder::{BigEndian, LittleEndian};
+    use indexmap::map::IndexMap;
+
+    pub struct Evaluator<C: Cpu<'static>> {
         hatchery: Hatchery<C>,
-        tx: Sender<Creature>,
-        rx: Receiver<Creature>,
+        inputs: Arc<Vec<IndexMap<Register<C>, u64>>>,
+        output_registers: Arc<Vec<Register<C>>>,
+        sketch: DecayingSketch,
+    }
+
+    impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
+        type Params = Config;
+
+        fn evaluate(&self, ob: Creature) -> Creature {
+            unimplemented!()
+        }
+
+        fn eval_batch<I: 'static + Iterator<Item = Creature> + Send>(
+            &self,
+            inbound: I,
+        ) -> Vec<Creature> {
+            let inputs = self.inputs.clone();
+            let output_registers = self.output_registers.clone();
+            self.hatchery
+                .pipeline(
+                    inbound,
+                    inputs,
+                    output_registers,
+                    None, // use default
+                )
+                .iter()
+                .map(|(creature, profile)| {
+                    // TODO
+                    // measure fitness on the basis of the profile
+                    // assign fitness to the creature
+                    // gauge frequency with the sketch
+                    creature
+                })
+                .collect::<Vec<Creature>>()
+        }
+
+        fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
+            let hatch_params = Arc::new(params.roper.clone());
+            let hatchery: Hatchery<C> = Hatchery::new(hatch_params.clone());
+
+            Self {
+                hatchery,
+                inputs: Arc::new(vec![]),
+                output_registers: Arc::new(vec![]),
+                sketch: DecayingSketch::default(), // TODO parameterize
+            }
+        }
     }
 
     // impl Evaluate<Creature> for Evaluator {

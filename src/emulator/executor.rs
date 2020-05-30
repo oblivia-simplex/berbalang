@@ -70,37 +70,29 @@ impl<C: Cpu<'static> + Send> Drop for Hatchery<C> {
     }
 }
 
-const fn default_num_workers() -> usize {
-    8
-}
-const fn default_wait_limit() -> u64 {
-    200
-}
+pub use crate::configure::RoperConfig as HatcheryParams;
+use crate::emulator::pack::Pack;
 
-const fn default_stack_size() -> usize {
-    0x1000
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct HatcheryParams {
-    #[serde(default = "default_num_workers")]
-    pub num_workers: usize,
-    #[serde(default = "default_num_workers")]
-    pub num_emulators: usize,
-    #[serde(default = "default_wait_limit")]
-    pub wait_limit: u64,
-    pub arch: Arch,
-    pub mode: Mode,
-    pub max_emu_steps: Option<usize>,
-    pub millisecond_timeout: Option<u64>,
-    #[serde(default = "Default::default")]
-    pub record_basic_blocks: bool,
-    #[serde(default = "Default::default")]
-    pub record_memory_writes: bool,
-    #[serde(default = "default_stack_size")]
-    pub emulator_stack_size: usize,
-    pub binary_path: Option<String>,
-}
+// #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+// pub struct HatcheryParams {
+//     #[serde(default = "default_num_workers")]
+//     pub num_workers: usize,
+//     #[serde(default = "default_num_workers")]
+//     pub num_emulators: usize,
+//     #[serde(default = "default_wait_limit")]
+//     pub wait_limit: u64,
+//     pub arch: Arch,
+//     pub mode: Mode,
+//     pub max_emu_steps: Option<usize>,
+//     pub millisecond_timeout: Option<u64>,
+//     #[serde(default = "Default::default")]
+//     pub record_basic_blocks: bool,
+//     #[serde(default = "Default::default")]
+//     pub record_memory_writes: bool,
+//     #[serde(default = "default_stack_size")]
+//     pub emulator_stack_size: usize,
+//     pub binary_path: Option<String>,
+// }
 
 #[derive(Debug)]
 pub enum Error {
@@ -268,16 +260,17 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
 
     /// Example.
     /// Adapting this method for a ROP executor would involve a few changes.
-    pub fn pipeline<I: 'static + Iterator<Item = Code> + Send>(
+    pub fn pipeline<X: 'static + Pack + Send + Sync, I: 'static + Iterator<Item = X> + Send>(
         &self,
         inbound: I,
         inputs: Arc<Vec<IndexMap<Register<C>, u64>>>,
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
-        emu_prep_fn: EmuPrepFn<C>,
-    ) -> Receiver<(Code, Profile)> {
-        let (tx, rx) = sync_channel::<(Code, Profile)>(self.params.num_workers);
+        emu_prep_fn: Option<EmuPrepFn<C>>,
+    ) -> Receiver<(X, Profile)> {
+        let (tx, rx) = sync_channel::<(X, Profile)>(self.params.num_workers);
         //let thread_pool = self.thread_pool.clone();
+        let emu_prep_fn = emu_prep_fn.unwrap_or_else(|| Box::new(util::emu_prep_fn));
         let mode = self.params.mode;
         let pool = self.emu_pool.clone();
         let wait_limit = self.params.wait_limit;
@@ -287,6 +280,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         let max_emu_steps = self.params.max_emu_steps.unwrap_or(0);
         let memory = self.memory.clone();
         let thread_pool = self.thread_pool.clone();
+        let word_size = crate::util::architecture::word_size(params.arch, params.mode);
+        let endian = crate::util::architecture::endian(params.arch, params.mode);
         let _pipe_handler = spawn(move || {
             for payload in inbound {
                 let emu_prep_fn = emu_prep_fn.clone();
@@ -320,7 +315,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                         // Prepare the emulator with the user-supplied preparation function.
                         // This function will generally be used to load the payload and install
                         // callbacks, which should be able to write to the Profiler instance.
-                        let start_addr = emu_prep_fn(&mut emu, &params, &payload, &profiler)
+                        let code = payload.pack(word_size, endian);
+                        let start_addr = emu_prep_fn(&mut emu, &params, &code, &profiler)
                             .expect("Failure in the emulator preparation function.");
                         // load the inputs
                         // TODO refactor into separate method
@@ -378,11 +374,36 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
 }
 // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
 
-mod util {
+pub mod util {
     use unicorn::{CodeHookType, MemHookType, MemRegion, MemType, Protection};
 
     use super::*;
     use crate::emulator::profiler::Block;
+    use crate::util::architecture::{endian, word_size, Endian};
+    use byteorder::{BigEndian, ByteOrder, LittleEndian};
+
+    pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
+        emu: &mut C,
+        _params: &HatcheryParams,
+        code: &[u8],
+        _profiler: &Profiler<C>,
+    ) -> Result<u64, Error> {
+        // now write the payload
+        let stack = find_stack(emu)?;
+        let sp = stack.begin + (stack.end - stack.begin) / 2;
+        emu.mem_write(sp, code)?;
+        // set the stack pointer to the middle of the stack
+        // now "pop" the stack into the program counter
+        let word_size = word_size(emu.arch(), emu.mode());
+        let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
+        let address = match endian(emu.arch(), emu.mode()) {
+            Endian::Big => BigEndian::read_u64(&a_bytes),
+            Endian::Little => LittleEndian::read_u64(&a_bytes),
+        };
+        emu.write_stack_pointer(sp + word_size as u64)?;
+
+        Ok(address)
+    }
 
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
@@ -588,6 +609,7 @@ mod test {
         assert_eq!(
             params,
             HatcheryParams {
+                gadget_file: None,
                 num_workers: 8,
                 num_emulators: 8,
                 wait_limit: 150,
@@ -599,6 +621,7 @@ mod test {
                 record_memory_writes: true,
                 emulator_stack_size: 0x1000, // default
                 binary_path: None,
+                soup: vec![]
             }
         );
     }
@@ -606,6 +629,7 @@ mod test {
     #[test]
     fn test_spawn_hatchery() {
         let params = HatcheryParams {
+            gadget_file: None,
             num_workers: 32,
             num_emulators: 32,
             wait_limit: 150,
@@ -617,6 +641,7 @@ mod test {
             record_memory_writes: true,
             emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
+            soup: vec![],
         };
 
         let _: Hatchery<CpuX86<'_>> = Hatchery::new(Arc::new(params));
@@ -626,6 +651,7 @@ mod test {
     fn test_hatchery() {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
+            gadget_file: None,
             num_workers: 500,
             num_emulators: 510,
             wait_limit: 50,
@@ -637,6 +663,7 @@ mod test {
             record_memory_writes: false,
             emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
+            soup: vec![],
         };
         fn random_rop() -> Vec<u8> {
             let mut rng = thread_rng();
@@ -666,7 +693,7 @@ mod test {
                 code_iterator,
                 Arc::new(inputs),
                 output_registers,
-                Box::new(simple_emu_prep_fn),
+                Some(Box::new(simple_emu_prep_fn)),
             )
             .iter()
         {

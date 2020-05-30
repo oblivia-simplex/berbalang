@@ -20,6 +20,7 @@ mod evolution;
 mod examples;
 #[allow(dead_code)] // FIXME
 mod fitness;
+mod macros;
 mod observer;
 #[allow(unused_imports, dead_code)] // FIXME
 mod roper;

@@ -37,6 +37,7 @@ name = "berbalang"
 version = "0.1.0"
 dependencies = [
  "bson",
+ "byte-slice-cast",
  "byteorder",
  "cached",
  "capstone",
@@ -108,6 +109,12 @@ checksum = "bdce191bf3fa4995ce948c8c83b4640a1745457a149e73c6db75b4ffe36aad5f"
 dependencies = [
  "semver",
 ]
+
+[[package]]
+name = "byte-slice-cast"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0a5e3906bcbf133e33c1d4d95afc664ad37fbdb9f6568d8043e7ea8c27d93d3"
 
 [[package]]
 name = "byteorder"
@@ -697,8 +704,7 @@ checksum = "237a5ed80e274dbc66f86bd59c1e25edc039660be53194b5fe0a482e0f2612ea"
 [[package]]
 name = "prefix-tree"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f499660c89b7cfbbf11bb2faefe26a187062d7ff0f06bc4aba434328213f044"
+source = "git+https://github.com/oblivia-simplex/prefix-tree#ae3e6598033d941a6dac7f1990b44d4ee44ff3c9"
 
 [[package]]
 name = "pretty_env_logger"

@@ -45,7 +45,6 @@ impl Ord for Genotype {
 
 // because this is a GA we identify genome and phenome
 impl Phenome for Genotype {
-    type Inst = ();
     type Fitness = Fitness;
 
     fn fitness(&self) -> Option<&Fitness> {
@@ -234,18 +233,17 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
 
 impl Epoch<evaluation::Evaluator<Genotype>, Genotype> {
     pub fn new(config: Config) -> Self {
-        let config = Arc::new(config);
         let population = iter::repeat(())
             .map(|()| Genotype::random(&config))
             .take(config.population_size())
             .collect();
         let report_fn: ReportFn<_> = Box::new(report);
         let fitness_fn: FitnessFn<_, _> = Box::new(fitness_function);
-        let observer = Observer::spawn(config.clone(), report_fn);
-        let evaluator = evaluation::Evaluator::spawn(config.clone(), fitness_fn);
+        let observer = Observer::spawn(&config, report_fn);
+        let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
         Self {
             population,
-            config,
+            config: Arc::new(config),
             best: None,
             iteration: 0,
             observer,
@@ -297,9 +295,10 @@ mod evaluation {
             self.rx.recv().expect("rx failure")
         }
 
-        fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<Genotype, Self::Params>) -> Self {
+        fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Genotype, Self::Params>) -> Self {
             let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
+            let params = Arc::new(params.clone());
             let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
                 let sketch = Arc::new(Mutex::new(DecayingSketch::default()));

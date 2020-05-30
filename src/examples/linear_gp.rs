@@ -286,7 +286,6 @@ impl Debug for Creature {
 
 impl Phenome for Creature {
     type Fitness = Fitness;
-    type Inst = machine::Inst;
 
     fn fitness(&self) -> Option<&Fitness> {
         self.fitness.as_ref()
@@ -478,19 +477,18 @@ impl Epoch<evaluation::Evaluator, Creature> {
         config.machine.return_registers = Some(return_registers);
         config.machine.num_registers = Some(num_registers);
         log::info!("Config: {:#?}", config);
-        let config = Arc::new(config);
         let population = iter::repeat(())
             .map(|()| Creature::random(&config))
             .take(config.population_size())
             .collect();
         let report_fn: ReportFn<_> = Box::new(report);
         let fitness_fn: FitnessFn<Creature, _> = Box::new(evaluation::fitness_function);
-        let observer = Observer::spawn(config.clone(), report_fn);
-        let evaluator = evaluation::Evaluator::spawn(config.clone(), fitness_fn);
+        let observer = Observer::spawn(&config, report_fn);
+        let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
 
         Self {
             population,
-            config,
+            config: Arc::new(config),
             best: None,
             iteration: 0,
             observer,
@@ -596,9 +594,20 @@ mod evaluation {
             self.rx.recv().expect("rx failure")
         }
 
-        fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
+        // fn pipeline<I: Iterator<Item = Creature> + Send>(
+        //     &self,
+        //     inbound: I,
+        // ) -> Box<dyn Iterator<Item = Creature>> {
+        //     Box::new(inbound.map(|p| {
+        //         self.tx.send(p).expect("tx failure");
+        //         self.rx.recv().expect("rx failure")
+        //     }))
+        // }
+
+        fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
             let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
+            let params = Arc::new(params.clone());
 
             let handle = spawn(move || {
                 // TODO: parameterize sketch construction

@@ -59,24 +59,57 @@ pub struct MachineConfig {
     pub return_registers: Option<usize>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
-    pub binary_file: String,
-    pub gadget_file: String,
+    pub gadget_file: Option<String>,
     #[serde(default = "Default::default")]
     pub soup: Vec<u64>,
     pub arch: unicorn::Arch,
     pub mode: unicorn::Mode,
+    #[serde(default = "default_num_workers")]
+    pub num_workers: usize,
+    #[serde(default = "default_num_workers")]
+    pub num_emulators: usize,
+    #[serde(default = "default_wait_limit")]
+    pub wait_limit: u64,
+    pub max_emu_steps: Option<usize>,
+    pub millisecond_timeout: Option<u64>,
+    #[serde(default = "Default::default")]
+    pub record_basic_blocks: bool,
+    #[serde(default = "Default::default")]
+    pub record_memory_writes: bool,
+    #[serde(default = "default_stack_size")]
+    pub emulator_stack_size: usize,
+    pub binary_path: Option<String>,
+}
+
+const fn default_num_workers() -> usize {
+    8
+}
+const fn default_wait_limit() -> u64 {
+    200
+}
+
+const fn default_stack_size() -> usize {
+    0x1000
 }
 
 impl Default for RoperConfig {
     fn default() -> Self {
         Self {
-            binary_file: "/bin/sh".to_string(),
-            gadget_file: "".to_string(),
-            soup: Vec::new(),
+            gadget_file: None,
+            soup: vec![],
             arch: unicorn::Arch::X86,
             mode: unicorn::Mode::MODE_64,
+            num_workers: 0,
+            num_emulators: 0,
+            wait_limit: 0,
+            max_emu_steps: None,
+            millisecond_timeout: None,
+            record_basic_blocks: false,
+            record_memory_writes: false,
+            emulator_stack_size: 0,
+            binary_path: Some("/bin/sh".to_string()),
         }
     }
 }
