@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Add, Div};
+use std::ops::{Add, Div, Index};
 
 use serde::Serialize;
 use std::cmp::Ordering;
@@ -10,41 +10,41 @@ pub trait FitnessScoreReq:
 }
 
 pub trait FitnessScore:
-    PartialEq + Debug + Send + Clone + PartialOrd + Serialize + PartialOrd
+    Sized + PartialEq + Debug + Send + Clone + PartialOrd + Serialize + PartialOrd + Index<usize>
 {
 }
 
 // this smells bad
-impl FitnessScore for usize {}
-impl FitnessScore for (usize, usize) {}
-impl FitnessScore for (usize, f32) {}
-impl FitnessScore for (usize, f32, usize) {}
-impl FitnessScore for (usize, f32, f32, usize) {}
-impl FitnessScore for f32 {}
-impl FitnessScore for f64 {}
-impl FitnessScore for Vec<f32> {}
+// impl FitnessScore for usize {}
+// impl FitnessScore for (usize, usize) {}
+// impl FitnessScore for (usize, f32) {}
+// impl FitnessScore for (usize, f32, usize) {}
+// impl FitnessScore for (usize, f32, f32, usize) {}
+// impl FitnessScore for f32 {}
+// impl FitnessScore for f64 {}
+//impl FitnessScore for Vec<f32> {}
 impl FitnessScore for Vec<f64> {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct Pareto<T: PartialOrd + PartialEq + Clone + Debug + Serialize>(pub Vec<T>);
+pub struct Pareto(pub Vec<f64>);
 
-impl<T: PartialOrd + PartialEq + Clone + Debug + Serialize> Pareto<T> {
+impl Pareto {
     pub fn new() -> Self {
         Pareto(Vec::new())
     }
 
-    pub fn push(&mut self, thing: T) {
+    pub fn push(&mut self, thing: f64) {
         self.0.push(thing)
     }
 
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn pop(&mut self) -> Option<f64> {
         self.0.pop()
     }
 }
 
-impl<T: FitnessScore> FitnessScore for Pareto<T> {}
+impl FitnessScore for Pareto {}
 
-impl<T: PartialOrd + PartialEq + Clone + Debug + Serialize> PartialOrd for Pareto<T> {
+impl PartialOrd for Pareto {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         assert_eq!(
             self.0.len(),
@@ -83,15 +83,23 @@ impl<T: PartialOrd + PartialEq + Clone + Debug + Serialize> PartialOrd for Paret
     // }
 }
 
-impl<T: PartialOrd + PartialEq + Clone + Debug + Serialize> PartialEq for Pareto<T> {
+impl PartialEq for Pareto {
     fn eq(&self, other: &Self) -> bool {
         self.0.iter().zip(other.0.iter()).all(|(s, o)| s.eq(o))
     }
 }
 
-impl<T: PartialOrd + PartialEq + Clone + Debug + Serialize> From<Vec<T>> for Pareto<T> {
-    fn from(vec: Vec<T>) -> Self {
+impl From<Vec<f64>> for Pareto {
+    fn from(vec: Vec<f64>) -> Self {
         Pareto(vec)
+    }
+}
+
+impl Index<usize> for Pareto {
+    type Output = f64;
+
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
     }
 }
 
@@ -117,8 +125,8 @@ mod test {
 
     #[test]
     fn test_pareto_ordering() {
-        let p1: Pareto<f32> = pareto![0.1, 2.0, 3.1];
-        let p2: Pareto<f32> = pareto![0.1, 1.9, 3.1];
+        let p1: Pareto = pareto![0.1, 2.0, 3.1];
+        let p2: Pareto = pareto![0.1, 1.9, 3.1];
         let mut ps = vec![&p1, &p2];
         ps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         assert_eq!(ps[0], &p2);

@@ -220,6 +220,21 @@ fn wait_for_emu<C: Cpu<'static>>(
     }
 }
 
+// pub trait Hatch {
+//     fn new(params: Arc<HatcheryParams>) -> Self
+//     where
+//         Self: Sized;
+//
+//     fn pipeline<C: 'static + Cpu<'static>, I: 'static + Iterator<Item = Code> + Send>(
+//         &self,
+//         inbound: I,
+//         inputs: Arc<Vec<IndexMap<Register<C>, u64>>>,
+//         output_registers: Arc<Vec<Register<C>>>,
+//         // TODO: we might want to set some callbacks with this function.
+//         emu_prep_fn: EmuPrepFn<C>,
+//     ) -> Receiver<(Code, Profile<C>)>;
+// }
+
 impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
     pub fn new(params: Arc<HatcheryParams>) -> Self {
         log::debug!("Creating hatchery with {} workers", params.num_workers);
@@ -260,8 +275,8 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: EmuPrepFn<C>,
-    ) -> Receiver<(Code, Profile<C>)> {
-        let (tx, rx) = sync_channel::<(Code, Profile<C>)>(self.params.num_workers);
+    ) -> Receiver<(Code, Profile)> {
+        let (tx, rx) = sync_channel::<(Code, Profile)>(self.params.num_workers);
         //let thread_pool = self.thread_pool.clone();
         let mode = self.params.mode;
         let pool = self.emu_pool.clone();

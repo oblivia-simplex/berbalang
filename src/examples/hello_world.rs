@@ -109,27 +109,21 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover(&self, mate: &Self, _params: &Config) -> Vec<Self> {
+    fn crossover(mates: &[Self], _params: &Config) -> Self {
         let mut rng = thread_rng();
-        let split_m: usize = rng.gen::<usize>() % self.len();
-        let split_f: usize = rng.gen::<usize>() % mate.len();
-        let (m1, m2) = self.genes.split_at(split_m);
-        let (f1, f2) = mate.genes.split_at(split_f);
-        let generation = self.generation.max(mate.generation) + 1;
-        vec![
-            Genotype {
-                genes: format!("{}{}", m1, f2),
-                fitness: None,
-                tag: rng.gen::<u64>(),
-                generation,
-            },
-            Genotype {
-                genes: format!("{}{}", f1, m2),
-                fitness: None,
-                tag: rng.gen::<u64>(),
-                generation,
-            },
-        ]
+        let father = &mates[0];
+        let mother = &mates[1];
+        let split_m: usize = rng.gen::<usize>() % mother.len();
+        let split_f: usize = rng.gen::<usize>() % father.len();
+        let (m1, _m2) = mother.genes.split_at(split_m);
+        let (_f1, f2) = father.genes.split_at(split_f);
+        let generation = mother.generation.max(father.generation) + 1;
+        Genotype {
+            genes: format!("{}{}", m1, f2),
+            fitness: None,
+            tag: rng.gen::<u64>(),
+            generation,
+        }
     }
 
     fn mutate(&mut self, _params: &Config) {
@@ -190,8 +184,7 @@ fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
     );
 }
 
-use crate::configure::{Config, Problem};
-use crate::observer::ObserverConfig;
+use crate::configure::{Config, ObserverConfig, Problem};
 use cached::{cached_key, TimedCache};
 
 cached_key! {
@@ -227,7 +220,7 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
         // let long = &long.as_bytes()[0..short.len()];
         // let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
 
-        phenome.set_fitness(ff_helper(&phenome.genes, &params.target));
+        phenome.set_fitness(ff_helper(&phenome.genes, &params.hello.target));
 
         // let's try to implement genlin's char-dist
         // let length_diff = (phenome.genes.len() as f64 - params.target.len() as f64).abs();

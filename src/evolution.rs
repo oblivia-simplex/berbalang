@@ -57,6 +57,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Epoch<E, P> {
                 .partial_cmp(&b.fitness())
                 .unwrap_or(Ordering::Equal)
         });
+        // the best are now at the beginning of the vec
 
         //log::debug!("combatants' fitnesses: {:?}", combatants.iter().map(|c| c.fitness()).collect::<Vec<_>>());
         best = Self::update_best(best, &combatants[0]);
@@ -74,13 +75,19 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Epoch<E, P> {
             }
         }
         // TODO implement breeder, similar to observer, etc?
-        let mother = combatants.pop().unwrap();
-        let father = combatants.pop().unwrap();
-        let offspring: Vec<P> = mother.mate(&father, &config);
+        //let mother = combatants.pop().unwrap();
+        //let father = combatants.pop().unwrap();
+        let offspring: Vec<P> = iter::repeat(())
+            .take(config.num_offspring)
+            .map(|()| Genome::mate(&combatants, &config))
+            .collect::<Vec<_>>();
 
         // return everyone to the population
-        population.push(mother);
-        population.push(father);
+        //population.push(mother);
+        //population.push(father);
+        for other_guy in combatants.into_iter() {
+            population.push(other_guy)
+        }
         for child in offspring.into_iter() {
             population.push(child)
         }
@@ -129,7 +136,7 @@ pub trait Genome: Debug {
     where
         Self: Sized;
 
-    fn crossover(&self, mate: &Self, params: &Config) -> Vec<Self>
+    fn crossover(parents: &[Self], params: &Config) -> Self
     where
         Self: Sized;
 
@@ -171,18 +178,16 @@ pub trait Genome: Debug {
 
     fn mutate(&mut self, params: &Config);
 
-    fn mate(&self, other: &Self, params: &Config) -> Vec<Self>
+    fn mate(parents: &[Self], params: &Config) -> Self
     where
         Self: Sized,
     {
         let mut rng = thread_rng();
-        let mut offspring = self.crossover(other, params);
-        for child in offspring.iter_mut() {
-            if rng.gen_range(0.0, 1.0) < params.mutation_rate() {
-                child.mutate(&params);
-            }
+        let mut child = Self::crossover(parents, params);
+        if rng.gen_range(0.0, 1.0) < params.mutation_rate() {
+            child.mutate(&params);
         }
-        offspring
+        child
     }
 
     fn digrams(&self) -> Box<dyn Iterator<Item = (Self::Allele, Self::Allele)> + '_> {

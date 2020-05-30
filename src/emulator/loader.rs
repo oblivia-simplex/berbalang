@@ -47,6 +47,10 @@ impl MemoryImage {
         None
     }
 
+    pub fn perm_of_addr(&self, addr: u64) -> Option<Protection> {
+        self.containing_seg(addr).map(|a| a.perm)
+    }
+
     pub fn try_dereference(&self, addr: u64) -> Option<&[u8]> {
         self.containing_seg(addr).map(|s| {
             let bump = (s.addr - s.aligned_start()) as usize;

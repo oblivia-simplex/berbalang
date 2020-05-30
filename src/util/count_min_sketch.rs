@@ -35,13 +35,14 @@ pub struct DecayingSketch {
     elapsed: usize,
     half_life: f64,
     counter: usize,
-}
+    decay: bool,
+} // TODO decay the counter?
 
 impl Default for DecayingSketch {
     fn default() -> Self {
         let num_hash_funcs = 1 << 3;
         let width = 1 << 10;
-        let half_life = 1024_f64; // FIXME tweak
+        let half_life = 100_000_f64; // FIXME tweak
         Self::new(num_hash_funcs, width, half_life)
     }
 }
@@ -62,10 +63,15 @@ impl DecayingSketch {
             freq_table,
             time_table,
             counter: 0,
+            decay: true,
         }
     }
 
     fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f64, Error> {
+        if !self.decay {
+            return Ok(1.0);
+        }
+        //return Ok(1.0); // FIXME
         if current_timestamp < prior_timestamp {
             return Err(Error::InvalidTimestamp {
                 timestamp: prior_timestamp,

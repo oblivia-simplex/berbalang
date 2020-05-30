@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::evolution::Phenome;
+use std::sync::mpsc::Receiver;
 
 pub type FitnessFn<P, C> = Box<dyn Fn(P, Arc<C>) -> P + Sync + Send + 'static>;
 
@@ -18,6 +19,10 @@ pub trait Evaluate<P: Phenome> {
     /// the same one that was passed in. Keep this in mind. This
     /// is to allow the use of asynchronous evaluation pipelines.
     fn evaluate(&self, ob: P) -> P;
+
+    fn pipeline<I: 'static + Iterator<Item = P> + Send>(&self, inbound: I) -> Receiver<P> {
+        unimplemented!("Pipeline not implemented")
+    }
 
     fn spawn(params: Arc<Self::Params>, fitness_fn: FitnessFn<P, Self::Params>) -> Self;
 }

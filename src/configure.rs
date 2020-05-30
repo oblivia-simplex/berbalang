@@ -1,4 +1,3 @@
-use crate::observer::ObserverConfig;
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -10,26 +9,54 @@ pub struct DataConfig {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
-    pub mut_rate: f32,
-    pub max_init_len: usize,
-    pub min_init_len: usize,
-    pub pop_size: usize,
-    pub tournament_size: usize,
-    pub num_offspring: usize,
-    pub target: String,
-    pub target_fitness: usize,
-    pub observer: ObserverConfig,
-    pub data: DataConfig,
-    pub problems: Option<Vec<Problem>>,
-    pub max_length: usize,
-    #[serde(default = "Default::default")]
-    pub num_registers: usize,
-    #[serde(default = "Default::default")]
-    pub return_registers: usize,
     pub crossover_period: f64,
     pub crossover_rate: f32,
+    pub data: DataConfig,
+    pub max_init_len: usize,
+    pub max_length: usize,
+    pub min_init_len: usize,
+    pub mut_rate: f32,
+    pub num_offspring: usize,
+    pub observer: ObserverConfig,
+    pub pop_size: usize,
+    pub problems: Option<Vec<Problem>>,
+    pub target_fitness: usize,
+    pub tournament_size: usize,
     #[serde(default = "Default::default")]
     pub roper: RoperConfig,
+    #[serde(default = "Default::default")]
+    pub machine: MachineConfig,
+    #[serde(default = "Default::default")]
+    pub hello: HelloConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ObserverConfig {
+    pub window_size: usize,
+    pub report_every: usize,
+}
+
+impl Default for ObserverConfig {
+    fn default() -> Self {
+        Self {
+            window_size: 0x1000,
+            report_every: 0x1000,
+        }
+    }
+}
+
+#[derive(Default, Clone, Debug, Deserialize)]
+pub struct HelloConfig {
+    pub target: String,
+}
+
+#[derive(Default, Clone, Debug, Deserialize)]
+pub struct MachineConfig {
+    pub max_steps: usize,
+    // NOTE: these register values will be overridden if a data
+    // file has been supplied, in order to accommodate that data
+    pub num_registers: Option<usize>,
+    pub return_registers: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -12,13 +12,15 @@ use crate::emulator::executor;
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
-    emulator::loader,
+    emulator::{loader, profiler::Profile},
     evolution::{Epoch, Genome, Phenome},
     fitness::FitnessScore,
     util,
     util::architecture::{endian, word_size, Endian},
     util::bitwise::bit,
 };
+use std::fmt::Formatter;
+use std::{fmt, iter};
 
 fn default_min_init_len() -> usize {
     1
@@ -57,16 +59,35 @@ register_pattern_converter!(CpuMIPS<'static>);
 register_pattern_converter!(CpuSPARC<'static>);
 register_pattern_converter!(CpuM68K<'static>);
 
-#[derive(Debug)]
-pub struct Genotype {
-    pub crossover_mask: u64,
+pub struct Creature {
+    //pub crossover_mask: u64,
     pub chromosome: Vec<u64>,
+    pub chromosome_parentage: Vec<usize>,
     pub tag: u64,
     pub name: String,
     pub parents: Vec<String>,
+    pub generation: usize,
+    pub profile: Option<Profile>,
 }
 
-impl Genome for Genotype {
+impl fmt::Debug for Creature {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Name: {}", self.name)?;
+        let memory = loader::get_static_memory_image();
+        for i in 0..self.chromosome.len() {
+            let parent = &self.parents[self.chromosome_parentage[i]];
+            let allele = self.chromosome[i];
+            let flag = memory
+                .perm_of_addr(allele)
+                .map(|p| format!("({:?})", p))
+                .unwrap_or_else(|| "".to_string());
+            write!(f, "[{}][{}] 0x{:010x} {}", i, parent, allele, flag)?;
+        }
+        Ok(())
+    }
+}
+
+impl Genome for Creature {
     type Allele = u64;
 
     fn chromosome(&self) -> &[Self::Allele] {
@@ -89,51 +110,60 @@ impl Genome for Genotype {
             .copied()
             .collect::<Vec<u64>>();
         let name = crate::util::name::random(4);
-        let crossover_mask = rng.gen::<u64>();
+        //let crossover_mask = rng.gen::<u64>();
         let tag = rng.gen::<u64>();
         Self {
-            crossover_mask,
+            //crossover_mask,
             chromosome,
+            chromosome_parentage: vec![],
             tag,
             name,
             parents: vec![],
+            generation: 0,
+            profile: None,
         }
     }
 
-    fn crossover(&self, mate: &Self, _params: &Config) -> Vec<Self>
+    fn crossover(mates: &[Self], params: &Config) -> Self
     where
         Self: Sized,
+        // note code duplication between this and linear_gp TODO
     {
         // NOTE: this bitmask schema implements an implicit incest prohibition
-
-        let mask = self.crossover_mask ^ mate.crossover_mask;
-        let cross = |mother: &Vec<u64>, father: &Vec<u64>| -> Self {
-            let mut chromosome = mother.clone();
-            for i in 0..chromosome.len() {
-                if bit(mask, i) {
-                    chromosome[i] = father[i % father.len()];
-                }
-            }
-            Self {
-                crossover_mask: mask,
-                chromosome,
-                tag: rand::random::<u64>(),
-                name: util::name::random(4),
-                parents: vec![self.name.clone(), mate.name.clone()],
-            }
-        };
-
-        vec![
-            cross(&self.chromosome, &mate.chromosome),
-            cross(&mate.chromosome, &self.chromosome),
-        ]
+        let distribution = rand_distr::Exp::new(params.crossover_period)
+            .expect("Failed to create random distribution");
+        let parental_chromosomes = mates.iter().map(Genome::chromosome).collect::<Vec<_>>();
+        let mut rng = thread_rng();
+        let (chromosome, chromosome_parentage, parent_names) =
+                // Check to see if we're performing a crossover or just cloning
+                if rng.gen_range(0.0, 1.0) < params.crossover_rate() {
+                    let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
+                    let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
+                    (c, p, names)
+                } else {
+                    let parent = parental_chromosomes[rng.gen_range(0, 2)];
+                    let chromosome = parent.to_vec();
+                    let parentage =
+                        chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
+                    (chromosome, parentage, vec![mates[0].name.clone()])
+                };
+        let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
+        Self {
+            chromosome,
+            chromosome_parentage,
+            tag: 0,
+            name: util::name::random(4),
+            parents: parent_names,
+            generation,
+            profile: None,
+        }
     }
 
     fn mutate(&mut self, params: &Config) {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.chromosome.len());
 
-        match rng.gen_range(0, 6) {
+        match rng.gen_range(0, 5) {
             0 => {
                 // Dereference mutation
                 let memory = loader::get_static_memory_image();
@@ -179,10 +209,44 @@ impl Genome for Genotype {
             4 => {
                 self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
             }
-            5 => {
-                self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-            }
+            // 5 => {
+            //     self.crossover_mask ^= 1 << rng.gen_range(0, 64);
+            // }
             _ => unimplemented!("out of range"),
         }
     }
+}
+
+mod evaluation {
+    use super::Creature;
+    use crate::{
+        configure::Config,
+        emulator::executor::{Hatchery, HatcheryParams, Register},
+        emulator::loader,
+        evaluator::Evaluate,
+        evolution::{Epoch, Genome, Phenome},
+        fitness::FitnessScore,
+        util,
+        util::architecture::{endian, word_size, Endian},
+        util::bitwise::bit,
+    };
+    use std::sync::mpsc::{Receiver, Sender};
+    use std::thread::JoinHandle;
+    use unicorn::Cpu;
+
+    pub struct Evaluator<C: Cpu<'static> + Send> {
+        handle: JoinHandle<()>,
+        hatchery: Hatchery<C>,
+        tx: Sender<Creature>,
+        rx: Receiver<Creature>,
+    }
+
+    // impl Evaluate<Creature> for Evaluator {
+    //     type Params = Config;
+    //
+    //     fn evaluate(&self, creature: Creature) -> Creature {
+    //
+    //
+    //     }
+    // }
 }

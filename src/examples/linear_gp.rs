@@ -5,26 +5,26 @@ use std::{fmt, iter};
 
 use rand::{thread_rng, Rng};
 
-use crate::configure::{Config, Problem};
+use crate::configure::{Config, ObserverConfig, Problem};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::{Epoch, Genome, Phenome};
 use crate::fitness::Pareto;
-use crate::observer::{Observer, ObserverConfig, ReportFn};
+use crate::observer::{Observer, ReportFn};
 use crate::util;
 use crate::util::count_min_sketch::DecayingSketch;
 
-pub type Fitness = Pareto<f64>;
+pub type Fitness = Pareto;
 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
 pub mod machine {
     use std::fmt::{self, Display};
     use std::hash::Hash;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use rand::distributions::{Distribution, Standard};
     use rand::{thread_rng, Rng};
 
+    use crate::configure::MachineConfig;
     use crate::examples::linear_gp::MachineWord;
 
     #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
@@ -82,8 +82,6 @@ pub mod machine {
 
     pub type Register = usize;
 
-    const MAX_STEPS: usize = 0x1000;
-    pub static NUM_REGISTERS: AtomicUsize = AtomicUsize::new(16);
     // TODO make this configurable
     //const FIRST_INPUT_REGISTER: usize = 1;
     //const RETURN_REGISTER: usize = 0;
@@ -105,8 +103,8 @@ pub mod machine {
     }
 
     impl Inst {
-        pub fn random() -> Self {
-            let num_registers = NUM_REGISTERS.load(Ordering::Relaxed);
+        pub fn random(params: &MachineConfig) -> Self {
+            let num_registers = params.num_registers.unwrap();
             Self {
                 op: rand::random::<Op>(),
                 a: rand::random::<usize>() % num_registers,
@@ -114,8 +112,8 @@ pub mod machine {
             }
         }
 
-        pub fn mutate(&mut self) {
-            let num_registers = NUM_REGISTERS.load(Ordering::Relaxed);
+        pub fn mutate(&mut self, params: &MachineConfig) {
+            let num_registers = params.num_registers.unwrap();
             let mut rng = thread_rng();
             let mutation = rng.gen::<u8>() % 4;
 
@@ -137,12 +135,12 @@ pub mod machine {
     }
 
     impl Machine {
-        pub(crate) fn new(num_registers: usize, return_registers: usize) -> Self {
+        pub(crate) fn new(params: &MachineConfig) -> Self {
             Self {
-                return_registers,
-                registers: vec![0; num_registers],
+                return_registers: params.return_registers.unwrap(),
+                registers: vec![0; params.num_registers.unwrap()],
                 pc: 0,
-                max_steps: MAX_STEPS,
+                max_steps: params.max_steps,
             }
         }
 
@@ -242,9 +240,11 @@ type Genotype = Vec<machine::Inst>;
 
 /// Produce a genotype with exactly `len` random instructions.
 /// Pass a randomly generated `len` to randomize the length.
-fn random_chromosome(len: usize) -> Genotype {
+fn random_chromosome(params: &Config) -> Genotype {
+    let mut rng = thread_rng();
+    let len = rng.gen_range(params.min_init_len, params.max_init_len) + 1;
     iter::repeat(())
-        .map(|()| machine::Inst::random())
+        .map(|()| machine::Inst::random(&params.machine))
         .take(len)
         .collect()
 }
@@ -258,14 +258,15 @@ pub struct Creature {
     answers: Option<Answer>,
     pub fitness: Option<Fitness>,
     tag: u64,
-    crossover_mask: u64,
+    //crossover_mask: u64,
     name: String,
     parents: Vec<String>,
+    generation: usize,
 }
 
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Name: {}", self.name)?;
+        writeln!(f, "Name: {}, generation: {}", self.name, self.generation)?;
         for (i, inst) in self.chromosome().iter().enumerate() {
             writeln!(
                 f,
@@ -356,55 +357,53 @@ impl Genome for Creature {
 
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
-        let len = rng.gen_range(1, params.max_init_len);
-        let chromosome = random_chromosome(len);
+        let chromosome = random_chromosome(params);
         Self {
             chromosome,
             tag: rng.gen::<u64>(),
-            crossover_mask: rng.gen::<u64>(),
+            //crossover_mask: rng.gen::<u64>(),
             name: crate::util::name::random(4),
             ..Default::default()
         }
     }
 
-    fn crossover(&self, mate: &Self, params: &Config) -> Vec<Self> {
+    fn crossover(mates: &[Self], params: &Config) -> Self {
         let distribution = rand_distr::Exp::new(params.crossover_period)
             .expect("Failed to create random distribution");
-        let cross = |parents: &[&[Self::Allele]]| -> Self {
-            let mut rng = thread_rng();
-            let (chromosome, chromosome_parentage, parent_names) =
+        let parental_chromosomes = mates.iter().map(Genome::chromosome).collect::<Vec<_>>();
+        let mut rng = thread_rng();
+        let (chromosome, chromosome_parentage, parent_names) =
                 // Check to see if we're performing a crossover or just cloning
                 if rng.gen_range(0.0, 1.0) < params.crossover_rate() {
-                    let (c, p) = Self::crossover_by_distribution(&distribution, parents);
-                    (c, p, vec![self.name.clone(), mate.name.clone()])
+                    let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
+                    let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
+                    (c, p, names)
                 } else {
-                    let parent = parents[rng.gen_range(0,2)];
+                    let parent = parental_chromosomes[rng.gen_range(0, 2)];
                     let chromosome = parent.to_vec();
                     let parentage =
                         chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
-                    (chromosome, parentage, vec![self.name.clone()])
+                    (chromosome, parentage, vec![mates[0].name.clone()])
                 };
-            Self {
-                chromosome,
-                chromosome_parentage,
-                tag: rand::random::<u64>(),
-                name: util::name::random(4),
-                parents: parent_names,
-                ..Default::default()
-            }
-        };
-
-        iter::repeat(())
-            .take(params.num_offspring)
-            .map(|()| cross(&[self.chromosome(), mate.chromosome()]))
-            .collect::<Vec<Self>>()
+        let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
+        Self {
+            chromosome,
+            chromosome_parentage,
+            answers: None,
+            fitness: None,
+            tag: rand::random::<u64>(),
+            //crossover_mask: 0,
+            name: util::name::random(4),
+            parents: parent_names,
+            generation,
+        }
     }
 
-    fn mutate(&mut self, _params: &Config) {
+    fn mutate(&mut self, params: &Config) {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
-        self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-        self.chromosome_mut()[i].mutate();
+        //self.crossover_mask ^= 1 << rng.gen_range(0, 64);
+        self.chromosome_mut()[i].mutate(&params.machine);
     }
 }
 
@@ -417,13 +416,19 @@ fn report(window: &[Creature], counter: usize, _params: &ObserverConfig) {
     let avg_freq = window
         .iter()
         .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
-        .sum::<f64>() as f64
+        .sum::<f64>()
+        / window.len() as f64;
+    let avg_fit = window
+        .iter()
+        .filter_map(|g| g.fitness.as_ref().map(|f| f.0[0]))
+        .sum::<f64>()
         / window.len() as f64;
     log::info!(
-        "[{}] Average length: {}, average genetic frequency: {}",
+        "[{}] Average length: {}, average genetic frequency: {}; average fitness: {}",
         counter,
         avg_len,
-        avg_freq
+        avg_freq,
+        avg_fit,
     );
 }
 
@@ -452,7 +457,7 @@ impl Epoch<evaluation::Evaluator, Creature> {
         let problems = parse_data(&config.data.path);
         assert!(problems.is_some());
         // figure out the number of return registers needed
-        let return_registers = problems
+        let mut return_registers = problems
             .as_ref()
             .unwrap()
             .iter()
@@ -463,9 +468,15 @@ impl Epoch<evaluation::Evaluator, Creature> {
         let input_registers = problems.as_ref().unwrap()[0].input.len();
 
         config.problems = problems;
-        config.return_registers = return_registers;
-        config.num_registers = return_registers + input_registers + 2;
-        machine::NUM_REGISTERS.store(config.num_registers, std::sync::atomic::Ordering::Relaxed);
+        if let Some(r) = config.machine.return_registers {
+            return_registers = std::cmp::max(return_registers, r);
+        }
+        let mut num_registers = return_registers + input_registers + 2;
+        if let Some(r) = config.machine.num_registers {
+            num_registers = std::cmp::max(num_registers, r);
+        }
+        config.machine.return_registers = Some(return_registers);
+        config.machine.num_registers = Some(num_registers);
         log::info!("Config: {:#?}", config);
         let config = Arc::new(config);
         let population = iter::repeat(())
@@ -530,7 +541,7 @@ mod evaluation {
                     // would be a good place to call the fitness function, too.
                     // TODO: is it worth creating a new machine per-thread?
                     // Probably not when it comes to unicorn, but for this, yeah.
-                    let mut machine = Machine::new(params.num_registers, params.return_registers);
+                    let mut machine = Machine::new(&params.machine);
                     let return_regs = machine.exec(creature.chromosome(), &input);
                     let output = (0..return_regs.len())
                         .map(|i| return_regs[i])
@@ -580,8 +591,8 @@ mod evaluation {
     impl Evaluate<Creature> for Evaluator {
         type Params = Config;
 
-        fn evaluate(&self, phenome: Creature) -> Creature {
-            self.tx.send(phenome).expect("tx failure");
+        fn evaluate(&self, genome: Creature) -> Creature {
+            self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
@@ -590,23 +601,19 @@ mod evaluation {
             let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
 
             let handle = spawn(move || {
-                //let mut machine = Machine::new(); // This too could be parameterized
+                // TODO: parameterize sketch construction
                 let mut sketch = DecayingSketch::default();
                 let mut counter = 0;
 
                 for phenome in our_rx {
                     counter += 1;
-                    // if counter % refresh_every == 0 {
-                    //     sketch.flush()
-                    // }
                     let phenome = execute(params.clone(), phenome);
-                    //let update = phenome.fitness().is_none();
                     let mut phenome = (fitness_fn)(phenome, params.clone());
                     // register and measure frequency
                     phenome
                         .record_genetic_frequency(&mut sketch, counter)
                         .expect("Failed to record phenomic frequency");
-                    let genomic_frequency = phenome
+                    let _genomic_frequency = phenome
                         .measure_genetic_frequency(&sketch)
                         .expect("Failed to measure genetic diversity. Check timestamps.");
                     sketch
@@ -617,11 +624,8 @@ mod evaluation {
                         .expect("Failed to measure phenomic diversity");
 
                     phenome.fitness.as_mut().map(|f| {
-                        /*f[0] += (1.0+phenomic_frequency).log(2.0); */
-                        //let fit = f.pop().unwrap();
                         f.push(phenomic_frequency);
-                        //f.push(fit);
-                        f.push(genomic_frequency)
+                        //f.push(genomic_frequency)
                     });
                     //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
                     log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());

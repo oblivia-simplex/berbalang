@@ -43,16 +43,26 @@ impl<C: Cpu<'static>> Profiler<C> {
     }
 }
 
+fn convert_register_map<C: Cpu<'static>>(
+    registers: IndexMap<Register<C>, u64>,
+) -> IndexMap<String, u64> {
+    let mut map = IndexMap::new();
+    for (k, v) in registers.into_iter() {
+        map.insert(format!("{:?}", k), v); // FIXME use stable conversion method
+    }
+    map
+}
+
 #[derive(Debug)]
-pub struct Profile<C: Cpu<'static>> {
+pub struct Profile {
     pub paths: PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
-    pub registers: Vec<IndexMap<Register<C>, u64>>,
+    pub registers: Vec<IndexMap<String, u64>>,
 }
 
-impl<C: Cpu<'static>> Profile<C> {
-    pub fn collate(profilers: Vec<Profiler<C>>) -> Self {
+impl Profile {
+    pub fn collate<C: Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
         //let mut write_trie = Trie::new();
         let mut paths = PrefixSet::new();
         let mut cpu_errors = IndexMap::new();
@@ -80,7 +90,7 @@ impl<C: Cpu<'static>> Profile<C> {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
             computation_times.push(computation_time);
-            register_maps.push(registers);
+            register_maps.push(convert_register_map::<C>(registers));
         }
 
         Self {
@@ -93,7 +103,7 @@ impl<C: Cpu<'static>> Profile<C> {
     }
 }
 
-impl<C: Cpu<'static>> From<Vec<Profiler<C>>> for Profile<C> {
+impl<C: Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
     fn from(v: Vec<Profiler<C>>) -> Self {
         Self::collate(v)
     }
@@ -193,7 +203,7 @@ mod test {
             },
         ];
 
-        let profile: Profile<CpuX86<'_>> = profilers.into();
+        let profile: Profile = profilers.into();
 
         println!("{:#?}", profile);
         println!(
