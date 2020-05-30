@@ -11,7 +11,7 @@ use crate::evolution::{Epoch, Genome, Phenome};
 use crate::fitness::Pareto;
 use crate::observer::{Observer, ObserverConfig, ReportFn};
 use crate::util;
-use crate::util::count_min_sketch::{self, DecayingSketch};
+use crate::util::count_min_sketch::DecayingSketch;
 
 pub type Fitness = Pareto<f64>;
 // try setting fitness to (usize, usize);
@@ -236,64 +236,17 @@ pub mod machine {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Genotype(pub Vec<machine::Inst>);
+//#[derive(Debug, Clone, Default)]
+//pub struct Genotype(pub Vec<machine::Inst>);
+type Genotype = Vec<machine::Inst>;
 
-impl Genotype {
-    /// Produce a genotype with exactly `len` random instructions.
-    /// Pass a randomly generated `len` to randomize the length.
-    pub fn random(len: usize) -> Self {
-        Self(
-            iter::repeat(())
-                .map(|()| machine::Inst::random())
-                .take(len)
-                .collect(),
-        )
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    // TODO: factor these into generic methods.
-    // every genotype should have some kind of serialization method, something
-    // like .instructions(), and so it should support a derived digrams method.
-    // we need to constrain instructions to be hashable.
-    pub fn digrams(&self) -> impl Iterator<Item = (machine::Inst, machine::Inst)> + '_ {
-        self.0
-            .iter()
-            .zip(self.0.iter().skip(1))
-            .map(|(a, b)| (*a, *b))
-    }
-
-    pub fn record_genetic_frequency(
-        &self,
-        sketch: &mut DecayingSketch,
-        timestamp: usize,
-    ) -> Result<(), count_min_sketch::Error> {
-        for digram in self.digrams() {
-            sketch.insert(digram, timestamp)?
-        }
-        Ok(())
-    }
-
-    pub fn measure_genetic_frequency(
-        &self,
-        sketch: &DecayingSketch,
-    ) -> Result<f64, count_min_sketch::Error> {
-        // The lower the score, the rarer the digrams composing the genome.
-        // We divide by the length to avoid penalizing longer genomes.
-        // let mut sum = 0_f64;
-        // for digram in self.digrams() {
-        //     sum += (sketch.query(digram, timestamp)?);
-        // };
-        // Ok(sum)
-        self.digrams()
-            .map(|digram| sketch.query(digram))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|v| v.into_iter().fold(std::f64::MAX, |a, b| a.min(b)))
-    }
+/// Produce a genotype with exactly `len` random instructions.
+/// Pass a randomly generated `len` to randomize the length.
+fn random_chromosome(len: usize) -> Genotype {
+    iter::repeat(())
+        .map(|()| machine::Inst::random())
+        .take(len)
+        .collect()
 }
 
 pub type Answer = Vec<Problem>;
@@ -313,7 +266,7 @@ pub struct Creature {
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}", self.name)?;
-        for (i, inst) in self.instructions().iter().enumerate() {
+        for (i, inst) in self.chromosome().iter().enumerate() {
             writeln!(
                 f,
                 "[{}][{}]  {}",
@@ -330,30 +283,9 @@ impl Debug for Creature {
     }
 }
 
-impl Creature {
-    fn instructions(&self) -> &Vec<machine::Inst> {
-        &self.chromosome.0
-    }
-
-    pub fn record_genetic_frequency(
-        &self,
-        sketch: &mut DecayingSketch,
-        timestamp: usize,
-    ) -> Result<(), count_min_sketch::Error> {
-        self.chromosome.record_genetic_frequency(sketch, timestamp)
-    }
-
-    pub fn measure_genetic_frequency(
-        &self,
-        sketch: &DecayingSketch,
-    ) -> Result<f64, count_min_sketch::Error> {
-        self.chromosome.measure_genetic_frequency(sketch)
-    }
-}
-
 impl Phenome for Creature {
-    type Inst = machine::Inst;
     type Fitness = Fitness;
+    type Inst = machine::Inst;
 
     fn fitness(&self) -> Option<&Fitness> {
         self.fitness.as_ref()
@@ -415,19 +347,19 @@ impl Genome for Creature {
     type Allele = machine::Inst;
 
     fn chromosome(&self) -> &[Self::Allele] {
-        &self.chromosome.0
+        &self.chromosome
     }
 
     fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
-        &mut self.chromosome.0
+        &mut self.chromosome
     }
 
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
         let len = rng.gen_range(1, params.max_init_len);
-        let genotype = Genotype::random(len);
+        let chromosome = random_chromosome(len);
         Self {
-            chromosome: genotype,
+            chromosome,
             tag: rng.gen::<u64>(),
             crossover_mask: rng.gen::<u64>(),
             name: crate::util::name::random(4),
@@ -453,7 +385,7 @@ impl Genome for Creature {
                     (chromosome, parentage, vec![self.name.clone()])
                 };
             Self {
-                chromosome: Genotype(chromosome),
+                chromosome,
                 chromosome_parentage,
                 tag: rand::random::<u64>(),
                 name: util::name::random(4),
@@ -599,7 +531,7 @@ mod evaluation {
                     // TODO: is it worth creating a new machine per-thread?
                     // Probably not when it comes to unicorn, but for this, yeah.
                     let mut machine = Machine::new(params.num_registers, params.return_registers);
-                    let return_regs = machine.exec(creature.instructions(), &input);
+                    let return_regs = machine.exec(creature.chromosome(), &input);
                     let output = (0..return_regs.len())
                         .map(|i| return_regs[i])
                         .fold(0, i32::max);

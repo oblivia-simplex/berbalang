@@ -10,10 +10,7 @@ use pretty_env_logger as logger;
 
 use crate::examples::{hello_world, linear_gp};
 
-mod scratch; // NOTE: tinkering files
-
 mod configure;
-mod creature;
 #[allow(dead_code)] // FIXME
 mod disassembler;
 #[allow(dead_code)] // FIXME
@@ -24,7 +21,7 @@ mod examples;
 #[allow(dead_code)] // FIXME
 mod fitness;
 mod observer;
-#[allow(dead_code)] // FIXME
+#[allow(unused_imports, dead_code)] // FIXME
 mod roper;
 #[allow(dead_code)] // FIXME
 mod util;

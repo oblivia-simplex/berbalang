@@ -1,6 +1,7 @@
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::iter;
 use std::sync::Arc;
 
@@ -10,6 +11,8 @@ use crate::configure::{Config, Problem};
 use crate::evaluator::Evaluate;
 use crate::fitness::FitnessScore;
 use crate::observer::Observer;
+use crate::util::count_min_sketch;
+use crate::util::count_min_sketch::DecayingSketch;
 use rand::rngs::ThreadRng;
 
 pub struct Epoch<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static> {
@@ -116,7 +119,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Epoch<E, P> {
 }
 
 pub trait Genome: Debug {
-    type Allele: Clone + Debug;
+    type Allele: Clone + Copy + Debug + Hash;
 
     fn chromosome(&self) -> &[Self::Allele];
 
@@ -180,6 +183,43 @@ pub trait Genome: Debug {
             }
         }
         offspring
+    }
+
+    fn digrams(&self) -> Box<dyn Iterator<Item = (Self::Allele, Self::Allele)> + '_> {
+        Box::new(
+            self.chromosome()
+                .iter()
+                .zip(self.chromosome().iter().skip(1))
+                .map(|(a, b)| (*a, *b)),
+        )
+    }
+
+    fn record_genetic_frequency(
+        &self,
+        sketch: &mut DecayingSketch,
+        timestamp: usize,
+    ) -> Result<(), count_min_sketch::Error> {
+        for digram in self.digrams() {
+            sketch.insert(digram, timestamp)?
+        }
+        Ok(())
+    }
+
+    fn measure_genetic_frequency(
+        &self,
+        sketch: &DecayingSketch,
+    ) -> Result<f64, count_min_sketch::Error> {
+        // The lower the score, the rarer the digrams composing the genome.
+        // We divide by the length to avoid penalizing longer genomes.
+        // let mut sum = 0_f64;
+        // for digram in self.digrams() {
+        //     sum += (sketch.query(digram, timestamp)?);
+        // };
+        // Ok(sum)
+        self.digrams()
+            .map(|digram| sketch.query(digram))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into_iter().fold(std::f64::MAX, |a, b| a.min(b)))
     }
 }
 
