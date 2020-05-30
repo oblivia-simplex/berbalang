@@ -7,9 +7,8 @@ use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
 
-use crate::configure::Configure;
+use crate::configure::Config;
 use crate::emulator::executor;
-use crate::observer::ObserverConfig;
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
@@ -27,68 +26,6 @@ fn default_min_init_len() -> usize {
 
 fn default_max_init_len() -> usize {
     64
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Config {
-    pub binary_file: String,
-    pub gadget_file: String,
-    #[serde(default = "Default::default")]
-    pub soup: Vec<u64>,
-    pub arch: unicorn::Arch,
-    pub mode: unicorn::Mode,
-    pub population_size: usize,
-    pub num_offspring: usize,
-    pub mutation_rate: f32,
-    pub tournament_size: usize,
-    #[serde(default = "default_min_init_len")]
-    pub min_init_len: usize,
-    #[serde(default = "default_max_init_len")]
-    pub max_init_len: usize,
-    pub max_final_len: usize,
-    pub observer_window_size: usize,
-    pub observer: ObserverConfig,
-    pub data_file: Option<String>,
-    pub register_pattern: Option<RegisterPatternConfig>,
-    pub crossover_rate: f32,
-}
-
-impl Configure for Config {
-    fn assert_invariants(&self) {
-        unimplemented!()
-    }
-
-    fn observer_config(&self) -> ObserverConfig {
-        self.observer.clone()
-    }
-
-    fn crossover_rate(&self) -> f32 {
-        self.crossover_rate
-    }
-
-    fn mutation_rate(&self) -> f32 {
-        self.mutation_rate
-    }
-
-    fn tournament_size(&self) -> usize {
-        self.tournament_size
-    }
-
-    fn population_size(&self) -> usize {
-        self.population_size
-    }
-
-    fn observer_window_size(&self) -> usize {
-        self.observer_window_size
-    }
-
-    fn num_offspring(&self) -> usize {
-        self.num_offspring
-    }
-
-    fn max_length(&self) -> usize {
-        self.max_final_len
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -129,7 +66,7 @@ pub struct Genotype {
     pub parents: Vec<String>,
 }
 
-impl Genome<Config> for Genotype {
+impl Genome for Genotype {
     type Allele = u64;
 
     fn chromosome(&self) -> &[Self::Allele] {
@@ -144,6 +81,7 @@ impl Genome<Config> for Genotype {
         let mut rng = rand::thread_rng();
         let length = rng.gen_range(params.min_init_len, params.max_init_len);
         let chromosome = params
+            .roper
             .soup
             .iter()
             .choose_multiple(&mut rng, length)
@@ -201,8 +139,8 @@ impl Genome<Config> for Genotype {
                 let memory = loader::get_static_memory_image();
                 if let Some(bytes) = memory.try_dereference(self.chromosome[i]) {
                     if bytes.len() > 8 {
-                        let endian = endian(params.arch, params.mode);
-                        let word_size = word_size(params.arch, params.mode);
+                        let endian = endian(params.roper.arch, params.roper.mode);
+                        let word_size = word_size(params.roper.arch, params.roper.mode);
                         let word = match (endian, word_size) {
                             (Endian::Little, 8) => LittleEndian::read_u64(bytes),
                             (Endian::Big, 8) => BigEndian::read_u64(bytes),
@@ -219,10 +157,10 @@ impl Genome<Config> for Genotype {
             1 => {
                 // Indirection mutation
                 let memory = loader::get_static_memory_image();
-                let word_size = word_size(params.arch, params.mode);
+                let word_size = word_size(params.roper.arch, params.roper.mode);
                 let mut bytes = vec![0; word_size];
                 let word = self.chromosome[i];
-                match (endian(params.arch, params.mode), word_size) {
+                match (endian(params.roper.arch, params.roper.mode), word_size) {
                     (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
                     (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
                     (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),

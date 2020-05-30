@@ -5,69 +5,14 @@ use std::sync::Arc;
 
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
-use serde_derive::Deserialize;
 
 use crate::{
-    configure::Configure,
     evaluator::{Evaluate, FitnessFn},
     evolution::*,
     observer::{Observer, ReportFn},
 };
 
 pub type Fitness = Vec<f64>;
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Config {
-    mut_rate: f32,
-    pub init_len: usize,
-    pop_size: usize,
-    tournament_size: usize,
-    pub num_offspring: usize,
-    pub target: String,
-    pub target_fitness: usize,
-    observer: ObserverConfig,
-    max_length: usize,
-    crossover_rate: f32,
-}
-
-impl Configure for Config {
-    fn assert_invariants(&self) {
-        assert!(self.tournament_size >= self.num_offspring + 2);
-        assert_eq!(self.num_offspring, 2); // all that's supported for now
-    }
-
-    fn mutation_rate(&self) -> f32 {
-        self.mut_rate
-    }
-
-    fn crossover_rate(&self) -> f32 {
-        self.crossover_rate
-    }
-
-    fn population_size(&self) -> usize {
-        self.pop_size
-    }
-
-    fn tournament_size(&self) -> usize {
-        self.tournament_size
-    }
-
-    fn observer_window_size(&self) -> usize {
-        self.observer.window_size
-    }
-
-    fn num_offspring(&self) -> usize {
-        self.num_offspring
-    }
-
-    fn max_length(&self) -> usize {
-        self.max_length
-    }
-
-    fn observer_config(&self) -> ObserverConfig {
-        self.observer.clone()
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct Genotype {
@@ -138,7 +83,7 @@ impl Genotype {
     }
 }
 
-impl Genome<Config> for Genotype {
+impl Genome for Genotype {
     type Allele = char;
 
     fn chromosome(&self) -> &[Self::Allele] {
@@ -151,7 +96,7 @@ impl Genome<Config> for Genotype {
 
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
-        let len = rng.gen_range(1, params.init_len);
+        let len = rng.gen_range(1, params.max_init_len);
         let s: String = iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
             .take(len)
@@ -245,6 +190,7 @@ fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
     );
 }
 
+use crate::configure::{Config, Problem};
 use crate::observer::ObserverConfig;
 use cached::{cached_key, TimedCache};
 
@@ -293,7 +239,7 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
     phenome
 }
 
-impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
+impl Epoch<evaluation::Evaluator<Genotype>, Genotype> {
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
         let population = iter::repeat(())
@@ -317,7 +263,7 @@ impl Epoch<evaluation::Evaluator<Genotype>, Genotype, Config> {
 
 pub fn run(config: Config) -> Option<Genotype> {
     let target_fitness = config.target_fitness as f64;
-    let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype, Config>::new(config);
+    let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype>::new(config);
 
     loop {
         world = world.evolve();

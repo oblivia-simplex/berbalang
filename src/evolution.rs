@@ -5,45 +5,23 @@ use std::iter;
 use std::sync::Arc;
 
 use rand::{thread_rng, Rng};
-use serde_derive::Deserialize;
 
-use crate::configure::Configure;
+use crate::configure::{Config, Problem};
 use crate::evaluator::Evaluate;
 use crate::fitness::FitnessScore;
 use crate::observer::Observer;
 use rand::rngs::ThreadRng;
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash)]
-pub struct Problem {
-    pub input: Vec<i32>,
-    // TODO make this more generic
-    pub output: i32,
-    // Ditto
-    pub tag: u64,
-}
-
-impl PartialOrd for Problem {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.tag.partial_cmp(&other.tag)
-    }
-}
-
-impl Ord for Problem {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.tag.cmp(&other.tag)
-    }
-}
-
-pub struct Epoch<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static, C: Configure> {
+pub struct Epoch<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static> {
     pub population: BinaryHeap<P>,
-    pub config: Arc<C>,
+    pub config: Arc<Config>,
     pub best: Option<P>,
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
 }
 
-impl<E: Evaluate<P>, P: Phenome + Genome<C>, C: Configure> Epoch<E, P, C> {
+impl<E: Evaluate<P>, P: Phenome + Genome> Epoch<E, P> {
     pub fn evolve(self) -> Self {
         // destruct the Epoch
         let Self {
@@ -137,18 +115,18 @@ impl<E: Evaluate<P>, P: Phenome + Genome<C>, C: Configure> Epoch<E, P, C> {
     // }
 }
 
-pub trait Genome<C: Configure>: Debug {
+pub trait Genome: Debug {
     type Allele: Clone + Debug;
 
     fn chromosome(&self) -> &[Self::Allele];
 
     fn chromosome_mut(&mut self) -> &mut [Self::Allele];
 
-    fn random(params: &C) -> Self
+    fn random(params: &Config) -> Self
     where
         Self: Sized;
 
-    fn crossover(&self, mate: &Self, params: &C) -> Vec<Self>
+    fn crossover(&self, mate: &Self, params: &Config) -> Vec<Self>
     where
         Self: Sized;
 
@@ -188,9 +166,9 @@ pub trait Genome<C: Configure>: Debug {
         (chromosome, parentage)
     }
 
-    fn mutate(&mut self, params: &C);
+    fn mutate(&mut self, params: &Config);
 
-    fn mate(&self, other: &Self, params: &C) -> Vec<Self>
+    fn mate(&self, other: &Self, params: &Config) -> Vec<Self>
     where
         Self: Sized,
     {

@@ -122,6 +122,5 @@ mod test {
         let mut ps = vec![&p1, &p2];
         ps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         assert_eq!(ps[0], &p2);
-
     }
 }

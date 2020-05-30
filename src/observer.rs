@@ -3,11 +3,10 @@
 
 use std::sync::Arc;
 // a hack to make the imports more meaningful
+use crate::configure::Config;
 use serde::Deserialize;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
-
-use crate::configure::Configure;
 
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
@@ -78,7 +77,7 @@ impl<O: 'static + Send> Observer<O> {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn<C: 'static + Configure>(params: Arc<C>, report_fn: ReportFn<O>) -> Observer<O> {
+    pub fn spawn(params: Arc<Config>, report_fn: ReportFn<O>) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
 
         let handle: JoinHandle<()> = spawn(move || {

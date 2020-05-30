@@ -84,7 +84,6 @@ impl DecayingSketch {
     }
 
     pub fn insert<T: Hash>(&mut self, thing: T, current_timestamp: usize) -> Result<(), Error> {
-
         if current_timestamp < self.elapsed {
             return Err(Error::InvalidTimestamp {
                 timestamp: current_timestamp,

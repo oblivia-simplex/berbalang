@@ -4,85 +4,18 @@ use std::sync::Arc;
 use std::{fmt, iter};
 
 use rand::{thread_rng, Rng};
-use serde_derive::Deserialize;
 
-use crate::configure::Configure;
+use crate::configure::{Config, Problem};
 use crate::evaluator::{Evaluate, FitnessFn};
-use crate::evolution::{Epoch, Genome, Phenome, Problem};
+use crate::evolution::{Epoch, Genome, Phenome};
+use crate::fitness::Pareto;
 use crate::observer::{Observer, ObserverConfig, ReportFn};
 use crate::util;
 use crate::util::count_min_sketch::{self, DecayingSketch};
-use crate::fitness::{Lexical,Pareto};
-use crate::{pareto, lexical};
 
 pub type Fitness = Pareto<f64>;
 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct DataConfig {
-    pub path: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Config {
-    mut_rate: f32,
-    pub init_len: usize,
-    pop_size: usize,
-    tournament_size: usize,
-    pub num_offspring: usize,
-    pub target: String,
-    pub target_fitness: usize,
-    observer: ObserverConfig,
-    pub data: DataConfig,
-    problems: Option<Vec<Problem>>,
-    max_length: usize,
-    #[serde(default = "Default::default")]
-    pub num_registers: usize,
-    #[serde(default = "Default::default")]
-    pub return_registers: usize,
-    pub crossover_period: f64,
-    pub crossover_rate: f32,
-}
-
-impl Configure for Config {
-    fn assert_invariants(&self) {
-        assert!(self.tournament_size >= self.num_offspring + 2);
-        assert_eq!(self.num_offspring, 2); // all that's supported for now
-    }
-
-    fn mutation_rate(&self) -> f32 {
-        self.mut_rate
-    }
-
-    fn crossover_rate(&self) -> f32 {
-        self.crossover_rate
-    }
-
-    fn population_size(&self) -> usize {
-        self.pop_size
-    }
-
-    fn tournament_size(&self) -> usize {
-        self.tournament_size
-    }
-
-    fn observer_window_size(&self) -> usize {
-        self.observer.window_size
-    }
-
-    fn observer_config(&self) -> ObserverConfig {
-        self.observer.clone()
-    }
-
-    fn num_offspring(&self) -> usize {
-        self.num_offspring
-    }
-
-    fn max_length(&self) -> usize {
-        self.max_length
-    }
-}
 
 pub mod machine {
     use std::fmt::{self, Display};
@@ -93,10 +26,6 @@ pub mod machine {
     use rand::{thread_rng, Rng};
 
     use crate::examples::linear_gp::MachineWord;
-
-    //use std::sync::atomic::AtomicUsize;
-
-    //static CORE: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
     pub enum Op {
@@ -482,7 +411,7 @@ struct Frame {
 }
 
 // means "has a genome", not "is a genome"
-impl Genome<Config> for Creature {
+impl Genome for Creature {
     type Allele = machine::Inst;
 
     fn chromosome(&self) -> &[Self::Allele] {
@@ -495,7 +424,7 @@ impl Genome<Config> for Creature {
 
     fn random(params: &Config) -> Self {
         let mut rng = thread_rng();
-        let len = rng.gen_range(1, params.init_len);
+        let len = rng.gen_range(1, params.max_init_len);
         let genotype = Genotype::random(len);
         Self {
             chromosome: genotype,
@@ -551,7 +480,7 @@ fn report(window: &[Creature], counter: usize, _params: &ObserverConfig) {
     let avg_len = window.iter().map(|c| c.len()).sum::<usize>() as f64 / window.len() as f64;
     let mut sketch = DecayingSketch::default();
     for g in window {
-        g.record_genetic_frequency(&mut sketch, 1).unwrap();
+        g.record_genetic_frequency(&mut sketch, 1000).unwrap();
     }
     let avg_freq = window
         .iter()
@@ -586,7 +515,7 @@ fn parse_data(path: &str) -> Option<Vec<Problem>> {
     }
 }
 
-impl Epoch<evaluation::Evaluator, Creature, Config> {
+impl Epoch<evaluation::Evaluator, Creature> {
     pub fn new(mut config: Config) -> Self {
         let problems = parse_data(&config.data.path);
         assert!(problems.is_some());
@@ -757,9 +686,9 @@ mod evaluation {
 
                     phenome.fitness.as_mut().map(|f| {
                         /*f[0] += (1.0+phenomic_frequency).log(2.0); */
-                        let fit = f.pop().unwrap();
+                        //let fit = f.pop().unwrap();
                         f.push(phenomic_frequency);
-                        f.push(fit);
+                        //f.push(fit);
                         f.push(genomic_frequency)
                     });
                     //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
@@ -776,7 +705,7 @@ mod evaluation {
 
 pub fn run(config: Config) -> Option<Creature> {
     //let target_fitness = config.target_fitness;
-    let mut world = Epoch::<evaluation::Evaluator, Creature, Config>::new(config);
+    let mut world = Epoch::<evaluation::Evaluator, Creature>::new(config);
 
     loop {
         world = world.evolve();
