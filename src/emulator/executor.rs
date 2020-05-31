@@ -610,6 +610,7 @@ mod test {
             params,
             HatcheryParams {
                 gadget_file: None,
+                use_registers: vec![],
                 num_workers: 8,
                 num_emulators: 8,
                 wait_limit: 150,
@@ -621,7 +622,9 @@ mod test {
                 record_memory_writes: true,
                 emulator_stack_size: 0x1000, // default
                 binary_path: None,
-                soup: vec![]
+                soup: None,
+                register_pattern: None,
+                soup_size: None
             }
         );
     }
@@ -630,6 +633,7 @@ mod test {
     fn test_spawn_hatchery() {
         let params = HatcheryParams {
             gadget_file: None,
+            use_registers: vec![],
             num_workers: 32,
             num_emulators: 32,
             wait_limit: 150,
@@ -641,7 +645,9 @@ mod test {
             record_memory_writes: true,
             emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
-            soup: vec![],
+            soup: None,
+            register_pattern: None,
+            soup_size: None,
         };
 
         let _: Hatchery<CpuX86<'_>> = Hatchery::new(Arc::new(params));
@@ -652,6 +658,7 @@ mod test {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
             gadget_file: None,
+            use_registers: vec![],
             num_workers: 500,
             num_emulators: 510,
             wait_limit: 50,
@@ -663,7 +670,9 @@ mod test {
             record_memory_writes: false,
             emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
-            soup: vec![],
+            soup: None,
+            register_pattern: None,
+            soup_size: None,
         };
         fn random_rop() -> Vec<u8> {
             let mut rng = thread_rng();

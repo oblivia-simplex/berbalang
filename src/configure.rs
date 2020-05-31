@@ -1,3 +1,4 @@
+use indexmap::map::IndexMap;
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -62,8 +63,11 @@ pub struct MachineConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
     pub gadget_file: Option<String>,
+    pub use_registers: Vec<String>, // deserialize to Register<C>
+    pub register_pattern: Option<IndexMap<String, u64>>,
     #[serde(default = "Default::default")]
-    pub soup: Vec<u64>,
+    pub soup: Option<Vec<u64>>,
+    pub soup_size: Option<usize>, // if no gadget file given
     pub arch: unicorn::Arch,
     pub mode: unicorn::Mode,
     #[serde(default = "default_num_workers")]
@@ -98,7 +102,10 @@ impl Default for RoperConfig {
     fn default() -> Self {
         Self {
             gadget_file: None,
-            soup: vec![],
+            use_registers: vec![],
+            register_pattern: None,
+            soup: None,
+            soup_size: None,
             arch: unicorn::Arch::X86,
             mode: unicorn::Mode::MODE_64,
             num_workers: 0,

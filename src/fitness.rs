@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Add, Div, Index};
+use std::ops::{Add, Div, Index, IndexMut};
 
 use serde::Serialize;
 use std::cmp::Ordering;
@@ -100,6 +100,12 @@ impl Index<usize> for Pareto {
 
     fn index(&self, i: usize) -> &Self::Output {
         &self.0[i]
+    }
+}
+
+impl IndexMut<usize> for Pareto {
+    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
+        &mut self.0[i]
     }
 }
 

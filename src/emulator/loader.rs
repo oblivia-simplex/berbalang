@@ -2,6 +2,7 @@ use goblin::{
     elf::{self, Elf},
     Object,
 };
+use rand::distributions::{Distribution, WeightedIndex};
 use rand::{thread_rng, Rng};
 use std::fmt;
 use std::sync::Once;
@@ -59,10 +60,26 @@ impl MemoryImage {
         })
     }
 
-    pub fn random_address(&self) -> u64 {
+    pub fn random_address(&self, permissions: Option<Protection>) -> u64 {
         let mut rng = thread_rng();
-        let num_segs = self.0.len();
-        let seg = &self.0[rng.gen_range(0, num_segs)];
+        let segments = self
+            .segments()
+            .iter()
+            .filter(|&s| {
+                if let Some(perms) = permissions {
+                    s.perm.intersects(perms)
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
+        let weights = segments
+            .iter()
+            .map(|&s| s.aligned_size())
+            .collect::<Vec<_>>();
+        let dist =
+            WeightedIndex::new(&weights).expect("Failed to generate WeightedIndex over segments");
+        let seg = &segments[dist.sample(&mut rng)];
         rng.gen_range(seg.aligned_start(), seg.aligned_end())
     }
 
@@ -84,7 +101,7 @@ impl MemoryImage {
     }
 
     pub fn seek_from_random_address(&self, sequence: &[u8]) -> Option<u64> {
-        self.seek(self.random_address(), sequence)
+        self.seek(self.random_address(None), sequence)
     }
 
     pub fn segments(&self) -> &Vec<Seg> {

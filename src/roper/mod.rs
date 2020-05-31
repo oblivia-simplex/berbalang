@@ -8,9 +8,9 @@ use indexmap::map::IndexMap;
 use rand::seq::IteratorRandom;
 use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
-use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86};
+use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86, Protection};
 
-use crate::configure::{Config, Problem};
+use crate::configure::{Config, Problem, RoperConfig};
 use crate::emulator::executor;
 use crate::emulator::pack::Pack;
 use crate::fitness::Pareto;
@@ -18,12 +18,15 @@ use crate::fitness::Pareto;
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
     emulator::{loader, profiler::Profile},
+    error::Error,
     evolution::{Epoch, Genome, Phenome},
     fitness::FitnessScore,
     util,
     util::architecture::{endian, word_size, Endian},
     util::bitwise::bit,
 };
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, ErrorKind};
 
 type Fitness = Pareto;
 
@@ -107,6 +110,30 @@ impl fmt::Debug for Creature {
     }
 }
 
+/// load binary before calling this function
+pub fn init_soup(params: &mut RoperConfig) -> Result<&Vec<u64>, Error> {
+    let mut soup = Vec::new();
+    if let Some(gadget_file) = params.gadget_file.as_ref() {
+        // parse the gadget file
+        let reader = File::open(gadget_file).map(BufReader::new)?;
+
+        for line in reader.lines() {
+            let word = line?.parse::<u64>()?;
+            soup.push(word)
+        }
+    } else if let Some(soup_size) = params.soup_size.as_ref() {
+        let memory = loader::get_static_memory_image();
+        for addr in iter::repeat(())
+            .take(*soup_size)
+            .map(|()| memory.random_address(Some(Protection::EXEC)))
+        {
+            soup.push(addr)
+        }
+    }
+    params.soup = Some(soup);
+    Ok(params.soup.as_ref().unwrap())
+}
+
 impl Genome for Creature {
     type Allele = u64;
 
@@ -124,6 +151,8 @@ impl Genome for Creature {
         let chromosome = params
             .roper
             .soup
+            .as_ref()
+            .expect("No soup?!")
             .iter()
             .choose_multiple(&mut rng, length)
             .into_iter()
@@ -337,7 +366,7 @@ mod evaluation {
 
         fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
             let hatch_params = Arc::new(params.roper.clone());
-            let hatchery: Hatchery<C> = Hatchery::new(hatch_params.clone());
+            let hatchery: Hatchery<C> = Hatchery::new(hatch_params);
 
             Self {
                 hatchery,

@@ -20,7 +20,7 @@ pub trait Evaluate<P: Phenome> {
     /// is to allow the use of asynchronous evaluation pipelines.
     fn evaluate(&self, ob: P) -> P;
 
-    fn eval_bath<I: 'static + Iterator<Item = P> + Send>(&self, _inbound: I) -> Vec<P> {
+    fn eval_batch<I: 'static + Iterator<Item = P> + Send>(&self, _inbound: I) -> Vec<P> {
         unimplemented!("Pipeline not implemented")
     }
 

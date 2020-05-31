@@ -622,7 +622,7 @@ mod evaluation {
                     phenome
                         .record_genetic_frequency(&mut sketch, counter)
                         .expect("Failed to record phenomic frequency");
-                    let _genomic_frequency = phenome
+                    let genomic_frequency = phenome
                         .measure_genetic_frequency(&sketch)
                         .expect("Failed to measure genetic diversity. Check timestamps.");
                     sketch
@@ -634,6 +634,8 @@ mod evaluation {
 
                     phenome.fitness.as_mut().map(|f| {
                         f.push(phenomic_frequency);
+                        //f[0] += phenomic_frequency;
+                        //let _ = f.pop();
                         //f.push(genomic_frequency)
                     });
                     //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );

@@ -15,6 +15,7 @@ mod configure;
 mod disassembler;
 #[allow(dead_code)] // FIXME
 mod emulator;
+mod error;
 mod evaluator;
 mod evolution;
 mod examples;
