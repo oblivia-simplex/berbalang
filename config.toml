@@ -6,12 +6,12 @@ crossover_period = 7
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
-pop_size = 512
-tournament_size = 8
+pop_size = 5000
+tournament_size = 5
 num_offspring = 2
 num_parents = 2
 target_fitness = 0
-max_length = 100
+max_length = 200
 
 [hello]
 target = "Mares eat oats and does eat oats and little lambs eat ivy."
@@ -26,6 +26,7 @@ report_every = 10_000
 
 [data]
 path = "./data/iris.tsv"
+#path = "./data/square.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]

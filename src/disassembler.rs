@@ -1,4 +1,5 @@
 use capstone::{Capstone, Error, NO_EXTRA_MODE};
+use unicorn;
 
 pub struct Disassembler(pub Capstone);
 

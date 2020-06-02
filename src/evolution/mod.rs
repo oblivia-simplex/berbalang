@@ -38,8 +38,8 @@ pub trait Genome: Debug {
         let sample = |rng: &mut ThreadRng| distribution.sample(rng).round() as usize + 1;
 
         loop {
-            let mut src = switch(&mut rng);
-            let mut take_from = ptrs[src];
+            let src = switch(&mut rng);
+            let take_from = ptrs[src];
 
             if take_from >= parents[src].len() {
                 break;

@@ -1,11 +1,14 @@
 use std::fmt::Debug;
 use std::io;
+use std::str::FromStr;
+use unicorn::Cpu;
 
 #[derive(Debug)]
 pub enum Error {
     IO(io::Error),
     ParseInt(std::num::ParseIntError),
     Channel(String),
+    Parsing(String),
 }
 
 macro_rules! impl_error_from {
@@ -32,3 +35,11 @@ impl From<std::sync::mpsc::RecvError> for Error {
         Self::Channel(format!("{:?}", e))
     }
 }
+
+// type RegisterParseError<C> = <<C as Cpu<'static>>::Reg as FromStr>::Err;
+//
+// impl<C: Cpu<'static>> From<<<C as Cpu<'static>>::Reg as FromStr>::Err> for Error {
+//     fn from(_e: RegisterParseError<C>) -> Self {
+//         Self::RegisterParsing("Failed to parse register identifier")
+//     }
+// }

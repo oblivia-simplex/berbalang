@@ -36,18 +36,17 @@ pub fn default_report_fn<T: Phenome + Genome>(
         .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
         .sum::<f64>()
         / window.len() as f64;
-    // let avg_fit: f64 = window
-    //     .iter()
-    //     .filter_map(|g| g.fitness().as_ref().map(|f| f[0]))
-    //     //.sum::<f64>()
-    //     .fold(0.0, |a, b| a + b)
-    //     / window.len() as f64;
+    let avg_fit: f64 = window
+        .iter()
+        .filter_map(|g| g.scalar_fitness())
+        .sum::<f64>()
+        / window.len() as f64;
     log::info!(
-        "[{}] Average length: {}, average genetic frequency: {}",
+        "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}",
         counter,
         avg_len,
         avg_freq,
-        // avg_fit,
+        avg_fit,
     );
 }
 

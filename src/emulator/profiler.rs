@@ -1,11 +1,16 @@
-use crate::emulator::executor::Register;
-use indexmap::map::IndexMap;
-use prefix_tree::PrefixSet;
 use std::cmp::{Ord, PartialOrd};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use indexmap::map::IndexMap;
+use indexmap::set::IndexSet;
+use prefix_tree::PrefixSet;
+use seahash::{hash, hash_seeded};
+use serde::Deserialize;
 use unicorn::Cpu;
+
+use crate::emulator::executor::Register;
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?
@@ -43,14 +48,12 @@ impl<C: Cpu<'static>> Profiler<C> {
     }
 }
 
-fn convert_register_map<C: Cpu<'static>>(
-    registers: IndexMap<Register<C>, u64>,
-) -> IndexMap<String, u64> {
+fn convert_register_map<C: Cpu<'static>>(registers: RegisterPattern<C>) -> RegisterPatternConfig {
     let mut map = IndexMap::new();
-    for (k, v) in registers.into_iter() {
+    for (k, v) in registers.0.into_iter() {
         map.insert(format!("{:?}", k), v); // FIXME use stable conversion method
     }
-    map
+    RegisterPatternConfig(map)
 }
 
 #[derive(Debug, Clone)]
@@ -58,11 +61,11 @@ pub struct Profile {
     pub paths: PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
-    pub registers: Vec<IndexMap<String, u64>>,
+    pub registers: Vec<RegisterPatternConfig>,
 }
 
 impl Profile {
-    pub fn collate<C: Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
+    pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
         //let mut write_trie = Trie::new();
         let mut paths = PrefixSet::new();
         let mut cpu_errors = IndexMap::new();
@@ -90,7 +93,7 @@ impl Profile {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
             computation_times.push(computation_time);
-            register_maps.push(convert_register_map::<C>(registers));
+            register_maps.push(convert_register_map::<C>(RegisterPattern(registers)));
         }
 
         Self {
@@ -103,7 +106,7 @@ impl Profile {
     }
 }
 
-impl<C: Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
+impl<C: 'static + Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
     fn from(v: Vec<Profiler<C>>) -> Self {
         Self::collate(v)
     }
@@ -174,9 +177,9 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
 
 #[cfg(test)]
 mod test {
+    use unicorn::CpuX86;
 
     use super::*;
-    use unicorn::CpuX86;
 
     #[test]
     fn test_collate() {
@@ -210,5 +213,58 @@ mod test {
             "size of profile in mem: {}",
             std::mem::size_of_val(&profile.paths)
         );
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub struct RegisterPatternConfig(pub IndexMap<String, u64>);
+
+#[derive(Debug)]
+pub struct RegisterPattern<C: 'static + Cpu<'static>>(pub IndexMap<Register<C>, u64>);
+
+fn byte_positions(bytes: &[u8], grain: usize) -> Vec<[u8; 4]> {
+    let len = bytes.len();
+    debug_assert!(grain < len);
+    let chunk = len / grain;
+    bytes
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let (byte, pos) = (*b, i / chunk);
+            let mut buf = [0_u8; 4];
+            buf[0] = byte;
+            buf[1] = (pos & 0xFF) as u8;
+            buf[2] = ((pos >> 8) & 0xFF) as u8;
+            buf[3] = ((pos >> 16) & 0xFF) as u8;
+            buf
+        })
+        .collect::<Vec<[u8; 4]>>()
+}
+
+impl RegisterPatternConfig {
+    /// See https://en.wikipedia.org/wiki/MinHash for discussion of algorithm
+    fn jaccard(&self, other: &Self, grain: usize, num_hashes: usize) -> f64 {
+        // the keys in the profile's maps and the pattern's map
+        // should be in an identical order, just because nothing should
+        // have disturbed them. But it would be better to verify this.
+        let self_bytes: Vec<u8> = self.into();
+        let other_bytes: Vec<u8> = other.into();
+        let self_byte_pos = byte_positions(&self_bytes, grain);
+        let other_byte_pos = byte_positions(&other_bytes, grain);
+
+        (0..num_hashes)
+            .filter(|seed| {
+                let s = self_byte_pos
+                    .iter()
+                    .map(|b| hash_seeded(b, seed, 0, 0, 0))
+                    .min();
+                let o = other_byte_pos
+                    .iter()
+                    .map(|b| hash_seeded(b, seed, 0, 0, 0))
+                    .min();
+                s == o
+            })
+            .len() as f64
+            / num_hashes as f64
     }
 }

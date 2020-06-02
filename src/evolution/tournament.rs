@@ -11,6 +11,8 @@ use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
 
+// consider an island-pier structure
+
 pub struct Tournament<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static> {
     pub population: BinaryHeap<P>,
     pub config: Arc<Config>,

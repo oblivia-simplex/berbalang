@@ -26,39 +26,11 @@ use crate::{
     util::architecture::{endian, word_size, Endian},
     util::bitwise::bit,
 };
+use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, ErrorKind};
 
 type Fitness = Pareto;
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct RegisterPatternConfig(pub IndexMap<String, u64>);
-
-#[derive(Debug)]
-pub struct RegisterPattern<C: 'static + Cpu<'static>>(pub IndexMap<Register<C>, u64>);
-
-macro_rules! register_pattern_converter {
-    ($cpu:ty) => {
-        impl From<RegisterPatternConfig> for RegisterPattern<$cpu> {
-            fn from(rp: RegisterPatternConfig) -> Self {
-                let mut map: IndexMap<Register<$cpu>, u64> = IndexMap::new();
-                for (reg, num) in rp.0.iter() {
-                    let r: Register<$cpu> =
-                        toml::from_str(&reg).expect("Failed to parse register pattern");
-                    map.insert(r, *num);
-                }
-                Self(map)
-            }
-        }
-    };
-}
-
-register_pattern_converter!(CpuX86<'static>);
-register_pattern_converter!(CpuARM<'static>);
-register_pattern_converter!(CpuARM64<'static>);
-register_pattern_converter!(CpuMIPS<'static>);
-register_pattern_converter!(CpuSPARC<'static>);
-register_pattern_converter!(CpuM68K<'static>);
 
 #[derive(Clone)]
 pub struct Creature {
@@ -326,15 +298,17 @@ mod evaluation {
     };
 
     use super::Creature;
-    use crate::emulator::profiler::Profiler;
+    use crate::emulator::profiler::{Profiler, RegisterPattern};
     use byteorder::{BigEndian, LittleEndian};
     use indexmap::map::IndexMap;
+    use std::convert::TryInto;
 
-    pub struct Evaluator<C: Cpu<'static>> {
+    pub struct Evaluator<C: 'static + Cpu<'static>> {
         params: Config,
         hatchery: Hatchery<C, Creature>,
         sketch: DecayingSketch,
         fitness_fn: Box<FitnessFn<Creature, Config>>,
+        register_pattern: Option<RegisterPattern<C>>,
     }
 
     impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
@@ -348,6 +322,8 @@ mod evaluation {
             creature.profile = Some(profile);
 
             // measure fitness
+            // for now, let's just handle the register pattern task
+
             creature
         }
 
@@ -366,7 +342,15 @@ mod evaluation {
         ) -> Self {
             let hatch_params = Arc::new(params.roper.clone());
             let inputs = unimplemented!("construct from params");
-            let output_registers = unimplemented!("construct from params");
+            let (register_pattern, output_registers) =
+                if let Some(pat) = params.roper.register_pattern {
+                    let arch_specific_pat: RegisterPattern<C> =
+                        pat.try_into().expect("Failed to parse register pattern");
+                    let registers = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
+                    (Some(arch_specific_pat), registers)
+                } else {
+                    todo!("implement a conversion method from problem sets to register maps")
+                };
             let hatchery: Hatchery<C, Creature> = Hatchery::new(
                 hatch_params,
                 Arc::new(inputs),
@@ -379,6 +363,7 @@ mod evaluation {
                 hatchery,
                 sketch: DecayingSketch::default(), // TODO parameterize
                 fitness_fn: Box::new(fitness_fn),
+                register_pattern,
             }
         }
     }

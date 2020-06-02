@@ -682,7 +682,7 @@ fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evalu
 }
 
 impl Tournament<evaluation::Evaluator, Creature> {
-    pub fn new(mut config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let (config, observer, evaluator) = prepare(config);
 
         let population = iter::repeat(())
@@ -704,7 +704,7 @@ impl Tournament<evaluation::Evaluator, Creature> {
 crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
 
 impl Roulette<evaluation::Evaluator, Creature, CreatureDominanceOrd> {
-    pub fn new(mut config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let (config, observer, evaluator) = prepare(config);
 
         let population = iter::repeat(())
@@ -725,7 +725,7 @@ impl Roulette<evaluation::Evaluator, Creature, CreatureDominanceOrd> {
 }
 
 impl Metropolis<evaluation::Evaluator, Creature> {
-    pub fn new(mut config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let (config, observer, evaluator) = prepare(config);
 
         let specimen = Creature::random(&config);
