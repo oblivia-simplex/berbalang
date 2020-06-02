@@ -14,12 +14,13 @@ use crate::configure::{Config, Problem, RoperConfig};
 use crate::emulator::executor;
 use crate::emulator::pack::Pack;
 use crate::fitness::Pareto;
+use crate::util::architecture::{read_integer, write_integer};
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams, Register},
     emulator::{loader, profiler::Profile},
     error::Error,
-    evolution::{Epoch, Genome, Phenome},
+    evolution::{tournament::Tournament, Genome, Phenome},
     fitness::FitnessScore,
     util,
     util::architecture::{endian, word_size, Endian},
@@ -69,6 +70,7 @@ pub struct Creature {
     pub parents: Vec<String>,
     pub generation: usize,
     pub profile: Option<Profile>,
+    pub fitness: Option<Fitness>,
 }
 
 impl Pack for Creature {
@@ -170,10 +172,11 @@ impl Genome for Creature {
             parents: vec![],
             generation: 0,
             profile: None,
+            fitness: None,
         }
     }
 
-    fn crossover(mates: &[Self], params: &Config) -> Self
+    fn crossover(mates: &[&Self], params: &Config) -> Self
     where
         Self: Sized,
         // note code duplication between this and linear_gp TODO
@@ -181,7 +184,7 @@ impl Genome for Creature {
         // NOTE: this bitmask schema implements an implicit incest prohibition
         let distribution = rand_distr::Exp::new(params.crossover_period)
             .expect("Failed to create random distribution");
-        let parental_chromosomes = mates.iter().map(Genome::chromosome).collect::<Vec<_>>();
+        let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
         let mut rng = thread_rng();
         let (chromosome, chromosome_parentage, parent_names) =
                 // Check to see if we're performing a crossover or just cloning
@@ -205,6 +208,7 @@ impl Genome for Creature {
             parents: parent_names,
             generation,
             profile: None,
+            fitness: None,
         }
     }
 
@@ -220,16 +224,9 @@ impl Genome for Creature {
                     if bytes.len() > 8 {
                         let endian = endian(params.roper.arch, params.roper.mode);
                         let word_size = word_size(params.roper.arch, params.roper.mode);
-                        let word = match (endian, word_size) {
-                            (Endian::Little, 8) => LittleEndian::read_u64(bytes),
-                            (Endian::Big, 8) => BigEndian::read_u64(bytes),
-                            (Endian::Little, 4) => LittleEndian::read_u32(bytes) as u64,
-                            (Endian::Big, 4) => BigEndian::read_u32(bytes) as u64,
-                            (Endian::Little, 2) => LittleEndian::read_u16(bytes) as u64,
-                            (Endian::Big, 2) => BigEndian::read_u16(bytes) as u64,
-                            (_, _) => unimplemented!("I think we've covered the bases"),
-                        };
-                        self.chromosome[i] = word;
+                        if let Some(word) = read_integer(bytes, endian, word_size) {
+                            self.chromosome[i] = word;
+                        }
                     }
                 }
             }
@@ -239,15 +236,12 @@ impl Genome for Creature {
                 let word_size = word_size(params.roper.arch, params.roper.mode);
                 let mut bytes = vec![0; word_size];
                 let word = self.chromosome[i];
-                match (endian(params.roper.arch, params.roper.mode), word_size) {
-                    (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
-                    (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
-                    (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),
-                    (Endian::Big, 4) => BigEndian::write_u32(&mut bytes, word as u32),
-                    (Endian::Little, 2) => LittleEndian::write_u16(&mut bytes, word as u16),
-                    (Endian::Big, 2) => BigEndian::write_u16(&mut bytes, word as u16),
-                    (_, _) => unimplemented!("I think we've covered the bases"),
-                }
+                write_integer(
+                    endian(params.roper.arch, params.roper.mode),
+                    word_size,
+                    word,
+                    &mut bytes,
+                );
                 if let Some(address) = memory.seek_from_random_address(&bytes) {
                     self.chromosome[i] = address;
                 }
@@ -270,7 +264,11 @@ impl Phenome for Creature {
     type Fitness = Fitness;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
-        unimplemented!()
+        self.fitness.as_ref()
+    }
+
+    fn scalar_fitness(&self) -> Option<f64> {
+        self.fitness.as_ref().map(|v| v[0])
     }
 
     fn set_fitness(&mut self, f: Self::Fitness) {
@@ -300,6 +298,12 @@ impl Phenome for Creature {
 
 crate::make_phenome_heap_friendly!(Creature);
 
+mod distance {
+    // ways of measuring distance between target vec of registers and result
+
+    // register vector -> Vec<(nybble, approximate location)>
+}
+
 mod evaluation {
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::Arc;
@@ -313,7 +317,7 @@ mod evaluation {
         emulator::executor::{self, Hatchery, HatcheryParams, Register},
         emulator::loader,
         evaluator::Evaluate,
-        evolution::{Epoch, Genome, Phenome},
+        evolution::{tournament::Tournament, Genome, Phenome},
         fitness::FitnessScore,
         util,
         util::architecture::{endian, word_size, Endian},
@@ -327,52 +331,54 @@ mod evaluation {
     use indexmap::map::IndexMap;
 
     pub struct Evaluator<C: Cpu<'static>> {
-        hatchery: Hatchery<C>,
-        inputs: Arc<Vec<IndexMap<Register<C>, u64>>>,
-        output_registers: Arc<Vec<Register<C>>>,
+        params: Config,
+        hatchery: Hatchery<C, Creature>,
         sketch: DecayingSketch,
+        fitness_fn: Box<FitnessFn<Creature, Config>>,
     }
 
     impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         type Params = Config;
 
-        fn evaluate(&self, ob: Creature) -> Creature {
-            unimplemented!()
+        fn evaluate(&self, creature: Creature) -> Creature {
+            let (mut creature, profile) = self
+                .hatchery
+                .execute(creature)
+                .expect("Failed to evaluate creature");
+            creature.profile = Some(profile);
+
+            // measure fitness
+            creature
         }
 
-        fn eval_batch<I: 'static + Iterator<Item = Creature> + Send>(
+        fn eval_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
             &self,
             inbound: I,
         ) -> Vec<Creature> {
-            let inputs = self.inputs.clone();
-            let output_registers = self.output_registers.clone();
-            self.hatchery
-                .pipeline(
-                    inbound,
-                    inputs,
-                    output_registers,
-                    None, // use default
-                )
-                .iter()
-                .map(|(creature, profile)| {
-                    // TODO
-                    // measure fitness on the basis of the profile
-                    // assign fitness to the creature
-                    // gauge frequency with the sketch
-                    creature
-                })
-                .collect::<Vec<Creature>>()
+            todo!("this")
         }
 
-        fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
+        fn spawn(
+            params: &Self::Params,
+            fitness_fn: FitnessFn<Creature, Self::Params>,
+            // inputs: IndexMap<Register<C>, u64>,
+            // output_registers: Vec<Register<C>>,
+        ) -> Self {
             let hatch_params = Arc::new(params.roper.clone());
-            let hatchery: Hatchery<C> = Hatchery::new(hatch_params);
+            let inputs = unimplemented!("construct from params");
+            let output_registers = unimplemented!("construct from params");
+            let hatchery: Hatchery<C, Creature> = Hatchery::new(
+                hatch_params,
+                Arc::new(inputs),
+                Arc::new(output_registers),
+                None,
+            );
 
             Self {
+                params: params.clone(),
                 hatchery,
-                inputs: Arc::new(vec![]),
-                output_registers: Arc::new(vec![]),
                 sketch: DecayingSketch::default(), // TODO parameterize
+                fitness_fn: Box::new(fitness_fn),
             }
         }
     }

@@ -1,9 +1,39 @@
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use unicorn::{Arch, Mode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endian {
     Big,
     Little,
+}
+
+pub fn read_integer(bytes: &[u8], endian: Endian, word_size: usize) -> Option<u64> {
+    use Endian::*;
+    if bytes.len() < word_size {
+        None
+    } else {
+        Some(match (endian, word_size) {
+            (Little, 64) => LittleEndian::read_u64(bytes) as u64,
+            (Big, 64) => BigEndian::read_u64(bytes) as u64,
+            (Little, 32) => LittleEndian::read_u32(bytes) as u64,
+            (Big, 32) => BigEndian::read_u32(bytes) as u64,
+            (Little, 16) => LittleEndian::read_u16(bytes) as u64,
+            (Big, 16) => LittleEndian::read_u16(bytes) as u64,
+            (_, _) => unreachable!("Invalid word size"),
+        })
+    }
+}
+
+pub fn write_integer(endian: Endian, word_size: usize, word: u64, bytes: &mut [u8]) {
+    match (endian, word_size) {
+        (Endian::Little, 8) => LittleEndian::write_u64(bytes, word),
+        (Endian::Big, 8) => BigEndian::write_u64(bytes, word),
+        (Endian::Little, 4) => LittleEndian::write_u32(bytes, word as u32),
+        (Endian::Big, 4) => BigEndian::write_u32(bytes, word as u32),
+        (Endian::Little, 2) => LittleEndian::write_u16(bytes, word as u16),
+        (Endian::Big, 2) => BigEndian::write_u16(bytes, word as u16),
+        (_, _) => unimplemented!("I think we've covered the bases"),
+    }
 }
 
 pub fn endian(arch: Arch, mode: Mode) -> Endian {

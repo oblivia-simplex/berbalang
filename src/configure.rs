@@ -10,6 +10,7 @@ pub struct DataConfig {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
+    pub selection: Selection,
     pub crossover_period: f64,
     pub crossover_rate: f32,
     pub data: DataConfig,
@@ -18,6 +19,7 @@ pub struct Config {
     pub min_init_len: usize,
     pub mut_rate: f32,
     pub num_offspring: usize,
+    pub num_parents: usize,
     pub observer: ObserverConfig,
     pub pop_size: usize,
     pub problems: Option<Vec<Problem>>,
@@ -170,5 +172,18 @@ impl PartialOrd for Problem {
 impl Ord for Problem {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tag.cmp(&other.tag)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub enum Selection {
+    Tournament,
+    Roulette,
+    Metropolis,
+}
+
+impl Default for Selection {
+    fn default() -> Self {
+        Self::Tournament
     }
 }

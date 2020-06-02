@@ -1,3 +1,5 @@
+use crate::util::architecture::{read_integer, Endian};
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use goblin::{
     elf::{self, Elf},
     Object,
@@ -106,6 +108,33 @@ impl MemoryImage {
 
     pub fn segments(&self) -> &Vec<Seg> {
         &self.0
+    }
+
+    pub fn deref_chain(
+        &self,
+        start: u64,
+        steps: usize,
+        word_size: usize,
+        endian: Endian,
+    ) -> Vec<u64> {
+        let mut chain = vec![];
+        struct Crawl<'s> {
+            f: &'s dyn Fn(&Crawl<'_>, u64, usize, &mut Vec<u64>) -> (),
+        };
+        let crawl = Crawl {
+            f: &|crawl, addr, steps, mut chain| {
+                if steps > 0 {
+                    if let Some(bytes) = self.try_dereference(addr) {
+                        if let Some(addr) = read_integer(bytes, endian, word_size) {
+                            chain.push(addr);
+                            (crawl.f)(crawl, addr, steps - 1, &mut chain);
+                        }
+                    }
+                }
+            },
+        };
+        (crawl.f)(&crawl, start, steps, &mut chain);
+        chain
     }
 }
 
@@ -377,7 +406,7 @@ mod test {
 
     #[test]
     fn test_loader() {
-        pretty_env_logger::init();
+        //pretty_env_logger::init();
         let res = load_from_path("/bin/sh", 0x1000).expect("Failed to load /bin/sh");
         for s in res {
             log::info!("Segment: {}", s);

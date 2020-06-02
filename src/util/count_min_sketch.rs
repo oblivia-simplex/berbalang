@@ -35,7 +35,7 @@ pub struct DecayingSketch {
     elapsed: usize,
     half_life: f64,
     counter: usize,
-    decay: bool,
+    pub decay: bool,
 } // TODO decay the counter?
 
 impl Default for DecayingSketch {
@@ -80,12 +80,12 @@ impl DecayingSketch {
         }
         let age = current_timestamp - prior_timestamp;
         let decay = 2_f64.powf(-(age as f64 / self.half_life));
-        log::debug!(
-            "decay factor for timestamp {}, current_time {} = {}",
-            prior_timestamp,
-            current_timestamp,
-            decay
-        );
+        // log::debug!(
+        //     "decay factor for timestamp {}, current_time {} = {}",
+        //     prior_timestamp,
+        //     current_timestamp,
+        //     decay
+        // );
         Ok(decay)
     }
 

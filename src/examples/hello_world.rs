@@ -8,7 +8,7 @@ use rand::prelude::*;
 
 use crate::{
     evaluator::{Evaluate, FitnessFn},
-    evolution::*,
+    evolution::tournament::*,
     observer::{Observer, ReportFn},
 };
 
@@ -49,6 +49,10 @@ impl Phenome for Genotype {
 
     fn fitness(&self) -> Option<&Fitness> {
         self.fitness.as_ref()
+    }
+
+    fn scalar_fitness(&self) -> Option<f64> {
+        self.fitness.as_ref().map(|v| v[0])
     }
 
     fn set_fitness(&mut self, f: Fitness) {
@@ -108,7 +112,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover(mates: &[Self], _params: &Config) -> Self {
+    fn crossover(mates: &[&Self], _params: &Config) -> Self {
         let mut rng = thread_rng();
         let father = &mates[0];
         let mother = &mates[1];
@@ -184,6 +188,7 @@ fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
 }
 
 use crate::configure::{Config, ObserverConfig, Problem};
+use crate::evolution::{Genome, Phenome};
 use cached::{cached_key, TimedCache};
 
 cached_key! {
@@ -231,7 +236,7 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
     phenome
 }
 
-impl Epoch<evaluation::Evaluator<Genotype>, Genotype> {
+impl Tournament<evaluation::Evaluator<Genotype>, Genotype> {
     pub fn new(config: Config) -> Self {
         let population = iter::repeat(())
             .map(|()| Genotype::random(&config))
@@ -254,7 +259,7 @@ impl Epoch<evaluation::Evaluator<Genotype>, Genotype> {
 
 pub fn run(config: Config) -> Option<Genotype> {
     let target_fitness = config.target_fitness as f64;
-    let mut world = Epoch::<evaluation::Evaluator<Genotype>, Genotype>::new(config);
+    let mut world = Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(config);
 
     loop {
         world = world.evolve();
@@ -293,6 +298,10 @@ mod evaluation {
         fn evaluate(&self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
+        }
+
+        fn eval_pipeline<I: Iterator<Item = Genotype>>(&self, inbound: I) -> Vec<Genotype> {
+            inbound.map(|p| self.evaluate(p)).collect::<Vec<Genotype>>()
         }
 
         fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Genotype, Self::Params>) -> Self {

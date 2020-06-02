@@ -5,9 +5,11 @@ use std::{fmt, iter};
 
 use rand::{thread_rng, Rng};
 
-use crate::configure::{Config, ObserverConfig, Problem};
+use crate::configure::{Config, ObserverConfig, Problem, Selection};
 use crate::evaluator::{Evaluate, FitnessFn};
-use crate::evolution::{Epoch, Genome, Phenome};
+use crate::evolution::metropolis::Metropolis;
+use crate::evolution::roulette::Roulette;
+use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::Pareto;
 use crate::observer::{Observer, ReportFn};
 use crate::util;
@@ -39,6 +41,7 @@ pub mod machine {
         Lsl,
         And,
         Jle,
+        End,
     }
 
     impl Display for Op {
@@ -55,11 +58,12 @@ pub mod machine {
                 Lsl => write!(f, "LSL"),
                 And => write!(f, "AND"),
                 Jle => write!(f, "JLE"), // Jump if less than or equal to 0
+                End => write!(f, "END"),
             }
         }
     }
 
-    pub const NUM_OPS: usize = 10;
+    pub const NUM_OPS: usize = 11;
 
     impl Distribution<Op> for Standard {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Op {
@@ -75,6 +79,7 @@ pub mod machine {
                 7 => Lsl,
                 8 => And,
                 9 => Jle,
+                10 => End,
                 _ => unreachable!("out of range"),
             }
         }
@@ -97,6 +102,7 @@ pub mod machine {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self.op {
                 Op::Set(n) => write!(f, "SET  R{}  0x{:X}", self.a, n),
+                Op::End => write!(f, "END"),
                 _ => write!(f, "{}  R{}, R{}", self.op, self.a, self.b),
             }
         }
@@ -181,6 +187,7 @@ pub mod machine {
                         self.pc = self.registers[inst.b] as usize
                     }
                 }
+                End => {}
             }
         }
 
@@ -207,6 +214,9 @@ pub mod machine {
             while step < max_steps {
                 let old_pc = self.pc;
                 let inst = fetch(self.pc);
+                if let Op::End = inst.op {
+                    break;
+                };
                 self.pc += 1;
                 self.eval(inst);
                 self.pc %= code.len();
@@ -291,6 +301,10 @@ impl Phenome for Creature {
         self.fitness.as_ref()
     }
 
+    fn scalar_fitness(&self) -> Option<f64> {
+        self.fitness.as_ref().map(|v| v[0])
+    }
+
     fn set_fitness(&mut self, f: Fitness) {
         self.fitness = Some(f)
     }
@@ -366,10 +380,10 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(mates: &[Self], params: &Config) -> Self {
+    fn crossover(mates: &[&Self], params: &Config) -> Self {
         let distribution = rand_distr::Exp::new(params.crossover_period)
             .expect("Failed to create random distribution");
-        let parental_chromosomes = mates.iter().map(Genome::chromosome).collect::<Vec<_>>();
+        let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
         let mut rng = thread_rng();
         let (chromosome, chromosome_parentage, parent_names) =
                 // Check to see if we're performing a crossover or just cloning
@@ -448,52 +462,6 @@ fn parse_data(path: &str) -> Option<Vec<Problem>> {
         Some(problems)
     } else {
         None
-    }
-}
-
-impl Epoch<evaluation::Evaluator, Creature> {
-    pub fn new(mut config: Config) -> Self {
-        let problems = parse_data(&config.data.path);
-        assert!(problems.is_some());
-        // figure out the number of return registers needed
-        let mut return_registers = problems
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|p| p.output)
-            .collect::<std::collections::HashSet<i32>>()
-            .len();
-        // and how many input registers
-        let input_registers = problems.as_ref().unwrap()[0].input.len();
-
-        config.problems = problems;
-        if let Some(r) = config.machine.return_registers {
-            return_registers = std::cmp::max(return_registers, r);
-        }
-        let mut num_registers = return_registers + input_registers + 2;
-        if let Some(r) = config.machine.num_registers {
-            num_registers = std::cmp::max(num_registers, r);
-        }
-        config.machine.return_registers = Some(return_registers);
-        config.machine.num_registers = Some(num_registers);
-        log::info!("Config: {:#?}", config);
-        let population = iter::repeat(())
-            .map(|()| Creature::random(&config))
-            .take(config.population_size())
-            .collect();
-        let report_fn: ReportFn<_> = Box::new(report);
-        let fitness_fn: FitnessFn<Creature, _> = Box::new(evaluation::fitness_function);
-        let observer = Observer::spawn(&config, report_fn);
-        let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-
-        Self {
-            population,
-            config: Arc::new(config),
-            best: None,
-            iteration: 0,
-            observer,
-            evaluator,
-        }
     }
 }
 
@@ -594,6 +562,9 @@ mod evaluation {
             self.rx.recv().expect("rx failure")
         }
 
+        fn eval_pipeline<I: Iterator<Item = Creature> + Send>(&self, inbound: I) -> Vec<Creature> {
+            inbound.map(|c| self.evaluate(c)).collect::<Vec<Creature>>()
+        }
         // fn pipeline<I: Iterator<Item = Creature> + Send>(
         //     &self,
         //     inbound: I,
@@ -612,12 +583,15 @@ mod evaluation {
             let handle = spawn(move || {
                 // TODO: parameterize sketch construction
                 let mut sketch = DecayingSketch::default();
+                sketch.decay = false;
                 let mut counter = 0;
 
-                for phenome in our_rx {
+                for mut phenome in our_rx {
                     counter += 1;
-                    let phenome = execute(params.clone(), phenome);
-                    let mut phenome = (fitness_fn)(phenome, params.clone());
+                    if phenome.fitness().is_none() {
+                        phenome = execute(params.clone(), phenome);
+                    }
+                    phenome = (fitness_fn)(phenome, params.clone());
                     // register and measure frequency
                     phenome
                         .record_genetic_frequency(&mut sketch, counter)
@@ -632,12 +606,35 @@ mod evaluation {
                         .query(phenome.problems())
                         .expect("Failed to measure phenomic diversity");
 
+                    // try this:  / FIXME shitty fitness sharing impl //
+                    let mut sum = 0.0;
+                    let mut c = 0.0;
+                    for (answer, problem) in phenome
+                        .problems()
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .zip(params.problems.as_ref().unwrap().iter())
+                    {
+                        if answer.output == problem.output {
+                            sketch.insert(&answer, counter).expect("shit");
+                            let score = sketch.query(&answer).expect("fuck");
+                            sum += score;
+                            c += 1.0;
+                        }
+                    }
+                    let challenge_rating = if c == 0.0 { 1.0 } else { sum / c };
+                    ////////////////////////////////////////////////////////
+                    log::debug!("challenge rating: {}", challenge_rating);
                     phenome.fitness.as_mut().map(|f| {
-                        f.push(phenomic_frequency);
+                        //f.push(phenomic_frequency);
+                        //f[0] += challenge_rating;
+                        f.push(challenge_rating);
                         //f[0] += phenomic_frequency;
                         //let _ = f.pop();
                         //f.push(genomic_frequency)
                     });
+
                     //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
                     log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());
 
@@ -650,26 +647,123 @@ mod evaluation {
     }
 }
 
+fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evaluator) {
+    let problems = parse_data(&config.data.path);
+    assert!(problems.is_some());
+    // figure out the number of return registers needed
+    // FIXME: refactor duplicated code out of this constructor
+
+    let mut return_registers = problems
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|p| p.output)
+        .collect::<std::collections::HashSet<i32>>()
+        .len();
+    // and how many input registers
+    let input_registers = problems.as_ref().unwrap()[0].input.len();
+
+    config.problems = problems;
+    if let Some(r) = config.machine.return_registers {
+        return_registers = std::cmp::max(return_registers, r);
+    }
+    let mut num_registers = return_registers + input_registers + 2;
+    if let Some(r) = config.machine.num_registers {
+        num_registers = std::cmp::max(num_registers, r);
+    }
+    config.machine.return_registers = Some(return_registers);
+    config.machine.num_registers = Some(num_registers);
+    log::info!("Config: {:#?}", config);
+    let report_fn: ReportFn<_> = Box::new(report);
+    let fitness_fn: FitnessFn<Creature, _> = Box::new(evaluation::fitness_function);
+    let observer = Observer::spawn(&config, report_fn);
+    let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
+    (config, observer, evaluator)
+}
+
+impl Tournament<evaluation::Evaluator, Creature> {
+    pub fn new(mut config: Config) -> Self {
+        let (config, observer, evaluator) = prepare(config);
+
+        let population = iter::repeat(())
+            .map(|()| Creature::random(&config))
+            .take(config.population_size())
+            .collect();
+
+        Self {
+            population,
+            config: Arc::new(config),
+            best: None,
+            iteration: 0,
+            observer,
+            evaluator,
+        }
+    }
+}
+
+crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
+
+impl Roulette<evaluation::Evaluator, Creature, CreatureDominanceOrd> {
+    pub fn new(mut config: Config) -> Self {
+        let (config, observer, evaluator) = prepare(config);
+
+        let population = iter::repeat(())
+            .map(|()| Creature::random(&config))
+            .take(config.population_size())
+            .collect();
+
+        Self {
+            population,
+            config: Arc::new(config),
+            best: None,
+            iteration: 0,
+            observer,
+            evaluator,
+            dominance_order: CreatureDominanceOrd,
+        }
+    }
+}
+
+impl Metropolis<evaluation::Evaluator, Creature> {
+    pub fn new(mut config: Config) -> Self {
+        let (config, observer, evaluator) = prepare(config);
+
+        let specimen = Creature::random(&config);
+
+        Self {
+            specimen,
+            config,
+            iteration: 0,
+            observer,
+            evaluator,
+            best: None,
+        }
+    }
+}
+
 pub fn run(config: Config) -> Option<Creature> {
     //let target_fitness = config.target_fitness;
-    let mut world = Epoch::<evaluation::Evaluator, Creature>::new(config);
+    let selection = config.selection;
 
-    loop {
-        world = world.evolve();
-        // Obviously needs refactoring TODO
-        // if let Some(true) = world
-        //     .best
-        //     .as_ref()
-        //     .and_then(|b| b.fitness.map(|f| f.0 == target_fitness))
-        if false
-        // TODO: find way to state stop condition
-        {
-            println!("\n***** Success after {} epochs! *****", world.iteration);
-            println!("{:#?}", world.best);
-            let best = std::mem::take(&mut world.best).unwrap();
-            std::env::set_var("RUST_LOG", "trace");
-            let best = evaluation::execute(world.config, best);
-            return Some(best);
-        };
+    match selection {
+        Selection::Tournament => {
+            let mut world = Tournament::<evaluation::Evaluator, Creature>::new(config);
+            loop {
+                world = world.evolve();
+            }
+        }
+        Selection::Roulette => {
+            let mut world =
+                Roulette::<evaluation::Evaluator, Creature, CreatureDominanceOrd>::new(config);
+            loop {
+                world = world.evolve();
+            }
+        }
+        Selection::Metropolis => {
+            let mut world = Metropolis::<evaluation::Evaluator, Creature>::new(config);
+            loop {
+                world = world.evolve();
+            }
+        }
     }
 }

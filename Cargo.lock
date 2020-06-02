@@ -48,7 +48,9 @@ dependencies = [
  "hamming",
  "indexmap",
  "log",
+ "non-dominated-sort",
  "object-pool",
+ "paste",
  "prefix-tree",
  "pretty_env_logger",
  "radix_trie",
@@ -266,6 +268,12 @@ checksum = "1b391911b9a786312a10cb9d2b3d0735adfd5a8113eb3648de26a75e91b0826c"
 dependencies = [
  "rand",
 ]
+
+[[package]]
+name = "dominance-ord"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3dd45ca02161491b6d86974d44aec71a877450fc495d0b809a0ed1e7eb43ee30"
 
 [[package]]
 name = "either"
@@ -547,6 +555,15 @@ name = "nibble_vec"
 version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d77f3db4bce033f4d04db08079b2ef1c3d02b44e86f25d08886fafa7756ffa"
+
+[[package]]
+name = "non-dominated-sort"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc4de93a05386d1e59116dc4f0ee3e94dd10bff66ffd8b2746dc4c183e45c2b2"
+dependencies = [
+ "dominance-ord",
+]
 
 [[package]]
 name = "num-integer"
