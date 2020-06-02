@@ -343,7 +343,7 @@ mod evaluation {
             let hatch_params = Arc::new(params.roper.clone());
             let inputs = unimplemented!("construct from params");
             let (register_pattern, output_registers) =
-                if let Some(pat) = params.roper.register_pattern {
+                if let Some(ref pat) = params.roper.register_pattern {
                     let arch_specific_pat: RegisterPattern<C> =
                         pat.try_into().expect("Failed to parse register pattern");
                     let registers = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
