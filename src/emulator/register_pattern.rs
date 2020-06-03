@@ -47,7 +47,12 @@ impl FromStr for RegisterValue {
                 Some(x) => {
                     let rest = chars.collect::<String>();
                     let numeral = format!("{}{}", x, rest);
-                    let val = numeral.parse::<u64>()?;
+                    let val = if numeral.starts_with("0x") {
+                        let numeral = numeral.trim_start_matches("0x");
+                        u64::from_str_radix(&numeral, 16)?
+                    } else {
+                        u64::from_str_radix(&numeral, 10)?
+                    };
                     Ok(RegisterValue { val, deref })
                 }
             }
@@ -56,17 +61,44 @@ impl FromStr for RegisterValue {
     }
 }
 
+// do a numerically thick match along the trunk, and a sparse search of the branches
+// register states are trees when spidered
+
 #[cfg(test)]
 mod test {
     use crate::emulator::register_pattern::RegisterValue;
 
     #[test]
     fn test_register_value_parser() {
-        let rvs = vec!["0xdeadbeef", "&0xbeef", "&&0", "& & & & 1234"];
+        let rvs = vec![
+            (
+                "0xdeadbeef",
+                RegisterValue {
+                    val: 0xdead_beef,
+                    deref: 0,
+                },
+            ),
+            (
+                "&0xbeef",
+                RegisterValue {
+                    val: 0xbeef,
+                    deref: 1,
+                },
+            ),
+            ("&&0", RegisterValue { val: 0, deref: 2 }),
+            (
+                "& & & & 1234",
+                RegisterValue {
+                    val: 1234,
+                    deref: 4,
+                },
+            ),
+        ];
 
-        for s in &rvs {
+        for (s, reg_val) in rvs.into_iter() {
             let rv: RegisterValue = s.parse().expect("Failed to parse");
             println!("{} --> {:?}", s, rv);
+            assert_eq!(rv, reg_val);
         }
     }
 }
