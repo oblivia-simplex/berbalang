@@ -78,7 +78,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
 
             // update the best, if applicable
             if front.rank() == 0 {
-                log::info!(
+                log::debug!(
                     "iteration #{}, front 0 contains {} individuals",
                     iteration,
                     front.len()
@@ -136,7 +136,6 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
             new_population.push(child)
         }
 
-        log::info!("Roulette iteration {} complete", iteration);
         Self {
             population: new_population,
             config,

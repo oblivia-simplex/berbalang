@@ -74,7 +74,8 @@ impl Pack for Creature {
 
 impl fmt::Debug for Creature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Name: {}", self.name)?;
+        writeln!(f, "Name: {}\nFitness: {:?}", self.name, self.fitness())?;
+        writeln!(f, "Generation: {}", self.generation);
         let memory = loader::get_static_memory_image();
         for i in 0..self.chromosome.len() {
             let parent = if self.parents.is_empty() {
@@ -87,7 +88,14 @@ impl fmt::Debug for Creature {
                 .perm_of_addr(allele)
                 .map(|p| format!("({:?})", p))
                 .unwrap_or_else(|| "".to_string());
-            write!(f, "[{}][{}] 0x{:010x} {}", i, parent, allele, flag)?;
+            writeln!(f, "[{}][{}] 0x{:010x} {}", i, parent, allele, flag)?;
+        }
+        if let Some(ref profile) = self.profile {
+            //writeln!(f, "Register state: {:#x?}", profile.registers)?;
+            writeln!(f, "\nSpidered register state:")?;
+            for state in profile.registers.iter() {
+                writeln!(f, "{:#x?}\n", state.spider());
+            }
         }
         Ok(())
     }
@@ -316,8 +324,8 @@ mod evaluation {
                 // assuming that when the register pattern task is activated, there's only one register state
                 // to worry about. this may need to be adjusted in the future. bit sloppy now.
                 let register_pattern_distance = pattern.distance(&profile.registers[0]);
-                log::debug!("fitness: {:?}", register_pattern_distance);
-                creature.set_fitness(Pareto(register_pattern_distance));
+                creature.set_fitness(Pareto(vec![register_pattern_distance.iter().sum()]));
+            //log::debug!("fitness: {:?}", creature.fitness());
             } else {
                 log::error!("No register pattern?");
             }
@@ -348,7 +356,15 @@ mod evaluation {
             &self,
             inbound: I,
         ) -> Vec<Creature> {
-            todo!("this")
+            self.hatchery
+                .execute_batch(inbound)
+                .expect("execute batch failure")
+                .into_iter()
+                .map(|(mut creature, profile)| {
+                    creature.profile = Some(profile);
+                    (self.fitness_fn)(creature, self.params.clone())
+                })
+                .collect::<Vec<_>>()
         }
 
         fn spawn(
@@ -413,8 +429,13 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
         Selection::Tournament => {
             let mut world =
                 Tournament::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
+            let mut counter = 0;
             loop {
                 world = world.evolve();
+                counter += 1;
+                if counter % 0x1000 == 0 {
+                    log::info!("best: {:#x?}", world.best);
+                }
             }
         }
         Selection::Roulette => {

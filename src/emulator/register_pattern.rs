@@ -17,7 +17,7 @@ pub type Register<C> = <C as Cpu<'static>>::Reg;
 /// and so on.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
 pub struct RegisterValue {
-    val: u64,
+    pub val: u64,
     deref: usize,
 }
 
@@ -182,7 +182,7 @@ impl RegisterPattern {
                 let (r, deref_steps, least_ham) = find_least_ham(val);
                 let correct_reg = if r == reg { 0.0 } else { 1.0 };
                 let deref_error = (val.deref as i32 - deref_steps as i32).abs() as f64;
-                let hamming_error = least_ham as f64 / 64.0;
+                let hamming_error = least_ham as f64;
                 (correct_reg, deref_error, hamming_error)
             })
             .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
@@ -191,7 +191,7 @@ impl RegisterPattern {
     }
 
     // TODO: why not set arch and mode as fields of RegisterPatternConfig?
-    fn spider(&self) -> IndexMap<String, Vec<u64>> {
+    pub fn spider(&self) -> IndexMap<String, Vec<u64>> {
         let mut map = IndexMap::new();
         let memory = loader::get_static_memory_image();
         for (k, v) in self.0.iter() {

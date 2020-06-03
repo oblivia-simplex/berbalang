@@ -41,6 +41,7 @@ pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
     tx: SyncSender<X>,
     rx: Receiver<(X, Profile)>,
     handle: JoinHandle<()>,
+    disassembler: Arc<Disassembler>,
 }
 
 impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<C, X> {
@@ -55,6 +56,7 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
             tx: _tx,
             rx: _rx,
             handle: _handle,
+            disassembler: _disassembler,
         } = self;
         // handle.join().expect("Failed to join handle in hatchery");
         if let Some(segments) = memory.as_ref() {
@@ -83,6 +85,7 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
 }
 
 pub use crate::configure::RoperConfig as HatcheryParams;
+use crate::disassembler::Disassembler;
 use crate::emulator::pack::Pack;
 
 #[derive(Debug)]
@@ -205,6 +208,9 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: Option<EmuPrepFn<C>>,
     ) -> Self {
+        let disassembler = Arc::new(
+            Disassembler::new(params.arch, params.mode).expect("Failed to build disassembler"),
+        );
         let (tx, our_rx): InboundChannel<X> = sync_channel(params.num_workers);
         let (our_tx, rx): OutboundChannel<X> = sync_channel(params.num_workers);
 
@@ -235,6 +241,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         let t_pool = thread_pool.clone();
         let parameters = params.clone();
         let mem = memory.clone();
+        let disas = disassembler.clone();
         let handle = spawn(move || {
             for payload in our_rx.iter() {
                 let emu_prep_fn = emu_prep_fn.clone();
@@ -245,6 +252,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                 let emulator_pool = e_pool.clone();
                 let memory = mem.clone();
                 let inputs = inputs.clone();
+                let disas = disas.clone();
                 thread_pool.execute(move || {
                     let profile = inputs.par_iter().map(|input| {
                         // Acquire an emulator from the pool.
@@ -255,8 +263,14 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         let context: Context = (*emu).context_save().expect("Failed to save context");
 
                         if params.record_basic_blocks {
-                            let _hooks = util::install_basic_block_hook(&mut (*emu), &profiler)
+                            let _hook = util::install_basic_block_hook(&mut (*emu), &profiler)
                                 .expect("Failed to install basic_block_hook");
+                        }
+
+                        if cfg!(debug_assertions) {
+                            // install the disassembler hook
+                            let _hook = util::install_disas_tracer_hook(&mut (*emu), disas.clone())
+                                .expect("Failed to install tracer hook");
                         }
 
                         // if params.record_memory_writes {
@@ -325,6 +339,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
             tx,
             rx,
             handle,
+            disassembler,
         }
     }
 
@@ -475,6 +490,19 @@ pub mod util {
     use crate::emulator::profiler::Block;
     use crate::util::architecture::{endian, word_size_in_bytes, Endian};
     use byteorder::{BigEndian, ByteOrder, LittleEndian};
+
+    pub fn install_disas_tracer_hook<C: 'static + Cpu<'static>>(
+        emu: &mut C,
+        disassembler: Arc<Disassembler>,
+    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+        let callback = move |engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
+            let disas = disassembler
+                .disas_from_mem_image(address, block_length as usize)
+                .expect("Failed to disassemble block");
+            log::trace!("\n{}", disas);
+        };
+        code_hook_all(emu, CodeHookType::BLOCK, callback)
+    }
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
         emu: &mut C,

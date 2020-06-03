@@ -163,8 +163,9 @@ impl Genome for Genotype {
     }
 }
 
-fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
-    let fitnesses: Vec<Fitness> = window.iter().filter_map(|g| g.fitness.clone()).collect();
+fn report(window: &Window<Genotype>, counter: usize, _params: &ObserverConfig) {
+    let frame = &window.frame;
+    let fitnesses: Vec<Fitness> = frame.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
     let avg_fit = fitnesses
         .iter()
@@ -177,7 +178,7 @@ fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
         .iter()
         .map(|v| v / len as f64)
         .collect::<Vec<f64>>();
-    let avg_gen = window.iter().map(|g| g.generation).sum::<usize>() as f64 / window.len() as f64;
+    let avg_gen = frame.iter().map(|g| g.generation).sum::<usize>() as f64 / frame.len() as f64;
 
     log::info!(
         "[{}] AVERAGE FITNESS: {:?}; AVG GEN: {}",
@@ -189,6 +190,7 @@ fn report(window: &[Genotype], counter: usize, _params: &ObserverConfig) {
 
 use crate::configure::{Config, ObserverConfig, Problem};
 use crate::evolution::{Genome, Phenome};
+use crate::observer::Window;
 use cached::{cached_key, TimedCache};
 
 cached_key! {

@@ -15,32 +15,31 @@ pub struct Observer<O: Send> {
     // TODO: add a reporter struct field
 }
 
-pub type ReportFn<T> = Box<dyn Fn(&[T], usize, &ObserverConfig) -> () + Sync + Send + 'static>;
+pub type ReportFn<T> =
+    Box<dyn Fn(&Window<T>, usize, &ObserverConfig) -> () + Sync + Send + 'static>;
 
 pub fn default_report_fn<T: Phenome + Genome>(
-    window: &[T],
+    window: &Window<T>,
     counter: usize,
     _params: &ObserverConfig,
 )
 // where
 //     <<T as Phenome>::Fitness as Index<usize>>::Output: Sized,
 {
+    let frame = &window.frame;
     log::info!("default report function");
-    let avg_len = window.iter().map(|c| c.len()).sum::<usize>() as f64 / window.len() as f64;
+    let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
-    for g in window {
+    for g in frame {
         g.record_genetic_frequency(&mut sketch, 1000).unwrap();
     }
-    let avg_freq = window
+    let avg_freq = frame
         .iter()
         .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
         .sum::<f64>()
-        / window.len() as f64;
-    let avg_fit: f64 = window
-        .iter()
-        .filter_map(|g| g.scalar_fitness())
-        .sum::<f64>()
-        / window.len() as f64;
+        / frame.len() as f64;
+    let avg_fit: f64 =
+        frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
     log::info!(
         "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}",
         counter,
@@ -48,9 +47,10 @@ pub fn default_report_fn<T: Phenome + Genome>(
         avg_freq,
         avg_fit,
     );
+    log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
 }
 
-pub struct Window<O> {
+pub struct Window<O: Phenome + 'static + Send> {
     pub frame: Vec<O>,
     pub params: ObserverConfig,
     counter: usize,
@@ -58,6 +58,7 @@ pub struct Window<O> {
     i: usize,
     window_size: usize,
     report_fn: ReportFn<O>,
+    pub best: Option<O>,
 }
 
 impl<O: Phenome + Genome + 'static> Default for Window<O> {
@@ -81,11 +82,12 @@ impl<O: Phenome + Genome + 'static> Default for Window<O> {
             report_every,
             i,
             report_fn,
+            best: None,
         }
     }
 }
 
-impl<O> Window<O> {
+impl<O: Phenome + 'static + Send> Window<O> {
     fn new(report_fn: ReportFn<O>, params: ObserverConfig) -> Self {
         assert!(params.window_size > 0, "window_size must be > 0");
         assert!(params.report_every > 0, "report_every must be > 0");
@@ -99,10 +101,23 @@ impl<O> Window<O> {
             window_size,
             report_every,
             report_fn,
+            best: None,
         }
     }
 
     fn insert(&mut self, thing: O) {
+        match &self.best {
+            None => self.best = Some(thing.clone()),
+            Some(champ) => {
+                if let (Some(champ_fit), Some(thing_fit)) =
+                    (champ.scalar_fitness(), thing.scalar_fitness())
+                {
+                    if thing_fit < champ_fit {
+                        self.best = Some(thing.clone())
+                    }
+                }
+            }
+        }
         self.counter += 1;
         self.i = (self.i + 1) % self.window_size;
         if self.frame.len() < self.window_size {
@@ -116,11 +131,11 @@ impl<O> Window<O> {
     }
 
     fn report(&self) {
-        (self.report_fn)(&self.frame, self.counter, &self.params);
+        (self.report_fn)(&self, self.counter, &self.params);
     }
 }
 
-impl<O: 'static + Send> Observer<O> {
+impl<O: 'static + Send + Phenome> Observer<O> {
     /// The observe method should take a clone of the observable
     /// and store in something like a sliding observation window.
     pub fn observe(&self, ob: O) {

@@ -11,7 +11,7 @@ use crate::evolution::metropolis::Metropolis;
 use crate::evolution::roulette::Roulette;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::Pareto;
-use crate::observer::{Observer, ReportFn};
+use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
 use crate::util::count_min_sketch::DecayingSketch;
 
@@ -420,22 +420,23 @@ impl Genome for Creature {
     }
 }
 
-fn report(window: &[Creature], counter: usize, _params: &ObserverConfig) {
-    let avg_len = window.iter().map(|c| c.len()).sum::<usize>() as f64 / window.len() as f64;
+fn report(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
+    let frame = &window.frame;
+    let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
-    for g in window {
+    for g in frame {
         g.record_genetic_frequency(&mut sketch, 1000).unwrap();
     }
-    let avg_freq = window
+    let avg_freq = frame
         .iter()
         .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
         .sum::<f64>()
-        / window.len() as f64;
-    let avg_fit = window
+        / frame.len() as f64;
+    let avg_fit = frame
         .iter()
         .filter_map(|g| g.fitness.as_ref().map(|f| f.0[0]))
         .sum::<f64>()
-        / window.len() as f64;
+        / frame.len() as f64;
     log::info!(
         "[{}] Average length: {}, average genetic frequency: {}; average fitness: {}",
         counter,
