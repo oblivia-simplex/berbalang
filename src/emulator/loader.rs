@@ -1,4 +1,4 @@
-use crate::util::architecture::{read_integer, Endian};
+use crate::util::architecture::{endian, read_integer, word_size, Endian};
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use goblin::{
     elf::{self, Elf},
@@ -12,7 +12,12 @@ use unicorn::Protection;
 
 pub const PAGE_SIZE: u64 = 0x1000;
 
-pub static mut MEM_IMAGE: MemoryImage = MemoryImage(Vec::new());
+// placeholders
+pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
+    segs: Vec::new(),
+    arch: unicorn::Arch::X86,
+    mode: unicorn::Mode::MODE_64,
+};
 static INIT_MEM_IMAGE: Once = Once::new();
 
 #[derive(Debug)]
@@ -34,15 +39,19 @@ impl From<goblin::error::Error> for Error {
 }
 
 #[derive(Debug, Clone)]
-pub struct MemoryImage(pub Vec<Seg>);
+pub struct MemoryImage {
+    pub segs: Vec<Seg>,
+    pub arch: unicorn::Arch,
+    pub mode: unicorn::Mode,
+}
 
 impl MemoryImage {
     pub fn first_address(&self) -> u64 {
-        self.0[0].aligned_start()
+        self.segs[0].aligned_start()
     }
 
     pub fn containing_seg(&self, addr: u64) -> Option<&Seg> {
-        for s in self.0.iter() {
+        for s in self.segs.iter() {
             if s.aligned_start() <= addr && addr < s.aligned_end() {
                 return Some(s);
             }
@@ -107,16 +116,12 @@ impl MemoryImage {
     }
 
     pub fn segments(&self) -> &Vec<Seg> {
-        &self.0
+        &self.segs
     }
 
-    pub fn deref_chain(
-        &self,
-        start: u64,
-        steps: usize,
-        word_size: usize,
-        endian: Endian,
-    ) -> Vec<u64> {
+    pub fn deref_chain(&self, start: u64, steps: usize) -> Vec<u64> {
+        let word_size = word_size(self.arch, self.mode);
+        let endian = endian(self.arch, self.mode);
         let mut chain = vec![];
         struct Crawl<'s> {
             f: &'s dyn Fn(&Crawl<'_>, u64, usize, &mut Vec<u64>) -> (),
@@ -363,8 +368,14 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
     segs
 }
 
-fn initialize_memory_image(segments: &[Seg]) {
-    unsafe { MEM_IMAGE = MemoryImage(segments.to_owned()) }
+fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn::Mode) {
+    unsafe {
+        MEM_IMAGE = MemoryImage {
+            segs: segments.to_owned(),
+            arch,
+            mode,
+        }
+    }
 }
 
 pub fn get_static_memory_image() -> &'static MemoryImage {
@@ -375,7 +386,12 @@ pub fn get_static_memory_image() -> &'static MemoryImage {
     }
 }
 
-pub fn load(code_buffer: &[u8], stack_size: usize) -> Result<Vec<Seg>, Error> {
+pub fn load(
+    code_buffer: &[u8],
+    stack_size: usize,
+    arch: unicorn::Arch,
+    mode: unicorn::Mode,
+) -> Result<Vec<Seg>, Error> {
     if INIT_MEM_IMAGE.is_completed() {
         unsafe { Ok(MEM_IMAGE.segments().clone()) }
     } else {
@@ -390,14 +406,19 @@ pub fn load(code_buffer: &[u8], stack_size: usize) -> Result<Vec<Seg>, Error> {
         }
 
         // Cache the memory image as a globally accessible static
-        INIT_MEM_IMAGE.call_once(|| initialize_memory_image(&segs));
+        INIT_MEM_IMAGE.call_once(|| initialize_memory_image(&segs, arch, mode));
 
         Ok(segs)
     }
 }
 
-pub fn load_from_path(path: &str, stack_size: usize) -> Result<Vec<Seg>, Error> {
-    load(&std::fs::read(path)?, stack_size)
+pub fn load_from_path(
+    path: &str,
+    stack_size: usize,
+    arch: unicorn::Arch,
+    mode: unicorn::Mode,
+) -> Result<Vec<Seg>, Error> {
+    load(&std::fs::read(path)?, stack_size, arch, mode)
 }
 
 #[cfg(test)]
@@ -407,7 +428,13 @@ mod test {
     #[test]
     fn test_loader() {
         //pretty_env_logger::init();
-        let res = load_from_path("/bin/sh", 0x1000).expect("Failed to load /bin/sh");
+        let res = load_from_path(
+            "/bin/sh",
+            0x1000,
+            unicorn::Arch::X86,
+            unicorn::Mode::MODE_64,
+        )
+        .expect("Failed to load /bin/sh");
         for s in res {
             log::info!("Segment: {}", s);
         }

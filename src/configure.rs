@@ -1,4 +1,4 @@
-use crate::emulator::profiler::RegisterPatternConfig;
+use crate::emulator::register_pattern::RegisterPattern;
 use indexmap::map::IndexMap;
 use serde::Deserialize;
 use std::cmp::Ordering;
@@ -67,7 +67,7 @@ pub struct MachineConfig {
 pub struct RoperConfig {
     pub gadget_file: Option<String>,
     pub use_registers: Vec<String>, // deserialize to Register<C>
-    pub register_pattern: Option<RegisterPatternConfig>,
+    pub register_pattern: Option<RegisterPattern>,
     #[serde(default = "Default::default")]
     pub soup: Option<Vec<u64>>,
     pub soup_size: Option<usize>, // if no gadget file given

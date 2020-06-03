@@ -17,7 +17,7 @@ use crate::fitness::Pareto;
 use crate::util::architecture::{read_integer, write_integer};
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
-    emulator::executor::{Hatchery, HatcheryParams, Register},
+    emulator::executor::{Hatchery, HatcheryParams},
     emulator::{loader, profiler::Profile},
     error::Error,
     evolution::{tournament::Tournament, Genome, Phenome},
@@ -281,12 +281,12 @@ mod evaluation {
     use std::sync::Arc;
     use std::thread::{spawn, JoinHandle};
 
-    use unicorn::Cpu;
+    use unicorn::{Cpu, Unicorn};
 
     use crate::evaluator::FitnessFn;
     use crate::{
         configure::Config,
-        emulator::executor::{self, Hatchery, HatcheryParams, Register},
+        emulator::executor::{self, Hatchery, HatcheryParams},
         emulator::loader,
         evaluator::Evaluate,
         evolution::{tournament::Tournament, Genome, Phenome},
@@ -298,7 +298,8 @@ mod evaluation {
     };
 
     use super::Creature;
-    use crate::emulator::profiler::{Profiler, RegisterPattern};
+    use crate::emulator::profiler::Profiler;
+    use crate::emulator::register_pattern::{RegisterPattern, UnicornRegisterState};
     use byteorder::{BigEndian, LittleEndian};
     use indexmap::map::IndexMap;
     use std::convert::TryInto;
@@ -308,7 +309,7 @@ mod evaluation {
         hatchery: Hatchery<C, Creature>,
         sketch: DecayingSketch,
         fitness_fn: Box<FitnessFn<Creature, Config>>,
-        register_pattern: Option<RegisterPattern<C>>,
+        register_pattern: Option<RegisterPattern>,
     }
 
     impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
@@ -342,15 +343,13 @@ mod evaluation {
         ) -> Self {
             let hatch_params = Arc::new(params.roper.clone());
             let inputs = unimplemented!("construct from params");
-            let (register_pattern, output_registers) =
-                if let Some(ref pat) = params.roper.register_pattern {
-                    let arch_specific_pat: RegisterPattern<C> =
-                        pat.try_into().expect("Failed to parse register pattern");
-                    let registers = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
-                    (Some(arch_specific_pat), registers)
-                } else {
-                    todo!("implement a conversion method from problem sets to register maps")
-                };
+            let output_registers = if let Some(ref pat) = params.roper.register_pattern {
+                let arch_specific_pat: UnicornRegisterState<C> =
+                    pat.try_into().expect("Failed to parse register pattern");
+                arch_specific_pat.0.keys().cloned().collect::<Vec<_>>()
+            } else {
+                todo!("implement a conversion method from problem sets to register maps")
+            };
             let hatchery: Hatchery<C, Creature> = Hatchery::new(
                 hatch_params,
                 Arc::new(inputs),
@@ -363,7 +362,7 @@ mod evaluation {
                 hatchery,
                 sketch: DecayingSketch::default(), // TODO parameterize
                 fitness_fn: Box::new(fitness_fn),
-                register_pattern,
+                register_pattern: params.roper.register_pattern.clone(),
             }
         }
     }

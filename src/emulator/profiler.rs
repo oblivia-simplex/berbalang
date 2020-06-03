@@ -10,8 +10,12 @@ use seahash::{hash, hash_seeded};
 use serde::Deserialize;
 use unicorn::Cpu;
 
-use crate::emulator::executor::Register;
+use crate::emulator::loader;
+use crate::emulator::register_pattern::{
+    convert_register_map, Register, RegisterPattern, UnicornRegisterState,
+};
 use crate::error::Error;
+use crate::util::distance::jaccard;
 use byteorder::{ByteOrder, LittleEndian};
 use std::convert::TryFrom;
 
@@ -51,20 +55,12 @@ impl<C: Cpu<'static>> Profiler<C> {
     }
 }
 
-fn convert_register_map<C: Cpu<'static>>(registers: RegisterPattern<C>) -> RegisterPatternConfig {
-    let mut map = IndexMap::new();
-    for (k, v) in registers.0.into_iter() {
-        map.insert(format!("{:?}", k), v); // FIXME use stable conversion method
-    }
-    RegisterPatternConfig(map)
-}
-
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub paths: PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
-    pub registers: Vec<RegisterPatternConfig>,
+    pub registers: Vec<RegisterPattern>,
 }
 
 impl Profile {
@@ -96,7 +92,7 @@ impl Profile {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
             computation_times.push(computation_time);
-            register_maps.push(convert_register_map::<C>(RegisterPattern(registers)));
+            register_maps.push(convert_register_map::<C>(UnicornRegisterState(registers)));
         }
 
         Self {
@@ -216,87 +212,5 @@ mod test {
             "size of profile in mem: {}",
             std::mem::size_of_val(&profile.paths)
         );
-    }
-}
-
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
-pub struct RegisterPatternConfig(pub IndexMap<String, u64>);
-
-#[derive(Debug)]
-pub struct RegisterPattern<C: 'static + Cpu<'static>>(pub IndexMap<Register<C>, u64>);
-
-impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPatternConfig> for RegisterPattern<C> {
-    type Error = Error;
-
-    fn try_from(rp: &RegisterPatternConfig) -> Result<Self, Self::Error> {
-        let mut map = IndexMap::new();
-        for (k, v) in rp.0.iter() {
-            let reg = k
-                .parse()
-                .map_err(|_| Self::Error::Parsing("Failed to parse register string".to_string()))?;
-            map.insert(reg, *v);
-        }
-        Ok(RegisterPattern(map))
-    }
-}
-
-fn byte_positions(bytes: &[u8], grain: usize) -> Vec<[u8; 4]> {
-    let len = bytes.len();
-    debug_assert!(grain < len);
-    let chunk = len / grain;
-    bytes
-        .iter()
-        .enumerate()
-        .map(|(i, b)| {
-            let (byte, pos) = (*b, i / chunk);
-            let mut buf = [0_u8; 4];
-            buf[0] = byte;
-            buf[1] = (pos & 0xFF) as u8;
-            buf[2] = ((pos >> 8) & 0xFF) as u8;
-            buf[3] = ((pos >> 16) & 0xFF) as u8;
-            buf
-        })
-        .collect::<Vec<[u8; 4]>>()
-}
-
-impl RegisterPatternConfig {
-    /// See https://en.wikipedia.org/wiki/MinHash for discussion of algorithm
-    fn jaccard(&self, other: &Self, grain: usize, num_hashes: u64) -> f64 {
-        // the keys in the profile's maps and the pattern's map
-        // should be in an identical order, just because nothing should
-        // have disturbed them. But it would be better to verify this.
-        let self_bytes: Vec<u8> = self.into();
-        let other_bytes: Vec<u8> = other.into();
-        let self_byte_pos = byte_positions(&self_bytes, grain);
-        let other_byte_pos = byte_positions(&other_bytes, grain);
-
-        (0_u64..num_hashes)
-            .filter(|seed| {
-                let s = self_byte_pos
-                    .iter()
-                    .map(|b| hash_seeded(b, *seed, 0, 0, 0))
-                    .min();
-                let o = other_byte_pos
-                    .iter()
-                    .map(|b| hash_seeded(b, *seed, 0, 0, 0))
-                    .min();
-                s == o
-            })
-            .count() as f64
-            / num_hashes as f64
-    }
-}
-
-impl From<&RegisterPatternConfig> for Vec<u8> {
-    fn from(rp: &RegisterPatternConfig) -> Vec<u8> {
-        const WORD_SIZE: usize = 8; // FIXME
-        let len = rp.0.keys().len();
-        let mut buf = vec![0_u8; len * WORD_SIZE];
-        let mut offset = 0;
-        for word in rp.0.values() {
-            LittleEndian::write_u64(&mut buf[offset..], *word);
-            offset += WORD_SIZE;
-        }
-        buf
     }
 }

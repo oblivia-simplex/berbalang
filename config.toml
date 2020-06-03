@@ -31,5 +31,10 @@ path = "./data/iris.tsv"
 
 [roper]
 use_registers = [ "RAX", "RCX", "RDX" ]
+register_pattern = { 
+    "RAX": "0xdeadbeef",
+    "RCX": "&&0xbeef",
+    "RDX": "&0",
+}
 arch = "X86"
 mode = "MODE_64"

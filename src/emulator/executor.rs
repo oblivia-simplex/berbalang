@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::emulator::profiler::{Profile, Profiler};
+use crate::emulator::register_pattern::Register;
 
 use object_pool::{Pool, Reusable};
 use std::pin::Pin;
@@ -17,7 +18,6 @@ use rayon::prelude::*;
 use unicorn::{Context, Cpu, Mode};
 
 type Code = Vec<u8>;
-pub type Register<C> = <C as Cpu<'static>>::Reg;
 pub type Address = u64;
 pub type EmuPrepFn<C> = Box<
     dyn Fn(&mut C, &HatcheryParams, &[u8], &Profiler<C>) -> Result<Address, Error>
@@ -210,7 +210,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
 
         let memory = if let Some(path) = params.binary_path.as_ref() {
             Arc::new(Some(Pin::new(
-                loader::load_from_path(path, params.emulator_stack_size)
+                loader::load_from_path(path, params.emulator_stack_size, params.arch, params.mode)
                     .expect("Failed to load binary from path"),
             )))
         } else {
