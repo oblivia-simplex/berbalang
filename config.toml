@@ -32,6 +32,13 @@ path = "./data/iris.tsv"
 [roper]
 arch = "X86"
 mode = "MODE_64"
+soup_size = 0x1000
+binary_path = "/bin/sh"
+num_workers = 16
+num_emulators = 16
+max_emu_steps = 0x10_000
+millisecond_timeout = 500
+emulator_stack_size = 0x1000
 
 [roper.register_pattern] 
 RAX = "0xdeadbeef"

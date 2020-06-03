@@ -140,7 +140,7 @@ impl RegisterPattern {
         let spider_map = from_emu.spider();
 
         // find the closest ham
-        println!("Spider map: {:#x?}", spider_map);
+        //log::debug!("Spider map: {:#x?}", spider_map);
 
         let find_least_ham = |val: &RegisterValue| -> (&str, usize, u32) {
             let word = val.val;

@@ -72,11 +72,9 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
             .collect::<Vec<P>>();
 
         combatants.sort_by(|a, b| {
-            a.fitness().partial_cmp(&b.fitness()).unwrap_or_else(|| {
-                a.scalar_fitness()
-                    .partial_cmp(&b.scalar_fitness())
-                    .unwrap_or(Ordering::Equal)
-            })
+            a.fitness()
+                .partial_cmp(&b.fitness())
+                .unwrap_or(Ordering::Equal)
         });
         // the best are now at the beginning of the vec
 

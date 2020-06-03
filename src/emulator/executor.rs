@@ -208,14 +208,15 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         let (tx, our_rx): InboundChannel<X> = sync_channel(params.num_workers);
         let (our_tx, rx): OutboundChannel<X> = sync_channel(params.num_workers);
 
-        let memory = if let Some(path) = params.binary_path.as_ref() {
-            Arc::new(Some(Pin::new(
-                loader::load_from_path(path, params.emulator_stack_size, params.arch, params.mode)
-                    .expect("Failed to load binary from path"),
-            )))
-        } else {
-            Default::default()
-        };
+        let memory = Arc::new(Some(Pin::new(
+            loader::load_from_path(
+                &params.binary_path,
+                params.emulator_stack_size,
+                params.arch,
+                params.mode,
+            )
+            .expect("Failed to load binary from path"),
+        )));
 
         let emu_pool = Arc::new(Pool::new(params.num_workers, || {
             init_emu(&params, &memory).expect("failed to initialize emulator")
@@ -704,7 +705,6 @@ mod test {
             params,
             HatcheryParams {
                 gadget_file: None,
-                use_registers: vec!["EAX".to_string()],
                 num_workers: 8,
                 num_emulators: 8,
                 wait_limit: 150,
@@ -715,7 +715,7 @@ mod test {
                 record_basic_blocks: true,
                 record_memory_writes: true,
                 emulator_stack_size: 0x1000, // default
-                binary_path: None,
+                binary_path: "/bin/sh".to_string(),
                 soup: None,
                 soup_size: None,
                 ..Default::default()
@@ -728,7 +728,6 @@ mod test {
         pretty_env_logger::env_logger::init();
         let params = HatcheryParams {
             gadget_file: None,
-            use_registers: vec![],
             num_workers: 500,
             num_emulators: 510,
             wait_limit: 50,
@@ -739,7 +738,7 @@ mod test {
             record_basic_blocks: true,
             record_memory_writes: false,
             emulator_stack_size: 0x1000,
-            binary_path: Some("/bin/sh".to_string()),
+            binary_path: "/bin/sh".to_string(),
             soup: None,
             soup_size: None,
             ..Default::default()

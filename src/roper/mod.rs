@@ -77,7 +77,11 @@ impl fmt::Debug for Creature {
         write!(f, "Name: {}", self.name)?;
         let memory = loader::get_static_memory_image();
         for i in 0..self.chromosome.len() {
-            let parent = &self.parents[self.chromosome_parentage[i]];
+            let parent = if self.parents.is_empty() {
+                "seed"
+            } else {
+                &self.parents[self.chromosome_parentage[i]]
+            };
             let allele = self.chromosome[i];
             let flag = memory
                 .perm_of_addr(allele)
@@ -90,7 +94,7 @@ impl fmt::Debug for Creature {
 }
 
 /// load binary before calling this function
-pub fn init_soup(params: &mut RoperConfig) -> Result<&Vec<u64>, Error> {
+pub fn init_soup(params: &mut RoperConfig) -> Result<(), Error> {
     let mut soup = Vec::new();
     if let Some(gadget_file) = params.gadget_file.as_ref() {
         // parse the gadget file
@@ -110,7 +114,7 @@ pub fn init_soup(params: &mut RoperConfig) -> Result<&Vec<u64>, Error> {
         }
     }
     params.soup = Some(soup);
-    Ok(params.soup.as_ref().unwrap())
+    Ok(())
 }
 
 impl Genome for Creature {
@@ -193,7 +197,7 @@ impl Genome for Creature {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.chromosome.len());
 
-        match rng.gen_range(0, 5) {
+        match rng.gen_range(0, 4) {
             0 => {
                 // Dereference mutation
                 let memory = loader::get_static_memory_image();
@@ -223,16 +227,16 @@ impl Genome for Creature {
                     self.chromosome[i] = address;
                 }
             }
-            3 => {
+            2 => {
                 self.chromosome[i] = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
             }
-            4 => {
+            3 => {
                 self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
             }
             // 5 => {
             //     self.crossover_mask ^= 1 << rng.gen_range(0, 64);
             // }
-            _ => unimplemented!("out of range"),
+            m => unimplemented!("mutation {} out of range, but this should never happen", m),
         }
     }
 }
@@ -249,7 +253,7 @@ impl Phenome for Creature {
     }
 
     fn set_fitness(&mut self, f: Self::Fitness) {
-        unimplemented!()
+        self.fitness = Some(f)
     }
 
     fn tag(&self) -> u64 {
@@ -312,6 +316,7 @@ mod evaluation {
                 // assuming that when the register pattern task is activated, there's only one register state
                 // to worry about. this may need to be adjusted in the future. bit sloppy now.
                 let register_pattern_distance = pattern.distance(&profile.registers[0]);
+                log::debug!("fitness: {:?}", register_pattern_distance);
                 creature.set_fitness(Pareto(register_pattern_distance));
             } else {
                 log::error!("No register pattern?");
@@ -354,8 +359,8 @@ mod evaluation {
         ) -> Self {
             let mut params = params.clone();
             params.roper.parse_register_pattern();
-            let hatch_params = Arc::new(params.roper);
-            let inputs = unimplemented!("construct from params");
+            let hatch_params = Arc::new(params.roper.clone());
+            let inputs = vec![IndexMap::new()]; // TODO: if dealing with data, fill this in
             let register_pattern = params.roper.register_pattern();
             let output_registers = if let Some(pat) = register_pattern {
                 let arch_specific_pat: UnicornRegisterState<C> =
@@ -392,7 +397,16 @@ fn prepare<C: 'static + Cpu<'static>>(
 
 crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
 
-pub fn run<C: 'static + Cpu<'static>>(config: Config) {
+pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
+    let _ = loader::load_from_path(
+        &config.roper.binary_path,
+        0x1000,
+        config.roper.arch,
+        config.roper.mode,
+    )
+    .expect("Failed to load binary image");
+    init_soup(&mut config.roper).expect("Failed to initialize the soup");
+
     let (observer, evaluator) = prepare(config.clone());
 
     match config.selection {

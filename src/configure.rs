@@ -66,7 +66,7 @@ pub struct MachineConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
     pub gadget_file: Option<String>,
-    pub raw_register_pattern: Option<RegisterPatternConfig>,
+    pub register_pattern: Option<RegisterPatternConfig>,
     #[serde(skip)]
     pub parsed_register_pattern: Option<RegisterPattern>,
     #[serde(default = "Default::default")]
@@ -88,12 +88,12 @@ pub struct RoperConfig {
     pub record_memory_writes: bool,
     #[serde(default = "default_stack_size")]
     pub emulator_stack_size: usize,
-    pub binary_path: Option<String>,
+    pub binary_path: String,
 }
 
 impl RoperConfig {
     pub fn parse_register_pattern(&mut self) {
-        if let Some(ref rp) = self.raw_register_pattern {
+        if let Some(ref rp) = self.register_pattern {
             self.parsed_register_pattern = Some(rp.into());
         }
     }
@@ -118,22 +118,21 @@ impl Default for RoperConfig {
     fn default() -> Self {
         Self {
             gadget_file: None,
-            use_registers: vec![],
-            raw_register_pattern: None,
+            register_pattern: None,
             parsed_register_pattern: None,
             soup: None,
             soup_size: None,
             arch: unicorn::Arch::X86,
             mode: unicorn::Mode::MODE_64,
-            num_workers: 0,
-            num_emulators: 0,
-            wait_limit: 0,
-            max_emu_steps: None,
-            millisecond_timeout: None,
+            num_workers: 8,
+            num_emulators: 8,
+            wait_limit: 500,
+            max_emu_steps: Some(0x10_000),
+            millisecond_timeout: Some(500),
             record_basic_blocks: false,
             record_memory_writes: false,
-            emulator_stack_size: 0,
-            binary_path: Some("/bin/sh".to_string()),
+            emulator_stack_size: 0x1000,
+            binary_path: "/bin/sh".to_string(),
         }
     }
 }

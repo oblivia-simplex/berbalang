@@ -64,10 +64,14 @@ impl MemoryImage {
     }
 
     pub fn try_dereference(&self, addr: u64) -> Option<&[u8]> {
-        self.containing_seg(addr).map(|s| {
+        self.containing_seg(addr).and_then(|s| {
             let bump = (s.addr - s.aligned_start()) as usize;
             let offset = bump + (addr - s.aligned_start()) as usize;
-            &s.data[offset..]
+            if offset > s.data.len() {
+                None
+            } else {
+                Some(&s.data[offset..])
+            }
         })
     }
 

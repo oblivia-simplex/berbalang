@@ -58,6 +58,7 @@ fn main() {
         .expect("Failed to parse config.toml");
         config.assert_invariants();
 
+        log::info!("Config: {:#x?}", config);
         // now switch off on architecture, I guess
         use unicorn::Arch::*;
         match config.roper.arch {
