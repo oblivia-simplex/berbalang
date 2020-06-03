@@ -13,13 +13,34 @@ use crate::observer::Observer;
 
 // consider an island-pier structure
 
-pub struct Tournament<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static> {
+pub struct Tournament<E: Evaluate<P>, P: Phenome + 'static> {
     pub population: BinaryHeap<P>,
     pub config: Arc<Config>,
     pub best: Option<P>,
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
+}
+
+impl<E: Evaluate<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
+    pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self
+    where
+        Self: Sized,
+    {
+        let population = iter::repeat(())
+            .map(|()| P::random(&config))
+            .take(config.population_size())
+            .collect();
+
+        Self {
+            population,
+            config: Arc::new(config),
+            best: None,
+            iteration: 0,
+            observer,
+            evaluator,
+        }
+    }
 }
 
 impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {

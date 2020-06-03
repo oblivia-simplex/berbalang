@@ -1,4 +1,4 @@
-use crate::emulator::register_pattern::RegisterPattern;
+use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
 use indexmap::map::IndexMap;
 use serde::Deserialize;
 use std::cmp::Ordering;
@@ -66,8 +66,9 @@ pub struct MachineConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
     pub gadget_file: Option<String>,
-    pub use_registers: Vec<String>, // deserialize to Register<C>
-    pub register_pattern: Option<RegisterPattern>,
+    pub raw_register_pattern: Option<RegisterPatternConfig>,
+    #[serde(skip)]
+    pub parsed_register_pattern: Option<RegisterPattern>,
     #[serde(default = "Default::default")]
     pub soup: Option<Vec<u64>>,
     pub soup_size: Option<usize>, // if no gadget file given
@@ -90,6 +91,18 @@ pub struct RoperConfig {
     pub binary_path: Option<String>,
 }
 
+impl RoperConfig {
+    pub fn parse_register_pattern(&mut self) {
+        if let Some(ref rp) = self.raw_register_pattern {
+            self.parsed_register_pattern = Some(rp.into());
+        }
+    }
+
+    pub fn register_pattern(&self) -> Option<&RegisterPattern> {
+        self.parsed_register_pattern.as_ref()
+    }
+}
+
 const fn default_num_workers() -> usize {
     8
 }
@@ -106,7 +119,8 @@ impl Default for RoperConfig {
         Self {
             gadget_file: None,
             use_registers: vec![],
-            register_pattern: None,
+            raw_register_pattern: None,
+            parsed_register_pattern: None,
             soup: None,
             soup_size: None,
             arch: unicorn::Arch::X86,

@@ -11,13 +11,28 @@ use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
 
-pub struct Metropolis<E: Evaluate<P>, P: Phenome + Debug + Send + Clone + Ord + 'static> {
+pub struct Metropolis<E: Evaluate<P>, P: Phenome + Genome + 'static> {
     pub specimen: P,
     pub config: Config,
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
     pub best: Option<P>,
+}
+
+impl<E: Evaluate<P>, P: Phenome + Genome + 'static> Metropolis<E, P> {
+    pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self {
+        let specimen = P::random(&config);
+
+        Self {
+            specimen,
+            config,
+            iteration: 0,
+            observer,
+            evaluator,
+            best: None,
+        }
+    }
 }
 
 impl<E: Evaluate<P>, P: Phenome + Genome> Metropolis<E, P> {

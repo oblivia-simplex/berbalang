@@ -227,7 +227,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         let mode = params.mode;
         let millisecond_timeout = params.millisecond_timeout.unwrap_or(0);
         let max_emu_steps = params.max_emu_steps.unwrap_or(0);
-        let word_size = crate::util::architecture::word_size(params.arch, params.mode);
+        let word_size = crate::util::architecture::word_size_in_bytes(params.arch, params.mode);
         let endian = crate::util::architecture::endian(params.arch, params.mode);
 
         let e_pool = emu_pool.clone();
@@ -472,7 +472,7 @@ pub mod util {
 
     use super::*;
     use crate::emulator::profiler::Block;
-    use crate::util::architecture::{endian, word_size, Endian};
+    use crate::util::architecture::{endian, word_size_in_bytes, Endian};
     use byteorder::{BigEndian, ByteOrder, LittleEndian};
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
@@ -487,7 +487,7 @@ pub mod util {
         emu.mem_write(sp, code)?;
         // set the stack pointer to the middle of the stack
         // now "pop" the stack into the program counter
-        let word_size = word_size(emu.arch(), emu.mode());
+        let word_size = word_size_in_bytes(emu.arch(), emu.mode());
         let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
         let address = match endian(emu.arch(), emu.mode()) {
             Endian::Big => BigEndian::read_u64(&a_bytes),
@@ -654,7 +654,7 @@ mod test {
     use example::*;
 
     use super::*;
-    use crate::util::architecture::{endian, word_size, Endian};
+    use crate::util::architecture::{endian, word_size_in_bytes, Endian};
     use byteorder::{ByteOrder, LittleEndian};
     use indexmap::indexmap;
     use rand::{thread_rng, Rng};
@@ -675,7 +675,7 @@ mod test {
             emu.mem_write(sp, code)?;
             // set the stack pointer to the middle of the stack
             // now "pop" the stack into the program counter
-            let word_size = word_size(emu.arch(), emu.mode());
+            let word_size = word_size_in_bytes(emu.arch(), emu.mode());
             let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
             let address = match endian(emu.arch(), emu.mode()) {
                 Endian::Big => BigEndian::read_u64(&a_bytes),
@@ -717,8 +717,8 @@ mod test {
                 emulator_stack_size: 0x1000, // default
                 binary_path: None,
                 soup: None,
-                register_pattern: None,
-                soup_size: None
+                soup_size: None,
+                ..Default::default()
             }
         );
     }
@@ -741,8 +741,8 @@ mod test {
             emulator_stack_size: 0x1000,
             binary_path: Some("/bin/sh".to_string()),
             soup: None,
-            register_pattern: None,
             soup_size: None,
+            ..Default::default()
         };
         fn random_rop() -> Vec<u8> {
             let mut rng = thread_rng();

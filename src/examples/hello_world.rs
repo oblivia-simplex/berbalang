@@ -236,30 +236,35 @@ fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
     phenome
 }
 
-impl Tournament<evaluation::Evaluator<Genotype>, Genotype> {
-    pub fn new(config: Config) -> Self {
-        let population = iter::repeat(())
-            .map(|()| Genotype::random(&config))
-            .take(config.population_size())
-            .collect();
-        let report_fn: ReportFn<_> = Box::new(report);
-        let fitness_fn: FitnessFn<_, _> = Box::new(fitness_function);
-        let observer = Observer::spawn(&config, report_fn);
-        let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-        Self {
-            population,
-            config: Arc::new(config),
-            best: None,
-            iteration: 0,
-            observer,
-            evaluator,
-        }
-    }
-}
+// impl Tournament<evaluation::Evaluator<Genotype>, Genotype> {
+//     pub fn new(config: Config) -> Self {
+//         let population = iter::repeat(())
+//             .map(|()| Genotype::random(&config))
+//             .take(config.population_size())
+//             .collect();
+//         let report_fn: ReportFn<_> = Box::new(report);
+//         let fitness_fn: FitnessFn<_, _> = Box::new(fitness_function);
+//         let observer = Observer::spawn(&config, report_fn);
+//         let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
+//         Self {
+//             population,
+//             config: Arc::new(config),
+//             best: None,
+//             iteration: 0,
+//             observer,
+//             evaluator,
+//         }
+//     }
+// }
 
 pub fn run(config: Config) -> Option<Genotype> {
     let target_fitness = config.target_fitness as f64;
-    let mut world = Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(config);
+    let report_fn = Box::new(report);
+    let fitness_fn = Box::new(fitness_function);
+    let observer = Observer::spawn(&config, report_fn);
+    let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
+    let mut world =
+        Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(config, observer, evaluator);
 
     loop {
         world = world.evolve();

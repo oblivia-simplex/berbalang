@@ -1,4 +1,4 @@
-use crate::util::architecture::{endian, read_integer, word_size, Endian};
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use goblin::{
     elf::{self, Elf},
@@ -119,10 +119,14 @@ impl MemoryImage {
         &self.segs
     }
 
+    /// Returns a chain of dereferences beginning with the address `start`.
+    /// If `start` fails to dereference to any value, the chain will just
+    /// be `vec![start]`, so the caller can always assume that the chain
+    /// is non-empty.
     pub fn deref_chain(&self, start: u64, steps: usize) -> Vec<u64> {
-        let word_size = word_size(self.arch, self.mode);
+        let word_size = word_size_in_bytes(self.arch, self.mode);
         let endian = endian(self.arch, self.mode);
-        let mut chain = vec![];
+        let mut chain = vec![start];
         struct Crawl<'s> {
             f: &'s dyn Fn(&Crawl<'_>, u64, usize, &mut Vec<u64>) -> (),
         };

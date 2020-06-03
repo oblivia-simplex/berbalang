@@ -647,7 +647,7 @@ mod evaluation {
     }
 }
 
-fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evaluator) {
+fn prepare(mut config: Config) -> (Observer<Creature>, evaluation::Evaluator) {
     let problems = parse_data(&config.data.path);
     assert!(problems.is_some());
     // figure out the number of return registers needed
@@ -678,89 +678,38 @@ fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evalu
     let fitness_fn: FitnessFn<Creature, _> = Box::new(evaluation::fitness_function);
     let observer = Observer::spawn(&config, report_fn);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-    (config, observer, evaluator)
-}
-
-impl Tournament<evaluation::Evaluator, Creature> {
-    pub fn new(config: Config) -> Self {
-        let (config, observer, evaluator) = prepare(config);
-
-        let population = iter::repeat(())
-            .map(|()| Creature::random(&config))
-            .take(config.population_size())
-            .collect();
-
-        Self {
-            population,
-            config: Arc::new(config),
-            best: None,
-            iteration: 0,
-            observer,
-            evaluator,
-        }
-    }
+    (observer, evaluator)
 }
 
 crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
 
-impl Roulette<evaluation::Evaluator, Creature, CreatureDominanceOrd> {
-    pub fn new(config: Config) -> Self {
-        let (config, observer, evaluator) = prepare(config);
-
-        let population = iter::repeat(())
-            .map(|()| Creature::random(&config))
-            .take(config.population_size())
-            .collect();
-
-        Self {
-            population,
-            config: Arc::new(config),
-            best: None,
-            iteration: 0,
-            observer,
-            evaluator,
-            dominance_order: CreatureDominanceOrd,
-        }
-    }
-}
-
-impl Metropolis<evaluation::Evaluator, Creature> {
-    pub fn new(config: Config) -> Self {
-        let (config, observer, evaluator) = prepare(config);
-
-        let specimen = Creature::random(&config);
-
-        Self {
-            specimen,
-            config,
-            iteration: 0,
-            observer,
-            evaluator,
-            best: None,
-        }
-    }
-}
-
 pub fn run(config: Config) -> Option<Creature> {
     //let target_fitness = config.target_fitness;
     let selection = config.selection;
+    let (observer, evaluator) = prepare(config.clone());
 
     match selection {
         Selection::Tournament => {
-            let mut world = Tournament::<evaluation::Evaluator, Creature>::new(config);
+            let mut world =
+                Tournament::<evaluation::Evaluator, Creature>::new(config, observer, evaluator);
             loop {
                 world = world.evolve();
             }
         }
         Selection::Roulette => {
-            let mut world =
-                Roulette::<evaluation::Evaluator, Creature, CreatureDominanceOrd>::new(config);
+            let mut world = Roulette::<evaluation::Evaluator, Creature, CreatureDominanceOrd>::new(
+                config,
+                observer,
+                evaluator,
+                CreatureDominanceOrd,
+            );
             loop {
                 world = world.evolve();
             }
         }
         Selection::Metropolis => {
-            let mut world = Metropolis::<evaluation::Evaluator, Creature>::new(config);
+            let mut world =
+                Metropolis::<evaluation::Evaluator, Creature>::new(config, observer, evaluator);
             loop {
                 world = world.evolve();
             }

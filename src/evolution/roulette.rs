@@ -13,11 +13,7 @@ use std::fmt::Debug;
 use std::iter;
 use std::sync::Arc;
 
-pub struct Roulette<
-    E: Evaluate<P>,
-    P: Phenome + Genome + Sized + Debug + Send + Clone + Ord + 'static,
-    D: DominanceOrd<T = P>,
-> {
+pub struct Roulette<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<T = P>> {
     pub population: Vec<P>,
     pub config: Arc<Config>,
     pub best: Option<P>,
@@ -25,6 +21,25 @@ pub struct Roulette<
     pub evaluator: E,
     pub iteration: usize,
     pub dominance_order: D,
+}
+
+impl<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<T = P>> Roulette<E, P, D> {
+    pub fn new(config: Config, observer: Observer<P>, evaluator: E, dominance_order: D) -> Self {
+        let population = iter::repeat(())
+            .map(|()| P::random(&config))
+            .take(config.population_size())
+            .collect();
+
+        Self {
+            population,
+            config: Arc::new(config),
+            best: None,
+            iteration: 0,
+            observer,
+            evaluator,
+            dominance_order,
+        }
+    }
 }
 
 impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulette<E, P, D> {

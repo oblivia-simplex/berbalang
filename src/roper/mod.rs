@@ -1,5 +1,8 @@
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::fmt::Formatter;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, ErrorKind};
 use std::sync::Arc;
 use std::{fmt, iter};
 
@@ -10,11 +13,9 @@ use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86, Protection};
 
-use crate::configure::{Config, Problem, RoperConfig};
+use crate::configure::{Config, Problem, RoperConfig, Selection};
 use crate::emulator::executor;
 use crate::emulator::pack::Pack;
-use crate::fitness::Pareto;
-use crate::util::architecture::{read_integer, write_integer};
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
     emulator::executor::{Hatchery, HatcheryParams},
@@ -23,12 +24,16 @@ use crate::{
     evolution::{tournament::Tournament, Genome, Phenome},
     fitness::FitnessScore,
     util,
-    util::architecture::{endian, word_size, Endian},
+    util::architecture::{endian, word_size_in_bytes, Endian},
     util::bitwise::bit,
 };
-use std::convert::TryFrom;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, ErrorKind};
+// the runner
+use crate::evaluator::Evaluate;
+use crate::evolution::metropolis::Metropolis;
+use crate::evolution::roulette::Roulette;
+use crate::fitness::Pareto;
+use crate::observer::{default_report_fn, Observer};
+use crate::util::architecture::{read_integer, write_integer};
 
 type Fitness = Pareto;
 
@@ -195,7 +200,7 @@ impl Genome for Creature {
                 if let Some(bytes) = memory.try_dereference(self.chromosome[i]) {
                     if bytes.len() > 8 {
                         let endian = endian(params.roper.arch, params.roper.mode);
-                        let word_size = word_size(params.roper.arch, params.roper.mode);
+                        let word_size = word_size_in_bytes(params.roper.arch, params.roper.mode);
                         if let Some(word) = read_integer(bytes, endian, word_size) {
                             self.chromosome[i] = word;
                         }
@@ -205,7 +210,7 @@ impl Genome for Creature {
             1 => {
                 // Indirection mutation
                 let memory = loader::get_static_memory_image();
-                let word_size = word_size(params.roper.arch, params.roper.mode);
+                let word_size = word_size_in_bytes(params.roper.arch, params.roper.mode);
                 let mut bytes = vec![0; word_size];
                 let word = self.chromosome[i];
                 write_integer(
@@ -270,20 +275,20 @@ impl Phenome for Creature {
 
 crate::make_phenome_heap_friendly!(Creature);
 
-mod distance {
-    // ways of measuring distance between target vec of registers and result
-
-    // register vector -> Vec<(nybble, approximate location)>
-}
-
 mod evaluation {
+    use std::convert::TryInto;
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::Arc;
     use std::thread::{spawn, JoinHandle};
 
+    use byteorder::{BigEndian, LittleEndian};
+    use indexmap::map::IndexMap;
     use unicorn::{Cpu, Unicorn};
 
+    use crate::emulator::profiler::Profiler;
+    use crate::emulator::register_pattern::{RegisterPattern, UnicornRegisterState};
     use crate::evaluator::FitnessFn;
+    use crate::fitness::Pareto;
     use crate::{
         configure::Config,
         emulator::executor::{self, Hatchery, HatcheryParams},
@@ -292,24 +297,33 @@ mod evaluation {
         evolution::{tournament::Tournament, Genome, Phenome},
         fitness::FitnessScore,
         util,
-        util::architecture::{endian, word_size, Endian},
+        util::architecture::{endian, word_size_in_bytes, Endian},
         util::bitwise::bit,
         util::count_min_sketch::DecayingSketch,
     };
 
     use super::Creature;
-    use crate::emulator::profiler::Profiler;
-    use crate::emulator::register_pattern::{RegisterPattern, UnicornRegisterState};
-    use byteorder::{BigEndian, LittleEndian};
-    use indexmap::map::IndexMap;
-    use std::convert::TryInto;
 
+    pub fn register_pattern_fitness_fn(mut creature: Creature, params: Arc<Config>) -> Creature {
+        // measure fitness
+        // for now, let's just handle the register pattern task
+        if let Some(ref profile) = creature.profile {
+            if let Some(pattern) = params.roper.register_pattern() {
+                // assuming that when the register pattern task is activated, there's only one register state
+                // to worry about. this may need to be adjusted in the future. bit sloppy now.
+                let register_pattern_distance = pattern.distance(&profile.registers[0]);
+                creature.set_fitness(Pareto(register_pattern_distance));
+            } else {
+                log::error!("No register pattern?");
+            }
+        }
+        creature
+    }
     pub struct Evaluator<C: 'static + Cpu<'static>> {
-        params: Config,
+        params: Arc<Config>,
         hatchery: Hatchery<C, Creature>,
         sketch: DecayingSketch,
         fitness_fn: Box<FitnessFn<Creature, Config>>,
-        register_pattern: Option<RegisterPattern>,
     }
 
     impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
@@ -320,12 +334,9 @@ mod evaluation {
                 .hatchery
                 .execute(creature)
                 .expect("Failed to evaluate creature");
+
             creature.profile = Some(profile);
-
-            // measure fitness
-            // for now, let's just handle the register pattern task
-
-            creature
+            (self.fitness_fn)(creature, self.params.clone())
         }
 
         fn eval_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
@@ -341,9 +352,12 @@ mod evaluation {
             // inputs: IndexMap<Register<C>, u64>,
             // output_registers: Vec<Register<C>>,
         ) -> Self {
-            let hatch_params = Arc::new(params.roper.clone());
+            let mut params = params.clone();
+            params.roper.parse_register_pattern();
+            let hatch_params = Arc::new(params.roper);
             let inputs = unimplemented!("construct from params");
-            let output_registers = if let Some(ref pat) = params.roper.register_pattern {
+            let register_pattern = params.roper.register_pattern();
+            let output_registers = if let Some(pat) = register_pattern {
                 let arch_specific_pat: UnicornRegisterState<C> =
                     pat.try_into().expect("Failed to parse register pattern");
                 arch_specific_pat.0.keys().cloned().collect::<Vec<_>>()
@@ -358,21 +372,56 @@ mod evaluation {
             );
 
             Self {
-                params: params.clone(),
+                params: Arc::new(params),
                 hatchery,
                 sketch: DecayingSketch::default(), // TODO parameterize
                 fitness_fn: Box::new(fitness_fn),
-                register_pattern: params.roper.register_pattern.clone(),
             }
         }
     }
+}
 
-    // impl Evaluate<Creature> for Evaluator {
-    //     type Params = Config;
-    //
-    //     fn evaluate(&self, creature: Creature) -> Creature {
-    //
-    //
-    //     }
-    // }
+fn prepare<C: 'static + Cpu<'static>>(
+    config: Config,
+) -> (Observer<Creature>, evaluation::Evaluator<C>) {
+    let observer = Observer::spawn(&config, Box::new(default_report_fn));
+    let evaluator =
+        evaluation::Evaluator::spawn(&config, Box::new(evaluation::register_pattern_fitness_fn));
+    (observer, evaluator)
+}
+
+crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
+
+pub fn run<C: 'static + Cpu<'static>>(config: Config) {
+    let (observer, evaluator) = prepare(config.clone());
+
+    match config.selection {
+        Selection::Tournament => {
+            let mut world =
+                Tournament::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
+            loop {
+                world = world.evolve();
+            }
+        }
+        Selection::Roulette => {
+            let mut world =
+                Roulette::<evaluation::Evaluator<C>, Creature, CreatureDominanceOrd>::new(
+                    config,
+                    observer,
+                    evaluator,
+                    CreatureDominanceOrd,
+                );
+            loop {
+                world = world.evolve();
+            }
+        }
+        Selection::Metropolis => {
+            let mut world =
+                Metropolis::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
+            loop {
+                world = world.evolve();
+            }
+        }
+        _ => todo!("todo"),
+    }
 }

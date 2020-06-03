@@ -29,12 +29,12 @@ mod roper;
 mod util;
 
 use configure::Config;
+use unicorn::Arch;
 
 fn main() {
     logger::init();
 
-    // TODO: maybe just define a single, shared config struct. Simple enough to do.
-    // with sub-fields.
+    // TODO: develop a proper CLI
     let args = std::env::args().collect::<String>();
     if args.contains("hello_world") {
         let config: Config = toml::from_str(
@@ -43,12 +43,31 @@ fn main() {
         .expect("Failed to parse config.toml");
         config.assert_invariants();
         hello_world::run(config);
-    } else {
+    } else if args.contains("linear_gp") {
         let config: Config = toml::from_str(
             &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
         )
         .expect("Failed to parse config.toml");
         config.assert_invariants();
         linear_gp::run(config);
+    } else {
+        // ROPER TIME
+        let config: Config = toml::from_str(
+            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
+        )
+        .expect("Failed to parse config.toml");
+        config.assert_invariants();
+
+        // now switch off on architecture, I guess
+        use unicorn::Arch::*;
+        match config.roper.arch {
+            X86 => roper::run::<unicorn::CpuX86<'_>>(config),
+            ARM => roper::run::<unicorn::CpuARM<'_>>(config),
+            ARM64 => roper::run::<unicorn::CpuARM64<'_>>(config),
+            MIPS => roper::run::<unicorn::CpuMIPS<'_>>(config),
+            SPARC => roper::run::<unicorn::CpuSPARC<'_>>(config),
+            M68K => roper::run::<unicorn::CpuM68K<'_>>(config),
+            _ => unimplemented!("architecture unimplemented"),
+        }
     }
 }

@@ -11,9 +11,7 @@ use serde::Deserialize;
 use unicorn::Cpu;
 
 use crate::emulator::loader;
-use crate::emulator::register_pattern::{
-    convert_register_map, Register, RegisterPattern, UnicornRegisterState,
-};
+use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
 use crate::error::Error;
 use crate::util::distance::jaccard;
 use byteorder::{ByteOrder, LittleEndian};
@@ -92,7 +90,8 @@ impl Profile {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
             computation_times.push(computation_time);
-            register_maps.push(convert_register_map::<C>(UnicornRegisterState(registers)));
+            let state: UnicornRegisterState<C> = UnicornRegisterState(registers);
+            register_maps.push(state.into());
         }
 
         Self {
