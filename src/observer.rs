@@ -25,10 +25,7 @@ pub fn default_report_fn<T: Phenome + Genome>(
     window: &Window<T>,
     counter: usize,
     _params: &ObserverConfig,
-)
-// where
-//     <<T as Phenome>::Fitness as Index<usize>>::Output: Sized,
-{
+) {
     let frame = &window.frame;
     log::info!("default report function");
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
@@ -87,6 +84,7 @@ impl<O: Phenome + Genome + 'static> Default for Window<O> {
             i,
             report_fn,
             best: None,
+            archive: Vec::new(),
         }
     }
 }
@@ -106,6 +104,7 @@ impl<O: Phenome + 'static + Send> Window<O> {
             report_every,
             report_fn,
             best: None,
+            archive: vec![],
         }
     }
 

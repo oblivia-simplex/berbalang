@@ -1,3 +1,4 @@
+use crate::disassembler::Disassembler;
 use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 use goblin::{
     elf::{self, Elf},
@@ -16,6 +17,7 @@ pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
     segs: Vec::new(),
     arch: unicorn::Arch::X86,
     mode: unicorn::Mode::MODE_64,
+    disasm: None,
 };
 static INIT_MEM_IMAGE: Once = Once::new();
 
@@ -37,14 +39,25 @@ impl From<goblin::error::Error> for Error {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MemoryImage {
     pub segs: Vec<Seg>,
     pub arch: unicorn::Arch,
     pub mode: unicorn::Mode,
+    pub disasm: Option<Disassembler>,
 }
 
 impl MemoryImage {
+    pub fn disassemble(&self, addr: u64, size: usize) -> Option<String> {
+        self.try_dereference(addr)
+            .map(|b| &b[..size])
+            .and_then(|b| {
+                self.disasm
+                    .as_ref()
+                    .and_then(|dis| dis.disas(b, addr, None).ok())
+            })
+    }
+
     pub fn first_address(&self) -> u64 {
         self.segs[0].aligned_start()
     }
@@ -393,6 +406,7 @@ fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn:
             segs: segments.to_owned(),
             arch,
             mode,
+            disasm: Some(Disassembler::new(arch, mode).expect("Failed to initialize disassembler")),
         }
     }
 }

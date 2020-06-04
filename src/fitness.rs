@@ -95,6 +95,18 @@ impl From<Vec<f64>> for Pareto {
     }
 }
 
+impl Into<Vec<f64>> for Pareto {
+    fn into(self) -> Vec<f64> {
+        self.0
+    }
+}
+
+impl AsRef<[f64]> for Pareto {
+    fn as_ref(&self) -> &[f64] {
+        &self.0
+    }
+}
+
 impl Index<usize> for Pareto {
     type Output = f64;
 

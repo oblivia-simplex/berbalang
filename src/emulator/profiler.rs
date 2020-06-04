@@ -8,6 +8,8 @@ use indexmap::set::IndexSet;
 use prefix_tree::PrefixSet;
 use unicorn::Cpu;
 
+use crate::disassembler::Disassembler;
+use crate::emulator::loader;
 use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
 
 // TODO: why store the size at all, if you're just going to
@@ -17,6 +19,23 @@ pub struct Block {
     pub entry: u64,
     pub size: usize,
     //pub code: Vec<u8>,
+}
+
+impl Block {
+    pub fn get_code(&self) -> &'static [u8] {
+        let memory = loader::get_static_memory_image();
+        memory
+            .try_dereference(self.entry)
+            .map(|b| &b[..self.size])
+            .unwrap()
+    }
+
+    pub fn disassemble(&self) -> String {
+        let memory = loader::get_static_memory_image();
+        memory
+            .disassemble(self.entry, self.size)
+            .expect("Failed to disassemble basic block")
+    }
 }
 
 impl fmt::Debug for Block {
@@ -49,7 +68,7 @@ impl<C: Cpu<'static>> Profiler<C> {
 
 #[derive(Debug, Clone)]
 pub struct Profile {
-    pub paths: PrefixSet<Block>,
+    pub paths: Vec<Vec<Block>>, //PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
     pub registers: Vec<RegisterPattern>,
@@ -59,7 +78,7 @@ pub struct Profile {
 impl Profile {
     pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
         //let mut write_trie = Trie::new();
-        let mut paths = PrefixSet::new();
+        let mut paths = Vec::new(); // PrefixSet::new();
         let mut cpu_errors = IndexMap::new();
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
@@ -75,13 +94,14 @@ impl Profile {
             ..
         } in profilers.into_iter()
         {
-            paths.insert::<Vec<Block>>(
-                (*block_log.lock().unwrap())
-                    .iter()
-                    .map(Clone::clone)
-                    //.map(|b| (b.entry, b.size))
-                    .collect::<Vec<Block>>(),
-            );
+            // paths.insert::<Vec<Block>>(
+            //     (*block_log.lock().unwrap())
+            //         .iter()
+            //         .map(Clone::clone)
+            //         //.map(|b| (b.entry, b.size))
+            //         .collect::<Vec<Block>>(),
+            // );
+            paths.push(block_log.lock().unwrap().to_vec());
             gadget_log.lock().into_iter().for_each(|glog| {
                 glog.iter().for_each(|g| {
                     gadgets_executed.insert(*g);
@@ -105,8 +125,24 @@ impl Profile {
         }
     }
 
-    pub fn bb_path_iter(&self) -> impl Iterator<Item = Vec<Block>> + '_ {
+    pub fn bb_path_iter(&self) -> impl Iterator<Item = &Vec<Block>> + '_ {
         self.paths.iter()
+    }
+
+    pub fn disas_paths(&self) -> impl Iterator<Item = String> + '_ {
+        let gadgets_executed = self.gadgets_executed.clone();
+        self.paths.iter().map(move |path| {
+            path.iter()
+                .map(|b| {
+                    let prefix = if gadgets_executed.contains(&b.entry) {
+                        "----\n"
+                    } else {
+                        ""
+                    };
+                    format!("{}{}\n", prefix, b.disassemble())
+                })
+                .collect::<String>()
+        })
     }
 }
 

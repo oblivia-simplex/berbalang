@@ -268,7 +268,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         }
 
                         // track gadget entry execution
-                        let _hook = util::install_address_tracking_hook(&mut (*emu), &profiler, payload.as_addrs(word_size, endian))
+                        let _hook = util::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
                             .expect("Failed to install address tracking hook");
 
                         if cfg!(debug_assertions) {

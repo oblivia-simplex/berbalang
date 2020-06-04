@@ -1,8 +1,14 @@
 use crate::emulator::loader;
 use capstone::{Capstone, NO_EXTRA_MODE};
+use std::fmt;
 
 pub struct Disassembler(pub Capstone);
 
+impl fmt::Debug for Disassembler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<Capstone disassembler at {:p}>", self as *const Self,)
+    }
+}
 // TODO: go and fix the library code for this.
 unsafe impl Send for Disassembler {}
 unsafe impl Sync for Disassembler {}

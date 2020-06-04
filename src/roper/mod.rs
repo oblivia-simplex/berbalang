@@ -13,7 +13,7 @@ use rand::{thread_rng, Rng};
 use serde_derive::Deserialize;
 use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86, Protection};
 
-use crate::configure::{Config, Problem, RoperConfig, Selection};
+use crate::configure::{Config, ObserverConfig, Problem, RoperConfig, Selection};
 use crate::emulator::executor;
 use crate::emulator::pack::Pack;
 /// This is where the ROP-evolution-specific code lives.
@@ -32,8 +32,9 @@ use crate::evaluator::Evaluate;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::roulette::Roulette;
 use crate::fitness::Pareto;
-use crate::observer::{default_report_fn, Observer};
+use crate::observer::{default_report_fn, Observer, Window};
 use crate::util::architecture::{read_integer, write_integer};
+use crate::util::count_min_sketch::DecayingSketch;
 
 type Fitness = Pareto;
 
@@ -48,6 +49,41 @@ pub struct Creature {
     pub generation: usize,
     pub profile: Option<Profile>,
     pub fitness: Option<Fitness>,
+}
+
+impl Creature {
+    /// Returns the number of alleles executed.
+    pub fn num_alleles_executed(&self) -> usize {
+        if let Some(ref profile) = self.profile {
+            profile.gadgets_executed.len()
+        } else {
+            0
+        }
+    }
+
+    /// Returns the ratio of executed to non-executed, but *executable*, alleles.
+    /// If the `Creature` hasn't been executed yet, then this
+    /// will always return `0.0`.
+    pub fn execution_ratio(&self) -> f64 {
+        let memory = loader::get_static_memory_image();
+        let mut executable_alleles = self
+            .chromosome()
+            .iter()
+            .filter(|a| {
+                memory
+                    .perm_of_addr(**a)
+                    .map(|p| p.intersects(Protection::EXEC))
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+        if executable_alleles.is_empty() {
+            return 0.0;
+        };
+        executable_alleles.dedup();
+        let uniq_count = executable_alleles.len();
+        let exec_count = self.num_alleles_executed();
+        exec_count as f64 / uniq_count as f64
+    }
 }
 
 impl Pack for Creature {
@@ -71,8 +107,18 @@ impl Pack for Creature {
         buffer
     }
 
-    fn as_addrs(&self, _word_size: usize, _endian: Endian) -> &[u64] {
+    fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
+        let memory = loader::get_static_memory_image();
         self.chromosome()
+            .iter()
+            .filter(|a| {
+                memory
+                    .perm_of_addr(**a)
+                    .map(|p| p.intersects(Protection::EXEC))
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect::<Vec<_>>()
     }
 }
 
@@ -108,6 +154,10 @@ impl fmt::Debug for Creature {
             )?;
         }
         if let Some(ref profile) = self.profile {
+            writeln!(f, "Trace:")?;
+            for path in profile.disas_paths() {
+                writeln!(f, "{}", path)?;
+            }
             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
             writeln!(f, "\nSpidered register state:")?;
             for state in profile.registers.iter() {
@@ -352,12 +402,12 @@ mod evaluation {
                 let mut register_pattern_distance = pattern.distance(&profile.registers[0]);
                 register_pattern_distance.push(reg_freq);
 
-                let longest_path = profile
-                    .bb_path_iter()
-                    .map(|v: Vec<Block>| v.len())
-                    .max()
-                    .unwrap_or(0) as f64;
-                register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative vals
+                // let longest_path = profile
+                //     .bb_path_iter()
+                //     .map(|v: Vec<Block>| v.len())
+                //     .max()
+                //     .unwrap_or(0) as f64;
+                // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative vals
                 creature.set_fitness(Pareto(register_pattern_distance)); //vec![register_pattern_distance.iter().sum()]));
                                                                          //log::debug!("fitness: {:?}", creature.fitness());
             } else {
@@ -449,10 +499,86 @@ mod evaluation {
     }
 }
 
+mod reporting {
+    use super::*;
+    use serde::Serialize;
+
+    #[derive(Serialize, Clone, Debug)]
+    pub struct StatRecord {
+        pub avg_len: f64,
+        pub avg_genetic_freq: f64,
+        pub avg_scalar_fitness: f64,
+        // TODO: how to report on fitness vectors?
+        pub avg_vectoral_fitness: Vec<f64>,
+        pub avg_exec_count: f64,
+        pub avg_exec_ratio: f64,
+        pub counter: usize,
+    }
+
+    pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
+        let frame = &window.frame;
+        log::info!("default report function");
+        let frame_len = frame.len() as f64;
+        let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
+        let mut sketch = DecayingSketch::default();
+        for g in frame {
+            g.record_genetic_frequency(&mut sketch);
+        }
+        let avg_genetic_freq = frame
+            .iter()
+            .map(|g| g.measure_genetic_frequency(&sketch))
+            .sum::<f64>()
+            / frame.len() as f64;
+        let avg_scalar_fitness: f64 =
+            frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+        let avg_vectoral_fitness: Vec<f64> = frame
+            .iter()
+            .filter_map(|g| g.fitness().map(|f| f.as_ref()))
+            .fold(vec![0.0; 20], |a, b: &[f64]| {
+                a.iter()
+                    .zip(b.iter())
+                    .map(|(aa, bb)| aa + bb)
+                    .collect::<Vec<f64>>()
+            })
+            .iter()
+            .map(|n| n / frame_len)
+            .collect::<Vec<f64>>();
+        let avg_exec_count: f64 = frame
+            .iter()
+            .map(|g| g.num_alleles_executed() as f64)
+            .sum::<f64>()
+            / frame.len() as f64;
+        let avg_exec_ratio: f64 =
+            frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
+        log::info!(
+            "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}, avg vectoral fit: {:?}, avg # alleles exec'd: {}, avg exec ratio: {}",
+            counter,
+            avg_len,
+            avg_genetic_freq,
+            avg_scalar_fitness,
+            avg_vectoral_fitness,
+            avg_exec_count,
+            avg_exec_ratio,
+        );
+        log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
+        // let serialized_creatures: Vec<bson::Bson> =
+        //     frame.iter().map(|g| g.into()).collect::<Vec<_>>();
+        let record = StatRecord {
+            avg_len,
+            avg_genetic_freq,
+            avg_scalar_fitness,
+            avg_vectoral_fitness,
+            avg_exec_count,
+            avg_exec_ratio,
+            counter,
+        };
+    }
+}
+
 fn prepare<C: 'static + Cpu<'static>>(
     config: Config,
 ) -> (Observer<Creature>, evaluation::Evaluator<C>) {
-    let observer = Observer::spawn(&config, Box::new(default_report_fn));
+    let observer = Observer::spawn(&config, Box::new(reporting::report_fn));
     let evaluator =
         evaluation::Evaluator::spawn(&config, Box::new(evaluation::register_pattern_fitness_fn));
     (observer, evaluator)
