@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::sync::Arc;
 use std::{fmt, iter};
 
 use rand::{thread_rng, Rng};
@@ -597,13 +596,13 @@ mod evaluation {
                     phenome
                         .record_genetic_frequency(&mut sketch, counter)
                         .expect("Failed to record phenomic frequency");
-                    let genomic_frequency = phenome
+                    let _genomic_frequency = phenome
                         .measure_genetic_frequency(&sketch)
                         .expect("Failed to measure genetic diversity. Check timestamps.");
                     sketch
                         .insert(phenome.problems(), counter)
                         .expect("Failed to update phenomic diversity");
-                    let phenomic_frequency = sketch
+                    let _phenomic_frequency = sketch
                         .query(phenome.problems())
                         .expect("Failed to measure phenomic diversity");
 

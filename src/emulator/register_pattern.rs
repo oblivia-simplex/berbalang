@@ -1,7 +1,6 @@
 use crate::emulator::loader;
 use crate::error::Error;
-use crate::util::distance::jaccard;
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use byteorder::{ByteOrder, LittleEndian};
 use indexmap::map::IndexMap;
 use serde::Deserialize;
 use std::convert::TryFrom;
@@ -141,21 +140,25 @@ impl RegisterPattern {
 
         // find the closest ham
         //log::debug!("Spider map: {:#x?}", spider_map);
+        #[inline]
+        fn word_distance(w1: u64, w2: u64) -> f64 {
+            (w1 ^ w2).count_ones() as f64 // hamming distance
+        }
 
-        let find_least_ham = |val: &RegisterValue| -> (&str, usize, u32) {
+        let find_least_ham = |val: &RegisterValue| -> (&str, usize, f64) {
             let word = val.val;
             spider_map
                 .iter()
                 // map (register, path) to (reg name, index of min_ham, min_ham)
-                .map(|(register, path)| -> (&str, usize, u32) {
-                    let (index, ham): (usize, u32) = path
+                .map(|(register, path)| -> (&str, usize, f64) {
+                    let (index, ham): (usize, f64) = path
                         .iter()
                         .enumerate()
-                        .map(|(i, w): (usize, &u64)| -> (usize, u32) {
-                            (i, (w ^ word).count_ones())
+                        .map(|(i, w): (usize, &u64)| -> (usize, f64) {
+                            (i, word_distance(word, *w))
                         })
                         .fold(
-                            (0, std::u32::MAX),
+                            (0, std::f64::MAX),
                             |p, q| {
                                 if (p.1) <= (q.1) {
                                     p
@@ -166,7 +169,7 @@ impl RegisterPattern {
                         );
                     (register, index, ham)
                 }) // now iterating over (index, minimal ham for path)
-                .fold(("DUMMY_REG", 0, std::u32::MAX), |p, q| {
+                .fold(("DUMMY_REG", 0, std::f64::MAX), |p, q| {
                     if (p.2) <= (q.2) {
                         p
                     } else {
@@ -294,7 +297,7 @@ mod test {
         println!("pattern: {:#x?}", pattern);
 
         let res_pat = RegisterPattern(indexmap! {
-            "RAX".into() => RegisterValue { val: 0xdeadbeef, deref: 0 },
+            "RAX".into() => RegisterValue { val: 0xdead_beef, deref: 0 },
             "RCX".into() => RegisterValue { val: 1234, deref: 0 },
             "RDX".into() => RegisterValue { val: 0x40_0000, deref: 0 },
         });

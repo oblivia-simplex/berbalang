@@ -75,7 +75,7 @@ impl Pack for Creature {
 impl fmt::Debug for Creature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}\nFitness: {:?}", self.name, self.fitness())?;
-        writeln!(f, "Generation: {}", self.generation);
+        writeln!(f, "Generation: {}", self.generation)?;
         let memory = loader::get_static_memory_image();
         for i in 0..self.chromosome.len() {
             let parent = if self.parents.is_empty() {
@@ -94,8 +94,9 @@ impl fmt::Debug for Creature {
             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
             writeln!(f, "\nSpidered register state:")?;
             for state in profile.registers.iter() {
-                writeln!(f, "{:#x?}\n", state.spider());
+                writeln!(f, "{:#x?}", state.spider())?;
             }
+            writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }
         Ok(())
     }
@@ -171,8 +172,10 @@ impl Genome for Creature {
         // note code duplication between this and linear_gp TODO
     {
         // NOTE: this bitmask schema implements an implicit incest prohibition
-        let distribution = rand_distr::Exp::new(params.crossover_period)
-            .expect("Failed to create random distribution");
+        let min_mate_len = mates.iter().map(|p| p.len()).min().unwrap();
+        let lambda = min_mate_len as f64 / params.crossover_period;
+        let distribution =
+            rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
         let mut rng = thread_rng();
         let (chromosome, chromosome_parentage, parent_names) =
@@ -257,7 +260,7 @@ impl Phenome for Creature {
     }
 
     fn scalar_fitness(&self) -> Option<f64> {
-        self.fitness.as_ref().map(|v| v[0])
+        self.fitness.as_ref().map(|v| v.0.iter().sum())
     }
 
     fn set_fitness(&mut self, f: Self::Fitness) {
@@ -276,7 +279,7 @@ impl Phenome for Creature {
         unimplemented!()
     }
 
-    fn store_answers(&mut self, results: Vec<Problem>) {
+    fn store_answers(&mut self, _results: Vec<Problem>) {
         unimplemented!()
     }
 
@@ -297,8 +300,8 @@ mod evaluation {
     use indexmap::map::IndexMap;
     use unicorn::{Cpu, Unicorn};
 
-    use crate::emulator::profiler::Profiler;
-    use crate::emulator::register_pattern::{RegisterPattern, UnicornRegisterState};
+    use crate::emulator::profiler::{Block, Profiler};
+    use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
     use crate::evaluator::FitnessFn;
     use crate::fitness::Pareto;
     use crate::{
@@ -323,9 +326,15 @@ mod evaluation {
             if let Some(pattern) = params.roper.register_pattern() {
                 // assuming that when the register pattern task is activated, there's only one register state
                 // to worry about. this may need to be adjusted in the future. bit sloppy now.
-                let register_pattern_distance = pattern.distance(&profile.registers[0]);
-                creature.set_fitness(Pareto(vec![register_pattern_distance.iter().sum()]));
-            //log::debug!("fitness: {:?}", creature.fitness());
+                let mut register_pattern_distance = pattern.distance(&profile.registers[0]);
+                let longest_path = profile
+                    .bb_path_iter()
+                    .map(|v: Vec<Block>| v.len())
+                    .max()
+                    .unwrap_or(0) as f64;
+                register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative vals
+                creature.set_fitness(Pareto(register_pattern_distance)); //vec![register_pattern_distance.iter().sum()]));
+                                                                         //log::debug!("fitness: {:?}", creature.fitness());
             } else {
                 log::error!("No register pattern?");
             }
@@ -378,12 +387,26 @@ mod evaluation {
             let hatch_params = Arc::new(params.roper.clone());
             let inputs = vec![IndexMap::new()]; // TODO: if dealing with data, fill this in
             let register_pattern = params.roper.register_pattern();
-            let output_registers = if let Some(pat) = register_pattern {
-                let arch_specific_pat: UnicornRegisterState<C> =
-                    pat.try_into().expect("Failed to parse register pattern");
-                arch_specific_pat.0.keys().cloned().collect::<Vec<_>>()
-            } else {
-                todo!("implement a conversion method from problem sets to register maps")
+            let output_registers: Vec<Register<C>> = {
+                let mut out_reg: Vec<Register<C>> = params
+                    .roper
+                    .output_registers
+                    .iter()
+                    .map(|s| s.parse().ok().expect("Failed to parse output register"))
+                    .collect::<Vec<_>>();
+                if let Some(pat) = register_pattern {
+                    let arch_specific_pat: UnicornRegisterState<C> =
+                        pat.try_into().expect("Failed to parse register pattern");
+                    let regs_in_pat = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
+                    out_reg.extend_from_slice(&regs_in_pat);
+                    out_reg.dedup();
+                    // sort alphabetically (lame)
+                    // out_reg.sort_by_key(|r| format!("{:?}", r));
+                    out_reg
+                } else {
+                    todo!("implement a conversion method from problem sets to register maps");
+                    //out_reg
+                }
             };
             let hatchery: Hatchery<C, Creature> = Hatchery::new(
                 hatch_params,
@@ -457,6 +480,5 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                 world = world.evolve();
             }
         }
-        _ => todo!("todo"),
     }
 }

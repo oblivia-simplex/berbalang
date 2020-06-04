@@ -4,18 +4,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::map::IndexMap;
-use indexmap::set::IndexSet;
 use prefix_tree::PrefixSet;
-use seahash::{hash, hash_seeded};
-use serde::Deserialize;
 use unicorn::Cpu;
 
-use crate::emulator::loader;
 use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
-use crate::error::Error;
-use crate::util::distance::jaccard;
-use byteorder::{ByteOrder, LittleEndian};
-use std::convert::TryFrom;
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?
@@ -101,6 +93,10 @@ impl Profile {
             computation_times,
             registers: register_maps,
         }
+    }
+
+    pub fn bb_path_iter(&self) -> impl Iterator<Item = Vec<Block>> + '_ {
+        self.paths.iter()
     }
 }
 

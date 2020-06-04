@@ -1,6 +1,5 @@
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::BinaryHeap;
-use std::fmt::Debug;
 use std::iter;
 use std::sync::Arc;
 

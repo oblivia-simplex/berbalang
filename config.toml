@@ -2,7 +2,7 @@ selection = "Roulette"
 #selection = "Tournament"
 #selection = "Metropolis"
 mut_rate = 0.1
-crossover_period = 7
+crossover_period = 3
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
@@ -34,14 +34,21 @@ arch = "X86"
 mode = "MODE_64"
 soup_size = 0x1000
 binary_path = "/bin/sh"
-num_workers = 16
-num_emulators = 16
+num_workers = 32
+num_emulators = 32
 max_emu_steps = 0x10_000
 millisecond_timeout = 500
 emulator_stack_size = 0x1000
+output_registers = [ "R10", "RDI", "RSI" ] # TODO: support this.
+record_basic_blocks = true
+# ROPER should read more registers from the CPU, in addition to
+# the ones mentioned in the register pattern. Otherwise, it's
+# unnecessarily constraining its window into the state.
 
 [roper.register_pattern] 
 RAX = "0xdeadbeef"
 RCX = "&&0xbeef"
 RDX = "&0"
+R10 = "10"
+RBX = "0xf00d"
 

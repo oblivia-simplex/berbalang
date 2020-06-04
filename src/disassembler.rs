@@ -1,6 +1,5 @@
 use crate::emulator::loader;
 use capstone::{Capstone, NO_EXTRA_MODE};
-use unicorn;
 
 pub struct Disassembler(pub Capstone);
 

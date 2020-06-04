@@ -1,5 +1,4 @@
-use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 use goblin::{
     elf::{self, Elf},
     Object,

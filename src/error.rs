@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 use std::io;
-use std::str::FromStr;
-use unicorn::Cpu;
 
 #[derive(Debug)]
 pub enum Error {

@@ -1,5 +1,4 @@
 use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
-use indexmap::map::IndexMap;
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -66,6 +65,8 @@ pub struct MachineConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
     pub gadget_file: Option<String>,
+    #[serde(default)]
+    pub output_registers: Vec<String>,
     pub register_pattern: Option<RegisterPatternConfig>,
     #[serde(skip)]
     pub parsed_register_pattern: Option<RegisterPattern>,
@@ -118,6 +119,7 @@ impl Default for RoperConfig {
     fn default() -> Self {
         Self {
             gadget_file: None,
+            output_registers: vec![],
             register_pattern: None,
             parsed_register_pattern: None,
             soup: None,

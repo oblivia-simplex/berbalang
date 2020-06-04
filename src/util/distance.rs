@@ -1,5 +1,4 @@
 use seahash::hash_seeded;
-use std::convert::Into;
 use std::iter::Iterator;
 
 /// See https://en.wikipedia.org/wiki/MinHash for discussion of algorithm

@@ -6,11 +6,7 @@ use std::sync::Arc;
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 
-use crate::{
-    evaluator::{Evaluate, FitnessFn},
-    evolution::tournament::*,
-    observer::{Observer, ReportFn},
-};
+use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
 
 pub type Fitness = Vec<f64>;
 

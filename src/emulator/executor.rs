@@ -1,4 +1,4 @@
-use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, Sender, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant};
@@ -495,7 +495,7 @@ pub mod util {
         emu: &mut C,
         disassembler: Arc<Disassembler>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
-        let callback = move |engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
+        let callback = move |_engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
             let disas = disassembler
                 .disas_from_mem_image(address, block_length as usize)
                 .expect("Failed to disassemble block");
@@ -680,8 +680,6 @@ mod test {
 
     use unicorn::{CpuX86, RegisterX86};
 
-    use example::*;
-
     use super::*;
     use crate::util::architecture::{endian, word_size_in_bytes, Endian};
     use byteorder::{ByteOrder, LittleEndian};
@@ -796,7 +794,7 @@ mod test {
             Hatchery::new(Arc::new(params), Arc::new(inputs), output_registers, None);
 
         let results = hatchery.execute_batch(code_iterator);
-        for (code, profile) in results.expect("boo") {
+        for (_code, profile) in results.expect("boo") {
             log::info!("[{}] Output: {:#?}", counter, profile.paths);
             counter += 1;
         }

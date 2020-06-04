@@ -1,9 +1,3 @@
-use std::cmp::{Ordering, PartialOrd};
-use std::collections::BinaryHeap;
-use std::fmt::Debug;
-use std::iter;
-use std::sync::Arc;
-
 use rand::{thread_rng, Rng};
 
 use crate::configure::Config;

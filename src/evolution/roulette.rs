@@ -1,7 +1,5 @@
-use std::cmp::{Ordering, PartialOrd};
-
 use non_dominated_sort::{non_dominated_sort, DominanceOrd};
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use rand_distr::Distribution;
 
 use crate::configure::Config;
@@ -9,7 +7,6 @@ use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
 use rand::distributions::WeightedIndex;
-use std::fmt::Debug;
 use std::iter;
 use std::sync::Arc;
 

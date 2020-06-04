@@ -29,7 +29,6 @@ mod roper;
 mod util;
 
 use configure::Config;
-use unicorn::Arch;
 
 fn main() {
     logger::init();

@@ -9,6 +9,9 @@ use crate::util::count_min_sketch::DecayingSketch;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
 
+// TODO: we need to maintain a Pareto archive in the observation window.
+// setting the best to be the lowest scalar fitness is wrong.
+
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
