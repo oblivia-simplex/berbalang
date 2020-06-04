@@ -34,11 +34,11 @@ pub fn default_report_fn<T: Phenome + Genome>(
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
     for g in frame {
-        g.record_genetic_frequency(&mut sketch).unwrap();
+        g.record_genetic_frequency(&mut sketch);
     }
     let avg_freq = frame
         .iter()
-        .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
+        .map(|g| g.measure_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
     let avg_fit: f64 =
@@ -62,6 +62,7 @@ pub struct Window<O: Phenome + 'static + Send> {
     window_size: usize,
     report_fn: ReportFn<O>,
     pub best: Option<O>,
+    pub archive: Vec<O>,
 }
 
 impl<O: Phenome + Genome + 'static> Default for Window<O> {

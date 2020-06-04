@@ -267,6 +267,10 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                                 .expect("Failed to install basic_block_hook");
                         }
 
+                        // track gadget entry execution
+                        let _hook = util::install_address_tracking_hook(&mut (*emu), &profiler, payload.as_addrs(word_size, endian))
+                            .expect("Failed to install address tracking hook");
+
                         if cfg!(debug_assertions) {
                             // install the disassembler hook
                             let _hook = util::install_disas_tracer_hook(&mut (*emu), disas.clone())
@@ -362,123 +366,6 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         }
         Ok(res)
     }
-    /*
-    /// Example.
-    /// Adapting this method for a ROP executor would involve a few changes.
-    pub fn pipeline<'a, O, I: 'static + Iterator<Item = X> + Send>(
-        &self,
-        inbound: I,
-        // TODO: we might want to set some callbacks with this function.
-        emu_prep_fn: Option<EmuPrepFn<C>>,
-    ) -> O
-    where
-        O: Iterator<Item = (X, Profile)>,
-    {
-        let _h = spawn(move || inbound.for_each(|x| self.tx.send(x).expect("tx failure")));
-        self.rx.lock().iter()
-        //     let (tx, rx) = sync_channel::<(X, Profile)>(self.params.num_workers);
-        //     let emu_prep_fn = emu_prep_fn.unwrap_or_else(|| Box::new(util::emu_prep_fn));
-        //     let mode = self.params.mode;
-        //     let pool = self.emu_pool.clone();
-        //     let wait_limit = self.params.wait_limit;
-        //     let emu_prep_fn = Arc::new(emu_prep_fn);
-        //     let params = self.params.clone();
-        //     let millisecond_timeout = self.params.millisecond_timeout.unwrap_or(0);
-        //     let max_emu_steps = self.params.max_emu_steps.unwrap_or(0);
-        //     let memory = self.memory.clone();
-        //     let thread_pool = self.thread_pool.clone();
-        //     let word_size = crate::util::architecture::word_size(params.arch, params.mode);
-        //     let endian = crate::util::architecture::endian(params.arch, params.mode);
-        //     let _pipe_handler = spawn(move || {
-        //         for payload in inbound {
-        //             let emu_prep_fn = emu_prep_fn.clone();
-        //             let params = params.clone();
-        //             let tx = tx.clone();
-        //             let output_registers = output_registers.clone();
-        //             let thread_pool = thread_pool
-        //                 .lock()
-        //                 .expect("Failed to unlock thread_pool mutex");
-        //             let pool = pool.clone();
-        //             let memory = memory.clone();
-        //             let inputs = inputs.clone();
-        //             thread_pool.execute(move || {
-        //                 let profile = inputs.par_iter().map(|input| {
-        //                     // Acquire an emulator from the pool.
-        //                     let mut emu = wait_for_emu(&pool, wait_limit, mode);
-        //                     // Initialize the profiler
-        //                     let mut profiler = Profiler::new(&output_registers);
-        //                     // Save the register context
-        //                     let context = emu.context_save().expect("Failed to save context");
-        //
-        //                     if params.record_basic_blocks {
-        //                         let _hooks = util::install_basic_block_hook(&mut (*emu), &profiler)
-        //                             .expect("Failed to install basic_block_hook");
-        //                     }
-        //
-        //                     // if params.record_memory_writes {
-        //                     //     let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
-        //                     //         .expect("Failed to install mem_write_hook");
-        //                     // }
-        //                     // Prepare the emulator with the user-supplied preparation function.
-        //                     // This function will generally be used to load the payload and install
-        //                     // callbacks, which should be able to write to the Profiler instance.
-        //                     let code = payload.pack(word_size, endian);
-        //                     let start_addr = emu_prep_fn(&mut emu, &params, &code, &profiler)
-        //                         .expect("Failure in the emulator preparation function.");
-        //                     // load the inputs
-        //                     // TODO refactor into separate method
-        //                     for (reg,val) in input.iter() {
-        //                         emu.reg_write(*reg, *val)
-        //                             .expect("Failed to load registers");
-        //                     }
-        //                     // If the preparation was successful, launch the emulator and execute
-        //                     // the payload. We want to hang onto the exit code of this task.
-        //                     let start_time = Instant::now();
-        //                     let result = emu.emu_start(
-        //                         start_addr,
-        //                         0,
-        //                         millisecond_timeout * unicorn::MILLISECOND_SCALE,
-        //                         max_emu_steps,
-        //                     );
-        //                     profiler.computation_time = start_time.elapsed();
-        //                     if let Err(error_code) = result {
-        //                         profiler.set_error(error_code)
-        //                     };
-        //                     profiler.read_registers(&mut emu);
-        //
-        //                     // cleanup
-        //                     emu.remove_all_hooks().expect("Failed to clean up hooks");
-        //                     emu.context_restore(&context)
-        //                         .expect("Failed to restore context");
-        //                     // clean up writeable memory
-        //                     if let Some(memory) = memory.as_ref() {
-        //                         memory.iter().filter(|s| s.is_writeable()).for_each(|seg| {
-        //                             emu.mem_write(seg.aligned_start(),
-        //                                           &seg.data
-        //                             ).unwrap_or_else(|e| {
-        //                                 log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
-        //                                 seg.aligned_start(), seg.aligned_end(), e
-        //                             )
-        //                             });
-        //                         });
-        //                     }
-        //                     profiler
-        //
-        //                 }).collect::<Vec<Profiler<C>>>().into();
-        //                 // Now send the code back, along with its profile information.
-        //                 // (The genotype, along with its phenotype.)
-        //                 tx.send((payload, profile))
-        //                     .map_err(Error::from)
-        //                     .expect("TX Failure in pipeline");
-        //             });
-        //         }
-        //     });
-        //     // println!("joining pipe_handler");
-        //     // pipe_handler.join().unwrap();
-        //     // println!("joined pipe_handler");
-        //     rx
-    }
-    */
 }
 // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
 
@@ -501,6 +388,26 @@ pub mod util {
             log::trace!("\n{}", disas);
         };
         code_hook_all(emu, CodeHookType::BLOCK, callback)
+    }
+
+    pub fn install_address_tracking_hook<C: 'static + Cpu<'static>>(
+        emu: &mut C,
+        profiler: &Profiler<C>,
+        addresses: &[u64],
+    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+        let gadget_log = profiler.gadget_log.clone();
+
+        let callback = move |_engine, address, _insn_len| {
+            gadget_log
+                .lock()
+                .expect("poisoned lock on gadget_log")
+                .push(address)
+        };
+
+        addresses
+            .iter()
+            .map(|addr| emu.add_code_hook(CodeHookType::CODE, *addr, addr + 1, callback.clone()))
+            .collect::<Result<Vec<unicorn::uc_hook>, _>>()
     }
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(

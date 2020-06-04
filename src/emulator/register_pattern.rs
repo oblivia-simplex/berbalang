@@ -4,6 +4,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use indexmap::map::IndexMap;
 use serde::Deserialize;
 use std::convert::TryFrom;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use unicorn::Cpu;
 
@@ -76,8 +77,22 @@ impl<C: Cpu<'static>> From<UnicornRegisterState<C>> for RegisterPattern {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct RegisterPattern(pub IndexMap<String, RegisterValue>);
+
+impl Hash for RegisterPattern {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.iter().collect::<Vec<_>>().hash(state)
+    }
+}
+
+impl PartialEq for RegisterPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for RegisterPattern {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RegisterPatternConfig(pub IndexMap<String, String>);
@@ -192,10 +207,9 @@ impl RegisterPattern {
             })
             .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
-        vec![reg_score, deref_score, ham_score]
+        vec![reg_score + deref_score, ham_score]
     }
 
-    // TODO: why not set arch and mode as fields of RegisterPatternConfig?
     pub fn spider(&self) -> IndexMap<String, Vec<u64>> {
         let mut map = IndexMap::new();
         let memory = loader::get_static_memory_image();

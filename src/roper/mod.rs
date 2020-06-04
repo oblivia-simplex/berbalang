@@ -70,6 +70,10 @@ impl Pack for Creature {
         }
         buffer
     }
+
+    fn as_addrs(&self, _word_size: usize, _endian: Endian) -> &[u64] {
+        self.chromosome()
+    }
 }
 
 impl fmt::Debug for Creature {
@@ -84,11 +88,24 @@ impl fmt::Debug for Creature {
                 &self.parents[self.chromosome_parentage[i]]
             };
             let allele = self.chromosome[i];
-            let flag = memory
+            let perms = memory
                 .perm_of_addr(allele)
-                .map(|p| format!("({:?})", p))
+                .map(|p| format!(" ({:?})", p))
                 .unwrap_or_else(|| "".to_string());
-            writeln!(f, "[{}][{}] 0x{:010x} {}", i, parent, allele, flag)?;
+            let was_it_executed = self
+                .profile
+                .as_ref()
+                .map(|p| p.gadgets_executed.contains(&allele))
+                .unwrap_or(false);
+            writeln!(
+                f,
+                "[{}][{}] 0x{:010x}{}{}",
+                i,
+                parent,
+                allele,
+                perms,
+                if was_it_executed { " *" } else { "" }
+            )?;
         }
         if let Some(ref profile) = self.profile {
             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
@@ -327,10 +344,14 @@ mod evaluation {
         // measure fitness
         // for now, let's just handle the register pattern task
         if let Some(ref profile) = creature.profile {
+            sketch.insert(&profile.registers);
+            let reg_freq = sketch.query(&profile.registers);
             if let Some(pattern) = params.roper.register_pattern() {
                 // assuming that when the register pattern task is activated, there's only one register state
                 // to worry about. this may need to be adjusted in the future. bit sloppy now.
                 let mut register_pattern_distance = pattern.distance(&profile.registers[0]);
+                register_pattern_distance.push(reg_freq);
+
                 let longest_path = profile
                     .bb_path_iter()
                     .map(|v: Vec<Block>| v.len())

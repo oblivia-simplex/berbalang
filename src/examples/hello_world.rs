@@ -217,12 +217,8 @@ fn fitness_function(
 ) -> Genotype {
     if phenome.fitness.is_none() {
         phenome.set_fitness(ff_helper(&phenome.genes, &params.hello.target));
-        sketch
-            .insert(&phenome.genes)
-            .expect("Failed to insert genes into sketch");
-        let freq = sketch
-            .query(&phenome.genes)
-            .expect("Failed to query sketch");
+        sketch.insert(&phenome.genes);
+        let freq = sketch.query(&phenome.genes);
         phenome.fitness.as_mut().map(|f| f.push(freq));
     };
     phenome

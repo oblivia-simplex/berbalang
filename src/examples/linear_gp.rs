@@ -424,11 +424,11 @@ fn report(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
     for g in frame {
-        g.record_genetic_frequency(&mut sketch).unwrap();
+        g.record_genetic_frequency(&mut sketch);
     }
     let avg_freq = frame
         .iter()
-        .map(|g| g.measure_genetic_frequency(&sketch).unwrap())
+        .map(|g| g.measure_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
     let avg_fit = frame

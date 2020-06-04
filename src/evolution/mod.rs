@@ -1,6 +1,5 @@
 use crate::configure::{Config, Problem};
 use crate::fitness::FitnessScore;
-use crate::util::count_min_sketch;
 use crate::util::count_min_sketch::DecayingSketch;
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
@@ -92,20 +91,13 @@ pub trait Genome: Debug {
         )
     }
 
-    fn record_genetic_frequency(
-        &self,
-        sketch: &mut DecayingSketch,
-    ) -> Result<(), count_min_sketch::Error> {
+    fn record_genetic_frequency(&self, sketch: &mut DecayingSketch) {
         for digram in self.digrams() {
-            sketch.insert(digram)?
+            sketch.insert(digram)
         }
-        Ok(())
     }
 
-    fn measure_genetic_frequency(
-        &self,
-        sketch: &DecayingSketch,
-    ) -> Result<f64, count_min_sketch::Error> {
+    fn measure_genetic_frequency(&self, sketch: &DecayingSketch) -> f64 {
         // The lower the score, the rarer the digrams composing the genome.
         // We divide by the length to avoid penalizing longer genomes.
         // let mut sum = 0_f64;
@@ -115,8 +107,9 @@ pub trait Genome: Debug {
         // Ok(sum)
         self.digrams()
             .map(|digram| sketch.query(digram))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|v| v.into_iter().fold(std::f64::MAX, |a, b| a.min(b)))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .fold(std::f64::MAX, |a, b| a.min(b))
     }
 }
 

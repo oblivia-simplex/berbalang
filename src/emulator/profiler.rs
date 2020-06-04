@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::map::IndexMap;
+use indexmap::set::IndexSet;
 use prefix_tree::PrefixSet;
 use unicorn::Cpu;
 
@@ -32,6 +33,7 @@ impl fmt::Debug for Block {
 pub struct Profiler<C: Cpu<'static>> {
     /// The Arc<Mutex<_>> fields need to be writeable for the unicorn callbacks.
     pub block_log: Arc<Mutex<Vec<Block>>>,
+    pub gadget_log: Arc<Mutex<Vec<u64>>>,
     /// These fields are written to after the emulation has finished.
     pub cpu_error: Option<unicorn::Error>,
     pub computation_time: Duration,
@@ -51,6 +53,7 @@ pub struct Profile {
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
     pub registers: Vec<RegisterPattern>,
+    pub gadgets_executed: IndexSet<u64>,
 }
 
 impl Profile {
@@ -60,6 +63,7 @@ impl Profile {
         let mut cpu_errors = IndexMap::new();
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
+        let mut gadgets_executed = IndexSet::new();
 
         for Profiler {
             block_log,
@@ -67,6 +71,7 @@ impl Profile {
             cpu_error,
             computation_time,
             registers,
+            gadget_log,
             ..
         } in profilers.into_iter()
         {
@@ -77,7 +82,11 @@ impl Profile {
                     //.map(|b| (b.entry, b.size))
                     .collect::<Vec<Block>>(),
             );
-            //write_trie.insert((*write_log.lock().unwrap()).clone(), ());
+            gadget_log.lock().into_iter().for_each(|glog| {
+                glog.iter().for_each(|g| {
+                    gadgets_executed.insert(*g);
+                })
+            });
             if let Some(c) = cpu_error {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
@@ -91,6 +100,7 @@ impl Profile {
             //write_trie,
             cpu_errors,
             computation_times,
+            gadgets_executed,
             registers: register_maps,
         }
     }
@@ -165,6 +175,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             registers_to_read: Vec::new(),
             computation_time: Duration::default(),
             block_log: Arc::new(Mutex::new(Vec::new())),
+            gadget_log: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -186,7 +197,7 @@ mod test {
                 cpu_error: None,
                 computation_time: Default::default(),
                 registers: IndexMap::new(),
-                registers_to_read: vec![],
+                ..Default::default()
             },
             Profiler {
                 block_log: Arc::new(Mutex::new(vec![
@@ -196,7 +207,7 @@ mod test {
                 cpu_error: None,
                 computation_time: Default::default(),
                 registers: IndexMap::new(),
-                registers_to_read: vec![],
+                ..Default::default()
             },
         ];
 

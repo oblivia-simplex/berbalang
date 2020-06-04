@@ -67,29 +67,17 @@ impl DecayingSketch {
         }
     }
 
-    fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> Result<f64, Error> {
+    fn decay_factor(&self, prior_timestamp: usize, current_timestamp: usize) -> f64 {
         if !self.decay {
-            return Ok(1.0);
+            return 1.0;
         }
-        //return Ok(1.0); // FIXME
-        if current_timestamp < prior_timestamp {
-            return Err(Error::InvalidTimestamp {
-                timestamp: prior_timestamp,
-                elapsed: current_timestamp,
-            });
-        }
+        debug_assert!(current_timestamp < prior_timestamp);
+
         let age = current_timestamp - prior_timestamp;
-        let decay = 2_f64.powf(-(age as f64 / self.half_life));
-        // log::debug!(
-        //     "decay factor for timestamp {}, current_time {} = {}",
-        //     prior_timestamp,
-        //     current_timestamp,
-        //     decay
-        // );
-        Ok(decay)
+        2_f64.powf(-(age as f64 / self.half_life))
     }
 
-    pub fn insert<T: Hash>(&mut self, thing: T) -> Result<(), Error> {
+    pub fn insert<T: Hash>(&mut self, thing: T) {
         // if current_timestamp < self.elapsed {
         //     return Err(Error::InvalidTimestamp {
         //         timestamp: current_timestamp,
@@ -106,15 +94,14 @@ impl DecayingSketch {
             let s = self.freq_table[i][loc];
             let prior_timestamp = self.time_table[i][loc];
             self.freq_table[i][loc] =
-                1.0 + s * self.decay_factor(prior_timestamp, current_timestamp)?;
+                1.0 + s * self.decay_factor(prior_timestamp, current_timestamp);
             self.time_table[i][loc] = current_timestamp;
         }
 
         self.elapsed = current_timestamp;
-        Ok(())
     }
 
-    pub fn query<T: Hash>(&self, thing: T) -> Result<f64, Error> {
+    pub fn query<T: Hash>(&self, thing: T) -> f64 {
         let current_time = self.elapsed;
         let (freq, timestamp) = (0..self.num_hash_funcs)
             .map(|i| {
@@ -131,10 +118,10 @@ impl DecayingSketch {
                     }
                 },
             );
-        self.decay_factor(timestamp, current_time)
-            // and we divide the score by the counter because we're interested in
-            // *relative* frequency
-            .map(|d| d * freq as f64 / self.counter as f64)
+        let d = self.decay_factor(timestamp, current_time);
+        // and we divide the score by the counter because we're interested in
+        // *relative* frequency
+        d * freq as f64 / self.counter as f64
     }
 
     pub fn flush(&mut self) {
