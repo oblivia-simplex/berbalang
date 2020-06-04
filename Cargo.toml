@@ -47,3 +47,4 @@ unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "dev
 [patch."https://github.com/oblivia-simplex/unicorn-rs".unicorn]
 path = "../unicorn-rs/"
 paste = "0.1"
+# Test

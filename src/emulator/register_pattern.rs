@@ -142,7 +142,9 @@ impl RegisterPattern {
         //log::debug!("Spider map: {:#x?}", spider_map);
         #[inline]
         fn word_distance(w1: u64, w2: u64) -> f64 {
-            (w1 ^ w2).count_ones() as f64 // hamming distance
+            let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
+            let num = (w1 as f64 - w2 as f64).abs().log2().tanh();
+            ham + num
         }
 
         let find_least_ham = |val: &RegisterValue| -> (&str, usize, f64) {

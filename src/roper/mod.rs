@@ -319,7 +319,11 @@ mod evaluation {
 
     use super::Creature;
 
-    pub fn register_pattern_fitness_fn(mut creature: Creature, params: Arc<Config>) -> Creature {
+    pub fn register_pattern_fitness_fn(
+        mut creature: Creature,
+        sketch: &mut DecayingSketch,
+        params: Arc<Config>,
+    ) -> Creature {
         // measure fitness
         // for now, let's just handle the register pattern task
         if let Some(ref profile) = creature.profile {
@@ -345,24 +349,25 @@ mod evaluation {
         params: Arc<Config>,
         hatchery: Hatchery<C, Creature>,
         sketch: DecayingSketch,
-        fitness_fn: Box<FitnessFn<Creature, Config>>,
+        fitness_fn: Box<FitnessFn<Creature, DecayingSketch, Config>>,
     }
 
     impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         type Params = Config;
+        type State = DecayingSketch;
 
-        fn evaluate(&self, creature: Creature) -> Creature {
+        fn evaluate(&mut self, creature: Creature) -> Creature {
             let (mut creature, profile) = self
                 .hatchery
                 .execute(creature)
                 .expect("Failed to evaluate creature");
 
             creature.profile = Some(profile);
-            (self.fitness_fn)(creature, self.params.clone())
+            (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
         }
 
         fn eval_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
-            &self,
+            &mut self,
             inbound: I,
         ) -> Vec<Creature> {
             self.hatchery
@@ -371,16 +376,14 @@ mod evaluation {
                 .into_iter()
                 .map(|(mut creature, profile)| {
                     creature.profile = Some(profile);
-                    (self.fitness_fn)(creature, self.params.clone())
+                    (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
                 })
                 .collect::<Vec<_>>()
         }
 
         fn spawn(
             params: &Self::Params,
-            fitness_fn: FitnessFn<Creature, Self::Params>,
-            // inputs: IndexMap<Register<C>, u64>,
-            // output_registers: Vec<Register<C>>,
+            fitness_fn: FitnessFn<Creature, Self::State, Self::Params>,
         ) -> Self {
             let mut params = params.clone();
             params.roper.parse_register_pattern();

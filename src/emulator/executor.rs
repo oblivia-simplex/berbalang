@@ -285,7 +285,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                             .expect("Failure in the emulator preparation function.");
                         // load the inputs
                         // TODO refactor into separate method
-                        for (reg,val) in input.iter() {
+                        for (reg, val) in input.iter() {
                             emu.reg_write(*reg, *val)
                                 .expect("Failed to load registers");
                         }
@@ -312,7 +312,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         if let Some(memory) = memory.as_ref() {
                             memory.iter().filter(|s| s.is_writeable()).for_each(|seg| {
                                 emu.mem_write(seg.aligned_start(),
-                                              &seg.data
+                                              &seg.data,
                                 ).unwrap_or_else(|e| {
                                     log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
                                     seg.aligned_start(), seg.aligned_end(), e
@@ -321,7 +321,6 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                             });
                         }
                         profiler
-
                     }).collect::<Vec<Profiler<C>>>().into();
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)

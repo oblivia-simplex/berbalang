@@ -95,10 +95,9 @@ pub trait Genome: Debug {
     fn record_genetic_frequency(
         &self,
         sketch: &mut DecayingSketch,
-        timestamp: usize,
     ) -> Result<(), count_min_sketch::Error> {
         for digram in self.digrams() {
-            sketch.insert(digram, timestamp)?
+            sketch.insert(digram)?
         }
         Ok(())
     }

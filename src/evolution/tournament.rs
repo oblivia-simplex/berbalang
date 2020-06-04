@@ -49,7 +49,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
             mut population,
             mut best,
             observer,
-            evaluator,
+            mut evaluator,
             config,
             iteration,
         } = self;

@@ -36,7 +36,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Metropolis<E, P> {
             config,
             iteration,
             observer,
-            evaluator,
+            mut evaluator,
             best,
         } = self;
 

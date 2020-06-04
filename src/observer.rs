@@ -34,7 +34,7 @@ pub fn default_report_fn<T: Phenome + Genome>(
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
     for g in frame {
-        g.record_genetic_frequency(&mut sketch, 1000).unwrap();
+        g.record_genetic_frequency(&mut sketch).unwrap();
     }
     let avg_freq = frame
         .iter()

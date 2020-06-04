@@ -187,6 +187,7 @@ fn report(window: &Window<Genotype>, counter: usize, _params: &ObserverConfig) {
 use crate::configure::{Config, ObserverConfig, Problem};
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Window;
+use crate::util::count_min_sketch::DecayingSketch;
 use cached::{cached_key, TimedCache};
 
 cached_key! {
@@ -209,51 +210,23 @@ cached_key! {
     }
 }
 
-fn fitness_function(mut phenome: Genotype, params: Arc<Config>) -> Genotype {
+fn fitness_function(
+    mut phenome: Genotype,
+    sketch: &mut DecayingSketch,
+    params: Arc<Config>,
+) -> Genotype {
     if phenome.fitness.is_none() {
-        // let l_fitness = distance::damerau_levenshtein(&phenome.genes, &params.target);
-        // let (short, long) = if phenome.genes.len() < params.target.len() {
-        //     (&phenome.genes, &params.target)
-        // } else {
-        //     (&params.target, &phenome.genes)
-        // };
-        // let dif = long.len() - short.len();
-        // let short = short.as_bytes();
-        // let long = &long.as_bytes()[0..short.len()];
-        // let h_fitness = hamming::distance(short, long) + (dif * 8) as u64;
-
         phenome.set_fitness(ff_helper(&phenome.genes, &params.hello.target));
-
-        // let's try to implement genlin's char-dist
-        // let length_diff = (phenome.genes.len() as f64 - params.target.len() as f64).abs();
-        // let code_diff = phenome.genes.chars().zip(params.target.chars())
-        //     .map(|(a,b)| (a as i32 - b as i32).abs() as f64)
-        //     .sum::<f64>();
-        // phenome.set_fitness(vec![length_diff, code_diff]);
+        sketch
+            .insert(&phenome.genes)
+            .expect("Failed to insert genes into sketch");
+        let freq = sketch
+            .query(&phenome.genes)
+            .expect("Failed to query sketch");
+        phenome.fitness.as_mut().map(|f| f.push(freq));
     };
     phenome
 }
-
-// impl Tournament<evaluation::Evaluator<Genotype>, Genotype> {
-//     pub fn new(config: Config) -> Self {
-//         let population = iter::repeat(())
-//             .map(|()| Genotype::random(&config))
-//             .take(config.population_size())
-//             .collect();
-//         let report_fn: ReportFn<_> = Box::new(report);
-//         let fitness_fn: FitnessFn<_, _> = Box::new(fitness_function);
-//         let observer = Observer::spawn(&config, report_fn);
-//         let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-//         Self {
-//             population,
-//             config: Arc::new(config),
-//             best: None,
-//             iteration: 0,
-//             observer,
-//             evaluator,
-//         }
-//     }
-// }
 
 pub fn run(config: Config) -> Option<Genotype> {
     let target_fitness = config.target_fitness as f64;
@@ -297,40 +270,36 @@ mod evaluation {
 
     impl Evaluate<Genotype> for Evaluator<Genotype> {
         type Params = Config;
+        type State = DecayingSketch;
 
-        fn evaluate(&self, phenome: Genotype) -> Genotype {
+        fn evaluate(&mut self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn eval_pipeline<I: Iterator<Item = Genotype>>(&self, inbound: I) -> Vec<Genotype> {
+        fn eval_pipeline<I: Iterator<Item = Genotype>>(&mut self, inbound: I) -> Vec<Genotype> {
             inbound.map(|p| self.evaluate(p)).collect::<Vec<Genotype>>()
         }
 
-        fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Genotype, Self::Params>) -> Self {
+        fn spawn(
+            params: &Self::Params,
+            fitness_fn: FitnessFn<Genotype, Self::State, Self::Params>,
+        ) -> Self {
             let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let params = Arc::new(params.clone());
             let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
                 let sketch = Arc::new(Mutex::new(DecayingSketch::default()));
-                let mut counter = 0;
                 for phenome in our_rx {
-                    counter += 1;
                     let sketch = sketch.clone();
                     let our_tx = our_tx.clone();
                     let params = params.clone();
                     let fitness_fn = fitness_fn.clone();
                     rayon::spawn(move || {
-                        let mut phenome = fitness_fn(phenome, params.clone());
                         let mut sketch = sketch.lock().unwrap();
-                        sketch
-                            .insert(&phenome.genes, counter)
-                            .expect("Failed to insert genes into sketch");
-                        let freq = sketch
-                            .query(&phenome.genes)
-                            .expect("Failed to query sketch");
-                        phenome.fitness.as_mut().map(|f| f.push(freq));
+                        let phenome = fitness_fn(phenome, &mut sketch, params.clone());
+
                         our_tx.send(phenome).expect("Channel failure");
                     });
                 }

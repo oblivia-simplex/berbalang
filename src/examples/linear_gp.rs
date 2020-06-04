@@ -424,7 +424,7 @@ fn report(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
     for g in frame {
-        g.record_genetic_frequency(&mut sketch, 1000).unwrap();
+        g.record_genetic_frequency(&mut sketch).unwrap();
     }
     let avg_freq = frame
         .iter()
@@ -528,6 +528,7 @@ mod evaluation {
 
     pub fn fitness_function<P: Phenome<Fitness = Fitness>>(
         mut creature: P,
+        _sketch: &mut DecayingSketch,
         params: Arc<Config>,
     ) -> P {
         #[allow(clippy::unnecessary_fold)]
@@ -556,13 +557,17 @@ mod evaluation {
 
     impl Evaluate<Creature> for Evaluator {
         type Params = Config;
+        type State = DecayingSketch;
 
-        fn evaluate(&self, genome: Creature) -> Creature {
+        fn evaluate(&mut self, genome: Creature) -> Creature {
             self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn eval_pipeline<I: Iterator<Item = Creature> + Send>(&self, inbound: I) -> Vec<Creature> {
+        fn eval_pipeline<I: Iterator<Item = Creature> + Send>(
+            &mut self,
+            inbound: I,
+        ) -> Vec<Creature> {
             inbound.map(|c| self.evaluate(c)).collect::<Vec<Creature>>()
         }
         // fn pipeline<I: Iterator<Item = Creature> + Send>(
@@ -575,7 +580,10 @@ mod evaluation {
         //     }))
         // }
 
-        fn spawn(params: &Self::Params, fitness_fn: FitnessFn<Creature, Self::Params>) -> Self {
+        fn spawn(
+            params: &Self::Params,
+            fitness_fn: FitnessFn<Creature, Self::State, Self::Params>,
+        ) -> Self {
             let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let params = Arc::new(params.clone());
@@ -584,56 +592,54 @@ mod evaluation {
                 // TODO: parameterize sketch construction
                 let mut sketch = DecayingSketch::default();
                 sketch.decay = false;
-                let mut counter = 0;
 
-                for mut phenome in our_rx {
-                    counter += 1;
+                for (counter, mut phenome) in our_rx.iter().enumerate() {
                     if phenome.fitness().is_none() {
                         phenome = execute(params.clone(), phenome);
                     }
-                    phenome = (fitness_fn)(phenome, params.clone());
+                    phenome = (fitness_fn)(phenome, &mut sketch, params.clone());
                     // register and measure frequency
-                    phenome
-                        .record_genetic_frequency(&mut sketch, counter)
-                        .expect("Failed to record phenomic frequency");
-                    let _genomic_frequency = phenome
-                        .measure_genetic_frequency(&sketch)
-                        .expect("Failed to measure genetic diversity. Check timestamps.");
-                    sketch
-                        .insert(phenome.problems(), counter)
-                        .expect("Failed to update phenomic diversity");
-                    let _phenomic_frequency = sketch
-                        .query(phenome.problems())
-                        .expect("Failed to measure phenomic diversity");
-
-                    // try this:  / FIXME shitty fitness sharing impl //
-                    let mut sum = 0.0;
-                    let mut c = 0.0;
-                    for (answer, problem) in phenome
-                        .problems()
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .zip(params.problems.as_ref().unwrap().iter())
-                    {
-                        if answer.output == problem.output {
-                            sketch.insert(&answer, counter).expect("shit");
-                            let score = sketch.query(&answer).expect("fuck");
-                            sum += score;
-                            c += 1.0;
-                        }
-                    }
-                    let challenge_rating = if c == 0.0 { 1.0 } else { sum / c };
+                    // TODO: move to fitness function and refactor
+                    // phenome
+                    //     .record_genetic_frequency(&mut sketch, counter)
+                    //     .expect("Failed to record phenomic frequency");
+                    // let _genomic_frequency = phenome
+                    //     .measure_genetic_frequency(&sketch)
+                    //     .expect("Failed to measure genetic diversity. Check timestamps.");
+                    // sketch
+                    //     .insert(phenome.problems(), counter)
+                    //     .expect("Failed to update phenomic diversity");
+                    // let _phenomic_frequency = sketch
+                    //     .query(phenome.problems())
+                    //     .expect("Failed to measure phenomic diversity");
+                    //
+                    // // try this:  / FIXME shitty fitness sharing impl //
+                    // let mut sum = 0.0;
+                    // let mut c = 0.0;
+                    // for (answer, problem) in phenome
+                    //     .problems()
+                    //     .as_ref()
+                    //     .unwrap()
+                    //     .iter()
+                    //     .zip(params.problems.as_ref().unwrap().iter())
+                    // {
+                    //     if answer.output == problem.output {
+                    //         sketch.insert(&answer, counter).expect("shit");
+                    //         let score = sketch.query(&answer).expect("fuck");
+                    //         sum += score;
+                    //         c += 1.0;
+                    //     }
+                    // }
+                    // let challenge_rating = if c == 0.0 { 1.0 } else { sum / c };
                     ////////////////////////////////////////////////////////
-                    log::debug!("challenge rating: {}", challenge_rating);
-                    phenome.fitness.as_mut().map(|f| {
-                        //f.push(phenomic_frequency);
-                        //f[0] += challenge_rating;
-                        f.push(challenge_rating);
-                        //f[0] += phenomic_frequency;
-                        //let _ = f.pop();
-                        //f.push(genomic_frequency)
-                    });
+                    // phenome.fitness.as_mut().map(|f| {
+                    //     //f.push(phenomic_frequency);
+                    //     //f[0] += challenge_rating;
+                    //     f.push(challenge_rating);
+                    //     //f[0] += phenomic_frequency;
+                    //     //let _ = f.pop();
+                    //     //f.push(genomic_frequency)
+                    // });
 
                     //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
                     log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());
@@ -675,7 +681,7 @@ fn prepare(mut config: Config) -> (Observer<Creature>, evaluation::Evaluator) {
     config.machine.num_registers = Some(num_registers);
     log::info!("Config: {:#?}", config);
     let report_fn: ReportFn<_> = Box::new(report);
-    let fitness_fn: FitnessFn<Creature, _> = Box::new(evaluation::fitness_function);
+    let fitness_fn: FitnessFn<Creature, _, _> = Box::new(evaluation::fitness_function);
     let observer = Observer::spawn(&config, report_fn);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
     (observer, evaluator)

@@ -89,15 +89,16 @@ impl DecayingSketch {
         Ok(decay)
     }
 
-    pub fn insert<T: Hash>(&mut self, thing: T, current_timestamp: usize) -> Result<(), Error> {
-        if current_timestamp < self.elapsed {
-            return Err(Error::InvalidTimestamp {
-                timestamp: current_timestamp,
-                elapsed: self.elapsed,
-            });
-        }
+    pub fn insert<T: Hash>(&mut self, thing: T) -> Result<(), Error> {
+        // if current_timestamp < self.elapsed {
+        //     return Err(Error::InvalidTimestamp {
+        //         timestamp: current_timestamp,
+        //         elapsed: self.elapsed,
+        //     });
+        // }
 
         self.counter += 1;
+        let current_timestamp = self.counter;
 
         for i in 0..self.num_hash_funcs {
             let loc = hash(&thing, i) % self.width;

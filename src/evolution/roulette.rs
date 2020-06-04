@@ -50,7 +50,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
             population,
             mut best,
             observer,
-            evaluator,
+            mut evaluator,
             config,
             iteration,
             dominance_order,
