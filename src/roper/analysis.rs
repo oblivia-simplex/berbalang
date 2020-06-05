@@ -87,28 +87,6 @@ mod test {
     }
 }
 
-/// the CSV serializer can't handle IndexMaps, and so it will choke
-/// on the Pareto struct. This is where a bit of tinkering will be
-/// needed, in the event that the (dynamically determined) pareto format
-/// is changed. If a key is missing, for example, the converter will
-/// panic, which should make it easy to spot the problem.
-#[derive(Serialize, Clone, Debug, Default)]
-pub struct Objectives {
-    pub place_error: f64,
-    pub value_error: f64,
-    pub crash_count: f64,
-}
-
-impl From<&Pareto<'static>> for Objectives {
-    fn from(p: &Pareto<'static>) -> Self {
-        Self {
-            place_error: p["place_error"],
-            value_error: p["value_error"],
-            crash_count: p["crashes"],
-        }
-    }
-}
-
 pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &Config) {
     let record = StatRecord::from_window(window, counter);
 
