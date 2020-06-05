@@ -150,8 +150,12 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
     }
 
     pub fn dump_population(&self) {
+        if !self.params.observer.dump_population {
+            log::debug!("Not dumping population");
+            return;
+        }
         let path = format!(
-            "{}/population_{}.json.gz",
+            "{}/population/population_{}.json.gz",
             self.params.data_directory(),
             self.counter,
         );
@@ -170,6 +174,10 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
     }
 
     pub fn dump_soup(&self) {
+        if !self.params.observer.dump_soup {
+            log::debug!("Not dumping soup");
+            return;
+        }
         let mut soup = self
             .frame
             .iter()
@@ -178,7 +186,7 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
             .cloned()
             .collect::<IndexSet<_>>();
         let path = format!(
-            "{}/soup_{}.json.gz",
+            "{}/soup/soup_{}.json",
             self.params.data_directory(),
             self.counter,
         );
@@ -187,9 +195,6 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
         {
             let soup_vec = soup.drain(..).collect::<Vec<_>>();
             serde_json::to_writer(&mut soup_file, &soup_vec).expect("Failed to dump soup!");
-            // for address in soup.drain(..) {
-            //     writeln!(soup_file, "{:x}", address);
-            // }
             log::info!("Soup dumped to {}", path);
         }
     }

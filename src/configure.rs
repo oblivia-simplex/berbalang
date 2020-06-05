@@ -77,6 +77,8 @@ fn random_population_name() -> String {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObserverConfig {
+    pub dump_population: bool,
+    pub dump_soup: bool,
     pub window_size: usize,
     pub report_every: usize,
     data_directory: String,
@@ -100,9 +102,12 @@ impl Config {
             pop_name = self.observer.population_name,
         );
 
-        std::fs::create_dir_all(&path)
-            .map_err(|e| log::error!("Error creating {}: {:?}", path, e))
-            .expect("Failed to create data directory");
+        for sub in ["", "soup", "population"].iter() {
+            let d = format!("{}/{}", path, sub);
+            std::fs::create_dir_all(&d)
+                .map_err(|e| log::error!("Error creating {}: {:?}", path, e))
+                .expect("Failed to create data directory");
+        }
 
         path
     }
