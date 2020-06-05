@@ -162,7 +162,8 @@ impl RegisterPattern {
         #[inline]
         fn word_distance(w1: u64, w2: u64) -> f64 {
             let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
-            let num = (w1 as f64 - w2 as f64).abs().log2(); // log-scale numeric distance
+            let num = (w1 as f64 - w2 as f64).abs(); // log-scale numeric distance
+            let num = if num > 0.0 { num.log2() } else { 0.0 };
             ham.min(num)
         }
 
