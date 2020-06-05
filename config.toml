@@ -1,3 +1,7 @@
+##############################
+# Documentation forthcoming! #
+##############################
+
 job = "Roper"
 selection = "Roulette"
 #selection = "Tournament" # currently inefficient
@@ -17,6 +21,7 @@ max_length = 100
 tournament_size = 4
 
 [roulette]
+# Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
 weight_decay = 0.7
 
 [hello]
