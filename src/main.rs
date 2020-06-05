@@ -31,23 +31,13 @@ mod util;
 use configure::Config;
 
 fn main() {
-    //logger::init();
-    // let env = env_logger::Env::new().filter("BERBALOG");
-    //
-    // env_logger::Builder::from_env(env)
-    //     .write_style(env_logger::WriteStyle::Always)
-    //     .format_timestamp_secs()
-    //     .format(|f: &mut logger::fmt::Formatter, record: &log::Record| {
-    //         writeln!(f, "WHAT DOES THIS DO? {:?}", record)
-    //     })
-    //     .build();
-    // env_logger::init();
-    //pretty_env_logger::try_init_custom_env("BERBALOG").unwrap();
-    let config: Config = toml::from_str(
+    let mut config: Config = toml::from_str(
         &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
     )
     .expect("Failed to parse config.toml");
     config.assert_invariants();
+    config.set_data_directory();
+
     logger::init(&config.observer.population_name);
 
     // TODO: develop a proper CLI

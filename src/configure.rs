@@ -81,6 +81,8 @@ pub struct ObserverConfig {
     pub dump_soup: bool,
     pub window_size: usize,
     pub report_every: usize,
+    #[serde(default)]
+    pub full_data_directory: String,
     data_directory: String,
     #[serde(default = "random_population_name")]
     pub population_name: String,
@@ -88,12 +90,19 @@ pub struct ObserverConfig {
 
 impl Config {
     /// Returns the path to the full data directory, creating it if necessary.
-    pub fn data_directory(&self) -> String {
+    pub fn set_data_directory(&mut self) {
         let local_date: DateTime<Local> = Local::now();
+
+        let mut data_dir = self.observer.data_directory.clone();
+        if data_dir.starts_with('~') {
+            let home = std::env::var("HOME")
+                .expect("No HOME environment variable found. Please set this.");
+            data_dir.replace_range(0..1, &home);
+        };
 
         let path = format!(
             "{data_dir}/berbalang/{job:?}/{selection:?}/{year}/{month}/{day}/{pop_name}",
-            data_dir = self.observer.data_directory,
+            data_dir = data_dir,
             job = self.job,
             selection = self.selection,
             year = local_date.year(),
@@ -109,7 +118,11 @@ impl Config {
                 .expect("Failed to create data directory");
         }
 
-        path
+        self.observer.full_data_directory = path;
+    }
+
+    pub fn data_directory(&self) -> &str {
+        &self.observer.full_data_directory
     }
 }
 
