@@ -73,9 +73,7 @@ impl DecayingSketch {
 
         let age = current_timestamp - prior_timestamp;
         //log::debug!("age = {}", age);
-        let d = 2_f64.powf(-(age as f64 / self.half_life));
-        //log::debug!("decay factor = {}", d);
-        d
+        2_f64.powf(-(age as f64 / self.half_life))
     }
 
     pub fn insert<T: Hash>(&mut self, thing: T) {
