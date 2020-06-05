@@ -6,7 +6,6 @@ use unicorn::Cpu;
 
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::evaluator::FitnessFn;
-use crate::fitness::Pareto;
 use crate::{
     configure::Config, emulator::executor::Hatchery, evaluator::Evaluate, evolution::Phenome,
     util::count_min_sketch::DecayingSketch,
@@ -32,14 +31,14 @@ pub fn register_pattern_fitness_fn(
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
-            fitness_vector.insert("crashes", crashes);
+            fitness_vector.insert("crash_count", crashes);
 
             // let longest_path = profile
             //     .bb_path_iter()
             //     .map(|v: Vec<Block>| v.len())
             //     .max()
             //     .unwrap_or(0) as f64;
-            // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative vals
+            // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative val
             creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
                                                          //log::debug!("fitness: {:?}", creature.fitness());
         } else {

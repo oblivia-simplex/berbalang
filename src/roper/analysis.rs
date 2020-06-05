@@ -1,115 +1,122 @@
-use std::io::Write;
-
-use deflate::write::GzEncoder;
-use deflate::Compression;
 use serde::Serialize;
 
-use indexmap::{indexmap, IndexMap, IndexSet};
-
-use crate::configure::ObserverConfig;
+use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::Pareto;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
 use crate::util::count_min_sketch::DecayingSketch;
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 pub struct StatRecord {
+    pub counter: usize,
     pub avg_len: f64,
     pub avg_genetic_freq: f64,
     pub avg_scalar_fitness: f64,
     // TODO: how to report on fitness vectors?
-    pub avg_vectoral_fitness: Pareto<'static>,
+    // #[serde(flatten)]
     pub avg_exec_count: f64,
     pub avg_exec_ratio: f64,
-    pub counter: usize,
+    // Fitness scores // TODO find a way to make this more flexible
+    pub avg_place_error: f64,
+    pub avg_value_error: f64,
+    pub avg_crash_count: f64,
 }
 
-fn write_files<F>(files: &IndexMap<&'static str, Vec<u8>>, params: &ObserverConfig) {}
+impl StatRecord {
+    fn from_window(window: &Window<Creature>, counter: usize) -> Self {
+        let frame = &window.frame;
+        log::info!("default report function");
+        let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
+        let mut sketch = DecayingSketch::default();
+        for g in frame.iter() {
+            g.record_genetic_frequency(&mut sketch);
+        }
+        let avg_genetic_freq = frame
+            .iter()
+            .map(|g| g.measure_genetic_frequency(&sketch))
+            .sum::<f64>()
+            / frame.len() as f64;
+        let avg_scalar_fitness: f64 =
+            frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+        let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();
+        let fit_vec = Pareto::average(&fitnesses);
 
-pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
-    let frame = &window.frame;
-    log::info!("default report function");
-    let frame_len = frame.len() as f64;
-    let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-    let mut sketch = DecayingSketch::default();
-    for g in frame.iter() {
-        g.record_genetic_frequency(&mut sketch);
-    }
-    let avg_genetic_freq = frame
-        .iter()
-        .map(|g| g.measure_genetic_frequency(&sketch))
-        .sum::<f64>()
-        / frame.len() as f64;
-    let avg_scalar_fitness: f64 =
-        frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
-    let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();
-    let avg_vectoral_fitness = Pareto::average(&fitnesses);
-    // let avg_vectoral_fitness: Vec<f64> = frame
-    //     .iter()
-    //     .filter_map(|g| g.fitness().map(|f| f.as_ref()))
-    //     .fold(vec![0.0; 20], |a, b: &[f64]| {
-    //         a.iter()
-    //             .zip(b.iter())
-    //             .map(|(aa, bb)| aa + bb)
-    //             .collect::<Vec<f64>>()
-    //     })
-    //     .iter()
-    //     .map(|n| n / frame_len)
-    //     .collect::<Vec<f64>>();
-    let avg_exec_count: f64 = frame
-        .iter()
-        .map(|g| g.num_alleles_executed() as f64)
-        .sum::<f64>()
-        / frame.len() as f64;
-    let avg_exec_ratio: f64 =
-        frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
+        let avg_exec_count: f64 = frame
+            .iter()
+            .map(|g| g.num_alleles_executed() as f64)
+            .sum::<f64>()
+            / frame.len() as f64;
+        let avg_exec_ratio: f64 =
+            frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
 
-    let soup = frame
-        .iter()
-        .map(|g| g.chromosome())
-        .flatten()
-        .cloned()
-        .collect::<IndexSet<u64>>();
-
-    log::info!(
-            "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}, avg vectoral fit: {:?}, avg # alleles exec'd: {}, avg exec ratio: {}, soup size: {}",
+        StatRecord {
             counter,
             avg_len,
             avg_genetic_freq,
             avg_scalar_fitness,
-            avg_vectoral_fitness,
             avg_exec_count,
             avg_exec_ratio,
-            soup.len(),
-        );
+            // fitness scores
+            // TODO: it would be nice if this were less hard-coded
+            avg_place_error: fit_vec["place_error"],
+            avg_value_error: fit_vec["value_error"],
+            avg_crash_count: fit_vec["crash_count"],
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_stat_record_serialization() {
+        let record = StatRecord::default();
+        let file = std::io::stderr();
+        let mut writer = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .terminator(csv::Terminator::Any(b'\n'))
+            .has_headers(false)
+            .from_writer(file);
+
+        writer
+            .serialize(&record)
+            .expect("Failed to serialize record!");
+        writer.flush().expect("Failed to flush");
+    }
+}
+
+/// the CSV serializer can't handle IndexMaps, and so it will choke
+/// on the Pareto struct. This is where a bit of tinkering will be
+/// needed, in the event that the (dynamically determined) pareto format
+/// is changed. If a key is missing, for example, the converter will
+/// panic, which should make it easy to spot the problem.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct Objectives {
+    pub place_error: f64,
+    pub value_error: f64,
+    pub crash_count: f64,
+}
+
+impl From<&Pareto<'static>> for Objectives {
+    fn from(p: &Pareto<'static>) -> Self {
+        Self {
+            place_error: p["place_error"],
+            value_error: p["value_error"],
+            crash_count: p["crashes"],
+        }
+    }
+}
+
+pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &Config) {
+    let record = StatRecord::from_window(window, counter);
+
+    log::info!("{:#?}", record);
+
+    window.log_record(record);
+    window.dump_soup();
+    window.dump_population();
+
     log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
-    // let serialized_creatures: Vec<_> = frame
-    //     .iter()
-    //     .map(|g| bson::to_bson(g).unwrap())
-    //     .collect::<Vec<_>>();
-
-    log::info!("Serializing population...");
-    if let Ok(mut population_file) = std::fs::File::create("./population.json.gz")
-        .map_err(|e| log::error!("Failed to create population file: {:?}", e))
-    {
-        let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
-        let _ = serde_json::to_writer(&mut gz, &frame)
-            .map_err(|e| log::error!("Failed to compress serialized population: {:?}", e));
-        let compressed_population_data = gz.finish().expect("Failed to finish Gzip encoding");
-        let _ = population_file
-            .write_all(&compressed_population_data)
-            .map_err(|e| log::error!("Failed to write population file: {:?}", e));
-        log::info!("Population dumped!");
-    };
-
-    let record = StatRecord {
-        avg_len,
-        avg_genetic_freq,
-        avg_scalar_fitness,
-        avg_vectoral_fitness,
-        avg_exec_count,
-        avg_exec_ratio,
-        counter,
-    };
 }

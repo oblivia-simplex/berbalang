@@ -1,3 +1,4 @@
+job = "Roper"
 selection = "Roulette"
 #selection = "Tournament" # currently inefficient
 #selection = "Metropolis"
@@ -26,6 +27,7 @@ target = "Mares eat oats and does eat oats and little lambs eat ivy."
 max_steps = 0x1000
 
 [observer]
+data_directory = "/home/lucca/logs"
 window_size  = 10_000
 report_every = 10_000
 

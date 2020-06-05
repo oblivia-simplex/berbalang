@@ -32,10 +32,9 @@ pub struct DecayingSketch {
     time_table: Vec<Vec<usize>>,
     num_hash_funcs: usize,
     width: usize,
-    elapsed: usize,
     half_life: f64,
     counter: usize,
-    pub decay: bool,
+    decay: bool,
 } // TODO decay the counter?
 
 impl Default for DecayingSketch {
@@ -58,12 +57,11 @@ impl DecayingSketch {
         Self {
             num_hash_funcs,
             width,
-            elapsed: 0,
             half_life,
             freq_table,
             time_table,
             counter: 0,
-            decay: true,
+            decay: false, // FIXME
         }
     }
 
@@ -71,38 +69,36 @@ impl DecayingSketch {
         if !self.decay {
             return 1.0;
         }
-        debug_assert!(current_timestamp < prior_timestamp);
+        assert!(current_timestamp > prior_timestamp);
 
         let age = current_timestamp - prior_timestamp;
-        2_f64.powf(-(age as f64 / self.half_life))
+        //log::debug!("age = {}", age);
+        let d = 2_f64.powf(-(age as f64 / self.half_life));
+        //log::debug!("decay factor = {}", d);
+        d
     }
 
     pub fn insert<T: Hash>(&mut self, thing: T) {
-        // if current_timestamp < self.elapsed {
-        //     return Err(Error::InvalidTimestamp {
-        //         timestamp: current_timestamp,
-        //         elapsed: self.elapsed,
-        //     });
-        // }
-
         self.counter += 1;
         let current_timestamp = self.counter;
 
         for i in 0..self.num_hash_funcs {
             let loc = hash(&thing, i) % self.width;
-            // FIXME decay, and THEN add (convert to floats)
             let s = self.freq_table[i][loc];
             let prior_timestamp = self.time_table[i][loc];
+            // log::debug!(
+            //     "in insert, about to call decay. prior_timestamp: {}, current_timestamp: {}",
+            //     prior_timestamp,
+            //     current_timestamp
+            // );
             self.freq_table[i][loc] =
                 1.0 + s * self.decay_factor(prior_timestamp, current_timestamp);
             self.time_table[i][loc] = current_timestamp;
         }
-
-        self.elapsed = current_timestamp;
     }
 
     pub fn query<T: Hash>(&self, thing: T) -> f64 {
-        let current_time = self.elapsed;
+        let current_time = self.counter;
         let (freq, timestamp) = (0..self.num_hash_funcs)
             .map(|i| {
                 let loc = hash(&thing, i) % self.width;
@@ -118,10 +114,13 @@ impl DecayingSketch {
                     }
                 },
             );
+        //log::debug!("in query, about to call decay");
         let d = self.decay_factor(timestamp, current_time);
         // and we divide the score by the counter because we're interested in
         // *relative* frequency
-        d * freq as f64 / self.counter as f64
+        let f = d * freq as f64 / self.counter as f64;
+        log::debug!("f = {}", f);
+        f
     }
 
     pub fn flush(&mut self) {

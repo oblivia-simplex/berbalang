@@ -213,8 +213,8 @@ impl RegisterPattern {
             .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
         indexmap! {
-            "ham_score" => ham_score,
-            "place_score" => reg_score + deref_score,
+            "value_error" => ham_score,
+            "place_error" => reg_score + deref_score,
         }
     }
 

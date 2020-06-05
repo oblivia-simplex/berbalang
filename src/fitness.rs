@@ -1,11 +1,9 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Index, IndexMut};
 
-use indexmap::indexmap;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::cmp::Ordering;
 
 pub trait FitnessScoreReq:
@@ -45,7 +43,7 @@ impl Pareto<'static> {
         (self.0.get(name)).cloned()
     }
 
-    pub fn values<'a>(&'a self) -> impl Iterator<Item = &'a f64> {
+    pub fn values(&self) -> impl Iterator<Item = &f64> {
         self.0.iter().sorted_by_key(|p| p.0).map(|(_k, v)| v)
     }
 
@@ -91,18 +89,6 @@ impl PartialOrd for Pareto<'static> {
         self.values().zip(other.values()).all(|(x, y)| x <= y)
             && self.values().zip(other.values()).any(|(x, y)| x < y)
     }
-    // fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    //     let cmps = self.0.iter().zip(other.0.iter())
-    //         .map(|(s,o)| s.partial_cmp(o))
-    //         .collect::<Vec<Option<Ordering>>>();
-    //     if cmps.contains(&Some(Ordering::Less)) && !cmps.contains(&Some(Ordering::Greater)) {
-    //         Some(Ordering::Less)
-    //     } else if cmps.contains(&Some(Ordering::Greater)) && !cmps.contains(&Some(Ordering::Less)) {
-    //         Some(Ordering::Greater)
-    //     } else {
-    //         None
-    //     }
-    // }
 }
 
 impl PartialEq for Pareto<'static> {
@@ -111,7 +97,7 @@ impl PartialEq for Pareto<'static> {
     }
 }
 
-static unnamed_objectives: [&str; 10] = [
+static UNNAMED_OBJECTIVES: [&str; 10] = [
     "objective_0",
     "objective_1",
     "objective_2",
@@ -128,7 +114,7 @@ impl From<Vec<f64>> for Pareto<'static> {
     fn from(vec: Vec<f64>) -> Self {
         let mut map = IndexMap::new();
         for (i, v) in vec.iter().enumerate() {
-            map.insert(unnamed_objectives[i], *v);
+            map.insert(UNNAMED_OBJECTIVES[i], *v);
         }
         Pareto(map)
     }
@@ -156,7 +142,10 @@ impl Index<&str> for Pareto<'static> {
     type Output = f64;
 
     fn index(&self, i: &str) -> &Self::Output {
-        &self.0[i]
+        &self
+            .0
+            .get(i)
+            .unwrap_or_else(|| panic!("Invalid index for Pareto instance: {:?}", i))
     }
 }
 
@@ -195,6 +184,7 @@ pub type Lexical<T> = Vec<T>;
 #[cfg(test)]
 mod test {
     use super::*;
+    use indexmap::indexmap;
 
     #[test]
     fn test_pareto_ordering() {

@@ -1,17 +1,20 @@
+use std::fmt::Debug;
+use std::hash::Hash;
+
+use rand::rngs::ThreadRng;
+use rand::{thread_rng, Rng};
+use serde::Serialize;
+
 use crate::configure::{Config, Problem};
 use crate::fitness::FitnessScore;
 use crate::util::count_min_sketch::DecayingSketch;
-use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng};
-use std::fmt::Debug;
-use std::hash::Hash;
 
 pub mod metropolis;
 pub mod roulette;
 pub mod tournament;
 
 pub trait Genome: Debug {
-    type Allele: Clone + Copy + Debug + Hash;
+    type Allele: Clone + Copy + Debug + PartialEq + Eq + Hash + Serialize;
 
     fn chromosome(&self) -> &[Self::Allele];
 
@@ -113,7 +116,7 @@ pub trait Genome: Debug {
     }
 }
 
-pub trait Phenome: Clone + Debug + Send + Ord {
+pub trait Phenome: Clone + Debug + Send + Ord + Serialize {
     type Fitness: FitnessScore;
     // TODO: generalize fitness. should be able to use vecs, etc.
 

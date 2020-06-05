@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::option_map_unit_fn))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_range_loop))]
 
-use pretty_env_logger as logger;
+//use env_logger as logger;
 //
 // #[cfg(not(feature = "linear_gp"))]
 // use examples::hello_world as example;
@@ -21,6 +21,7 @@ mod evolution;
 mod examples;
 #[allow(dead_code)] // FIXME
 mod fitness;
+mod logger;
 mod macros;
 mod observer;
 mod roper;
@@ -30,33 +31,33 @@ mod util;
 use configure::Config;
 
 fn main() {
-    logger::init();
+    //logger::init();
+    // let env = env_logger::Env::new().filter("BERBALOG");
+    //
+    // env_logger::Builder::from_env(env)
+    //     .write_style(env_logger::WriteStyle::Always)
+    //     .format_timestamp_secs()
+    //     .format(|f: &mut logger::fmt::Formatter, record: &log::Record| {
+    //         writeln!(f, "WHAT DOES THIS DO? {:?}", record)
+    //     })
+    //     .build();
+    // env_logger::init();
+    //pretty_env_logger::try_init_custom_env("BERBALOG").unwrap();
+    let config: Config = toml::from_str(
+        &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
+    )
+    .expect("Failed to parse config.toml");
+    config.assert_invariants();
+    logger::init(&config.observer.population_name);
 
     // TODO: develop a proper CLI
     let args = std::env::args().collect::<String>();
     if args.contains("hello_world") {
-        let config: Config = toml::from_str(
-            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
-        )
-        .expect("Failed to parse config.toml");
-        config.assert_invariants();
         hello_world::run(config);
     } else if args.contains("linear_gp") {
-        let config: Config = toml::from_str(
-            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
-        )
-        .expect("Failed to parse config.toml");
-        config.assert_invariants();
         linear_gp::run(config);
     } else {
         // ROPER TIME
-        let config: Config = toml::from_str(
-            &std::fs::read_to_string("./config.toml").expect("Failed to open config.toml"),
-        )
-        .expect("Failed to parse config.toml");
-        config.assert_invariants();
-
-        log::info!("Config: {:#x?}", config);
         // now switch off on architecture, I guess
         use unicorn::Arch::*;
         match config.roper.arch {

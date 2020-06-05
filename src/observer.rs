@@ -1,16 +1,38 @@
 // A Logger needs to asynchronously gather and periodically
 // record information on the evolutionary process.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 // a hack to make the imports more meaningful
-use crate::configure::{Config, ObserverConfig};
+use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::util::count_min_sketch::DecayingSketch;
+use deflate::write::GzEncoder;
+use deflate::Compression;
+use indexmap::set::IndexSet;
+use serde::Serialize;
+use std::fs;
+use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
+fn stat_writer(params: &Config) -> csv::Writer<fs::File> {
+    let s = format!("{}/statistics.tsv", params.data_directory());
+    let path = std::path::Path::new(&s);
+    let add_headers = !path.exists();
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| log::error!("Error opening statistics file at {:?}: {:?}", path, e))
+        .expect("Failed to open statistics file");
+    csv::WriterBuilder::new()
+        .delimiter(b'\t')
+        .terminator(csv::Terminator::Any(b'\n'))
+        .has_headers(add_headers)
+        .from_writer(file)
+}
 
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
@@ -18,13 +40,13 @@ pub struct Observer<O: Send> {
     // TODO: add a reporter struct field
 }
 
-pub type ReportFn<T> =
-    Box<dyn Fn(&Window<T>, usize, &ObserverConfig) -> () + Sync + Send + 'static>;
+pub type ReportFn<T> = Box<dyn Fn(&Window<T>, usize, &Config) -> () + Sync + Send + 'static>;
 
+#[allow(dead_code)]
 pub fn default_report_fn<T: Phenome + Genome>(
     window: &Window<T>,
     counter: usize,
-    _params: &ObserverConfig,
+    _params: &Config,
 ) {
     let frame = &window.frame;
     log::info!("default report function");
@@ -52,7 +74,7 @@ pub fn default_report_fn<T: Phenome + Genome>(
 
 pub struct Window<O: Phenome + 'static + Send> {
     pub frame: Vec<O>,
-    pub params: ObserverConfig,
+    pub params: Arc<Config>,
     counter: usize,
     report_every: usize,
     i: usize,
@@ -60,43 +82,18 @@ pub struct Window<O: Phenome + 'static + Send> {
     report_fn: ReportFn<O>,
     pub best: Option<O>,
     pub archive: Vec<O>,
+    stat_writer: Arc<Mutex<csv::Writer<fs::File>>>,
 }
 
-impl<O: Phenome + Genome + 'static> Default for Window<O> {
-    fn default() -> Self
-// where
-    //     <<O as Phenome>::Fitness as Index<usize>>::Output: Sized,
-    {
-        let params = ObserverConfig::default();
-        let window_size = params.window_size;
-        let frame = Vec::with_capacity(window_size);
-        let counter = 0;
-        let report_every = params.report_every;
-        let i = 0;
-        let report_fn = Box::new(default_report_fn);
-
+impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
+    fn new(report_fn: ReportFn<O>, params: Arc<Config>) -> Self {
+        let window_size = params.observer.window_size;
+        let report_every = params.observer.report_every;
+        assert!(window_size > 0, "window_size must be > 0");
+        assert!(report_every > 0, "report_every must be > 0");
+        let stat_writer = Arc::new(Mutex::new(stat_writer(&params)));
         Self {
-            params,
-            window_size,
-            frame,
-            counter,
-            report_every,
-            i,
-            report_fn,
-            best: None,
-            archive: Vec::new(),
-        }
-    }
-}
-
-impl<O: Phenome + 'static + Send> Window<O> {
-    fn new(report_fn: ReportFn<O>, params: ObserverConfig) -> Self {
-        assert!(params.window_size > 0, "window_size must be > 0");
-        assert!(params.report_every > 0, "report_every must be > 0");
-        let window_size = params.window_size;
-        let report_every = params.report_every;
-        Self {
-            frame: Vec::with_capacity(params.window_size),
+            frame: Vec::with_capacity(window_size),
             params,
             counter: 0,
             i: 0,
@@ -105,6 +102,7 @@ impl<O: Phenome + 'static + Send> Window<O> {
             report_fn,
             best: None,
             archive: vec![],
+            stat_writer,
         }
     }
 
@@ -136,9 +134,68 @@ impl<O: Phenome + 'static + Send> Window<O> {
     fn report(&self) {
         (self.report_fn)(&self, self.counter, &self.params);
     }
+
+    pub fn log_record<S: Serialize>(&self, record: S) {
+        self.stat_writer
+            .lock()
+            .expect("poisoned lock on window's logger")
+            .serialize(record)
+            .map_err(|e| log::error!("Error logging record: {:?}", e))
+            .expect("Failed to log record!");
+        self.stat_writer
+            .lock()
+            .expect("poisoned lock on window's logger")
+            .flush()
+            .expect("Failed to flush");
+    }
+
+    pub fn dump_population(&self) {
+        let path = format!(
+            "{}/population_{}.json.gz",
+            self.params.data_directory(),
+            self.counter,
+        );
+        if let Ok(mut population_file) = fs::File::create(&path)
+            .map_err(|e| log::error!("Failed to create population file: {:?}", e))
+        {
+            let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
+            let _ = serde_json::to_writer(&mut gz, &self.frame)
+                .map_err(|e| log::error!("Failed to compress serialized population: {:?}", e));
+            let compressed_population_data = gz.finish().expect("Failed to finish Gzip encoding");
+            let _ = population_file
+                .write_all(&compressed_population_data)
+                .map_err(|e| log::error!("Failed to write population file: {:?}", e));
+            log::info!("Population dumped to {}", path);
+        };
+    }
+
+    pub fn dump_soup(&self) {
+        let mut soup = self
+            .frame
+            .iter()
+            .map(|g| g.chromosome())
+            .flatten()
+            .cloned()
+            .collect::<IndexSet<_>>();
+        let path = format!(
+            "{}/soup_{}.json.gz",
+            self.params.data_directory(),
+            self.counter,
+        );
+        if let Ok(mut soup_file) =
+            fs::File::create(&path).map_err(|e| log::error!("Failed to create soup file: {:?}", e))
+        {
+            let soup_vec = soup.drain(..).collect::<Vec<_>>();
+            serde_json::to_writer(&mut soup_file, &soup_vec).expect("Failed to dump soup!");
+            // for address in soup.drain(..) {
+            //     writeln!(soup_file, "{:x}", address);
+            // }
+            log::info!("Soup dumped to {}", path);
+        }
+    }
 }
 
-impl<O: 'static + Send + Phenome> Observer<O> {
+impl<O: 'static + Send + Phenome + Genome + Serialize> Observer<O> {
     /// The observe method should take a clone of the observable
     /// and store in something like a sliding observation window.
     pub fn observe(&self, ob: O) {
@@ -149,8 +206,7 @@ impl<O: 'static + Send + Phenome> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
         let params = Arc::new(params.clone());
         let handle: JoinHandle<()> = spawn(move || {
-            let observer_config = params.observer_config();
-            let mut window: Window<O> = Window::new(report_fn, observer_config);
+            let mut window: Window<O> = Window::new(report_fn, params.clone());
             for observable in rx {
                 window.insert(observable);
             }

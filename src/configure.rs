@@ -1,5 +1,6 @@
 use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
-use serde::Deserialize;
+use chrono::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
@@ -8,8 +9,22 @@ pub struct DataConfig {
     pub path: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Copy, Deserialize)]
+pub enum Job {
+    Roper,
+    Hello,
+    LinearGp,
+}
+
+impl Default for Job {
+    fn default() -> Self {
+        Self::Roper
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
+    pub job: Job,
     pub selection: Selection,
     pub crossover_period: f64,
     pub crossover_rate: f32,
@@ -56,18 +71,40 @@ pub struct RouletteConfig {
     pub weight_decay: f64,
 }
 
+fn random_population_name() -> String {
+    crate::util::name::random(2)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObserverConfig {
     pub window_size: usize,
     pub report_every: usize,
+    data_directory: String,
+    #[serde(default = "random_population_name")]
+    pub population_name: String,
 }
 
-impl Default for ObserverConfig {
-    fn default() -> Self {
-        Self {
-            window_size: 0x1000,
-            report_every: 0x1000,
-        }
+impl Config {
+    /// Returns the path to the full data directory, creating it if necessary.
+    pub fn data_directory(&self) -> String {
+        let local_date: DateTime<Local> = Local::now();
+
+        let path = format!(
+            "{data_dir}/berbalang/{job:?}/{selection:?}/{year}/{month}/{day}/{pop_name}",
+            data_dir = self.observer.data_directory,
+            job = self.job,
+            selection = self.selection,
+            year = local_date.year(),
+            month = local_date.month(),
+            day = local_date.day(),
+            pop_name = self.observer.population_name,
+        );
+
+        std::fs::create_dir_all(&path)
+            .map_err(|e| log::error!("Error creating {}: {:?}", path, e))
+            .expect("Failed to create data directory");
+
+        path
     }
 }
 
@@ -180,16 +217,12 @@ impl Config {
         self.pop_size
     }
 
-    pub fn observer_config(&self) -> ObserverConfig {
-        self.observer.clone()
-    }
-
     pub fn num_offspring(&self) -> usize {
         self.num_offspring
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash, Serialize)]
 pub struct Problem {
     pub input: Vec<i32>,
     // TODO make this more generic

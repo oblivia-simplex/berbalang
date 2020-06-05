@@ -3,14 +3,20 @@ use std::iter;
 use std::iter::Iterator;
 use std::sync::Arc;
 
+use cached::{cached_key, TimedCache};
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
+use serde::{Deserialize, Serialize};
 
+use crate::configure::{Config, Problem};
+use crate::evolution::{Genome, Phenome};
+use crate::observer::Window;
+use crate::util::count_min_sketch::DecayingSketch;
 use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
 
 pub type Fitness = Vec<f64>;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Genotype {
     pub genes: String,
     fitness: Option<Fitness>,
@@ -159,7 +165,7 @@ impl Genome for Genotype {
     }
 }
 
-fn report(window: &Window<Genotype>, counter: usize, _params: &ObserverConfig) {
+fn report(window: &Window<Genotype>, counter: usize, _params: &Config) {
     let frame = &window.frame;
     let fitnesses: Vec<Fitness> = frame.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
@@ -183,12 +189,6 @@ fn report(window: &Window<Genotype>, counter: usize, _params: &ObserverConfig) {
         avg_gen
     );
 }
-
-use crate::configure::{Config, ObserverConfig, Problem};
-use crate::evolution::{Genome, Phenome};
-use crate::observer::Window;
-use crate::util::count_min_sketch::DecayingSketch;
-use cached::{cached_key, TimedCache};
 
 cached_key! {
     FF_CACHE: TimedCache<String, Vec<f64>> = TimedCache::with_lifespan(2);
@@ -254,9 +254,9 @@ mod evaluation {
     use std::thread::{spawn, JoinHandle};
 
     use crate::evaluator::FitnessFn;
+    use crate::util::count_min_sketch::DecayingSketch;
 
     use super::*;
-    use crate::util::count_min_sketch::DecayingSketch;
 
     pub struct Evaluator<Genotype> {
         pub handle: JoinHandle<()>,

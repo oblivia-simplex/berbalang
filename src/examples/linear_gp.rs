@@ -3,8 +3,9 @@ use std::fmt::Debug;
 use std::{fmt, iter};
 
 use rand::{thread_rng, Rng};
+use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, ObserverConfig, Problem, Selection};
+use crate::configure::{Config, Problem, Selection};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::roulette::Roulette;
@@ -24,11 +25,12 @@ pub mod machine {
 
     use rand::distributions::{Distribution, Standard};
     use rand::{thread_rng, Rng};
+    use serde::{Deserialize, Serialize};
 
     use crate::configure::MachineConfig;
     use crate::examples::linear_gp::MachineWord;
 
-    #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
+    #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
     pub enum Op {
         Add,
         Div,
@@ -90,7 +92,7 @@ pub mod machine {
     //const FIRST_INPUT_REGISTER: usize = 1;
     //const RETURN_REGISTER: usize = 0;
 
-    #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
+    #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
     pub struct Inst {
         pub op: Op,
         pub a: Register,
@@ -260,12 +262,13 @@ fn random_chromosome(params: &Config) -> Genotype {
 
 pub type Answer = Vec<Problem>;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Creature {
     chromosome: Genotype,
     chromosome_parentage: Vec<usize>,
     answers: Option<Answer>,
-    pub fitness: Option<Fitness>,
+    #[serde(borrow)]
+    pub fitness: Option<Pareto<'static>>,
     tag: u64,
     //crossover_mask: u64,
     name: String,
@@ -419,7 +422,7 @@ impl Genome for Creature {
     }
 }
 
-fn report(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
+fn report(window: &Window<Creature>, counter: usize, _params: &Config) {
     let frame = &window.frame;
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
@@ -591,7 +594,6 @@ mod evaluation {
             let handle = spawn(move || {
                 // TODO: parameterize sketch construction
                 let mut sketch = DecayingSketch::default();
-                sketch.decay = false;
 
                 for (counter, mut phenome) in our_rx.iter().enumerate() {
                     if phenome.fitness().is_none() {
