@@ -1,5 +1,6 @@
 use crate::disassembler::Disassembler;
 use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+use capstone::Instructions;
 use goblin::{
     elf::{self, Elf},
     Object,
@@ -48,13 +49,18 @@ pub struct MemoryImage {
 }
 
 impl MemoryImage {
-    pub fn disassemble(&self, addr: u64, size: usize) -> Option<String> {
+    pub fn disassemble(
+        &self,
+        addr: u64,
+        size: usize,
+        count: Option<usize>,
+    ) -> Option<Instructions<'_>> {
         self.try_dereference(addr)
             .map(|b| &b[..size])
             .and_then(|b| {
                 self.disasm
                     .as_ref()
-                    .and_then(|dis| dis.disas(b, addr, None).ok())
+                    .and_then(|dis| dis.disas(b, addr, count).ok())
             })
     }
 

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Index, IndexMut};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 pub trait FitnessScoreReq:
@@ -25,7 +25,7 @@ pub trait FitnessScore:
 //impl FitnessScore for Vec<f32> {}
 impl FitnessScore for Vec<f64> {}
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pareto(pub Vec<f64>);
 
 impl Pareto {

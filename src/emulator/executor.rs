@@ -277,6 +277,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                                 .expect("Failed to install tracer hook");
                         }
 
+                        let _hook = util::install_syscall_hook(&mut (*emu), params.arch, params.mode);
                         // if params.record_memory_writes {
                         //     let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
                         //         .expect("Failed to install mem_write_hook");
@@ -376,6 +377,46 @@ pub mod util {
     use crate::emulator::profiler::Block;
     use crate::util::architecture::{endian, word_size_in_bytes, Endian};
     use byteorder::{BigEndian, ByteOrder, LittleEndian};
+    use capstone::Insn;
+
+    fn is_syscall(arch: unicorn::Arch, mode: unicorn::Mode, inst: &Insn<'_>) -> bool {
+        use unicorn::Arch::*;
+        use unicorn::Mode::*;
+
+        match (arch, mode, inst.mnemonic()) {
+            (X86, MODE_64, Some("syscall")) | (X86, MODE_64, Some("sysenter")) => true,
+            (X86, _, Some("int")) if inst.op_str() == Some("0x80") => true,
+            (X86, _, _) => false,
+            _ => unimplemented!("TODO later"),
+        }
+    }
+
+    /// We want the emulator to halt on a syscall.
+    pub fn install_syscall_hook<C: 'static + Cpu<'static>>(
+        emu: &mut C,
+        arch: unicorn::Arch,
+        mode: unicorn::Mode,
+    ) -> Result<unicorn::uc_hook, unicorn::Error> {
+        let pc: i32 = emu.program_counter().into();
+
+        let callback = move |engine: &unicorn::Unicorn<'_>, a| {
+            let address = engine.reg_read(pc).unwrap();
+            let memory = loader::get_static_memory_image();
+            let insts = memory.disassemble(address, 64, Some(1)).unwrap();
+            if let Some(inst) = insts.iter().next() {
+                if is_syscall(arch, mode, &inst) {
+                    log::error!(
+                        "INTERRUPT address 0x{:x}, arg: 0x{:x}, disasm:\n{:x?}",
+                        address,
+                        a,
+                        inst
+                    );
+                    engine.emu_stop().expect("Failed to stop engine!");
+                }
+            }
+        };
+        emu.add_intr_hook(callback)
+    }
 
     pub fn install_disas_tracer_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,

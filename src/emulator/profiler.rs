@@ -3,18 +3,19 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use capstone::Instructions;
 use indexmap::map::IndexMap;
 use indexmap::set::IndexSet;
-use prefix_tree::PrefixSet;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
-use crate::disassembler::Disassembler;
 use crate::emulator::loader;
 use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Block {
     pub entry: u64,
     pub size: usize,
@@ -30,10 +31,10 @@ impl Block {
             .unwrap()
     }
 
-    pub fn disassemble(&self) -> String {
+    pub fn disassemble(&self) -> Instructions<'_> {
         let memory = loader::get_static_memory_image();
         memory
-            .disassemble(self.entry, self.size)
+            .disassemble(self.entry, self.size, None)
             .expect("Failed to disassemble basic block")
     }
 }
@@ -66,7 +67,7 @@ impl<C: Cpu<'static>> Profiler<C> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub paths: Vec<Vec<Block>>, //PrefixSet<Block>,
     pub cpu_errors: IndexMap<unicorn::Error, usize>,
@@ -132,7 +133,7 @@ impl Profile {
     pub fn disas_paths(&self) -> impl Iterator<Item = String> + '_ {
         let gadgets_executed = self.gadgets_executed.clone();
         self.paths.iter().map(move |path| {
-            path.iter()
+            path.par_iter()
                 .map(|b| {
                     let prefix = if gadgets_executed.contains(&b.entry) {
                         "----\n"
@@ -194,7 +195,7 @@ impl<C: Cpu<'static>> Profiler<C> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct MemLogEntry {
     pub program_counter: u64,
     pub mem_address: u64,

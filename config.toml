@@ -22,7 +22,7 @@ max_steps = 0x1000
 
 [observer]
 window_size  = 10_000
-report_every = 100_000
+report_every = 10_000
 
 [data]
 path = "./data/iris.tsv"
@@ -34,21 +34,16 @@ arch = "X86"
 mode = "MODE_64"
 soup_size = 0x1000
 binary_path = "/bin/sh"
-num_workers = 32
-num_emulators = 32
+num_workers = 31
+num_emulators = 31
 max_emu_steps = 0x10_000
 millisecond_timeout = 500
 emulator_stack_size = 0x1000
-output_registers = [ "R10", "RDI", "RSI" ] # TODO: support this.
 record_basic_blocks = true
-# ROPER should read more registers from the CPU, in addition to
-# the ones mentioned in the register pattern. Otherwise, it's
-# unnecessarily constraining its window into the state.
-
+output_registers = [ "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
 [roper.register_pattern] 
-RAX = "0xdeadbeef"
-RCX = "&&0xbeef"
-RDX = "&0"
-R10 = "10"
+RAX = "1"
+RCX = "0xbeef"
+RDX = "&&0"
 RBX = "0xf00d"
 

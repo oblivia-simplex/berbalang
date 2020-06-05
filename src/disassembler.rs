@@ -1,5 +1,5 @@
 use crate::emulator::loader;
-use capstone::{Capstone, NO_EXTRA_MODE};
+use capstone::{Capstone, Instructions, NO_EXTRA_MODE};
 use std::fmt;
 
 pub struct Disassembler(pub Capstone);
@@ -34,15 +34,25 @@ impl Disassembler {
             .map_err(Error::from)
     }
 
-    pub fn disas(&self, code: &[u8], address: u64, count: Option<usize>) -> Result<String, Error> {
+    pub fn disas(
+        &self,
+        code: &[u8],
+        address: u64,
+        count: Option<usize>,
+    ) -> Result<Instructions<'_>, Error> {
         let res = match count {
             Some(count) => self.0.disasm_count(code, address, count),
             None => self.0.disasm_all(code, address),
         };
-        res.map(|res| format!("{}", res)).map_err(Error::from)
+        //res.map(|res| format!("{}", res)).map_err(Error::from)
+        res.map_err(Error::from)
     }
 
-    pub fn disas_from_mem_image(&self, start: u64, num_bytes: usize) -> Result<String, Error> {
+    pub fn disas_from_mem_image(
+        &self,
+        start: u64,
+        num_bytes: usize,
+    ) -> Result<Instructions<'_>, Error> {
         let memory = loader::get_static_memory_image();
         let seg = match memory.containing_seg(start) {
             Some(s) => s,

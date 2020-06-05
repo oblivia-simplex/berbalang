@@ -1,12 +1,14 @@
-use crate::emulator::loader;
-use crate::error::Error;
-use byteorder::{ByteOrder, LittleEndian};
-use indexmap::map::IndexMap;
-use serde::Deserialize;
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+
+use byteorder::{ByteOrder, LittleEndian};
+use indexmap::map::IndexMap;
+use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
+
+use crate::emulator::loader;
+use crate::error::Error;
 
 pub type Register<C> = <C as Cpu<'static>>::Reg;
 
@@ -15,7 +17,7 @@ pub type Register<C> = <C as Cpu<'static>>::Reg;
 /// But if EAX <- 0x12345678 <- 0xdeadbeef, then we have
 /// `RegisterValue { val: 0xdeadbeef, deref: 1 }`
 /// and so on.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct RegisterValue {
     pub val: u64,
     deref: usize,
@@ -77,7 +79,7 @@ impl<C: Cpu<'static>> From<UnicornRegisterState<C>> for RegisterPattern {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterPattern(pub IndexMap<String, RegisterValue>);
 
 impl Hash for RegisterPattern {
@@ -158,8 +160,8 @@ impl RegisterPattern {
         #[inline]
         fn word_distance(w1: u64, w2: u64) -> f64 {
             let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
-            let num = (w1 as f64 - w2 as f64).abs().log2().tanh();
-            ham + num
+            let num = (w1 as f64 - w2 as f64).abs().log2(); // log-scale numeric distance
+            ham.min(num)
         }
 
         let find_least_ham = |val: &RegisterValue| -> (&str, usize, f64) {
@@ -244,11 +246,14 @@ impl From<&RegisterPattern> for Vec<u8> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use serde_derive::Deserialize;
+
+    use indexmap::indexmap;
+
     use crate::emulator::loader;
     use crate::emulator::register_pattern::{RegisterPattern, RegisterValue};
-    use indexmap::indexmap;
-    use serde_derive::Deserialize;
+
+    use super::*;
 
     #[derive(Debug, Clone, Deserialize)]
     struct Conf {

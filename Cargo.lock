@@ -10,6 +10,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "adler32"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d2e7343e7fc9de883d1b0341e0b13970f764c14101234857d2ddafa1cb1cac2"
+
+[[package]]
 name = "ahash"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -55,6 +61,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base64"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53d1ccbaf7d9ec9537465a97bf19edc1a4e158ecb49fc16178202238c569cc42"
+
+[[package]]
 name = "berbalang"
 version = "0.1.0"
 dependencies = [
@@ -64,6 +76,7 @@ dependencies = [
  "cached",
  "capstone",
  "csv",
+ "deflate",
  "distance",
  "futures",
  "goblin",
@@ -84,7 +97,9 @@ dependencies = [
  "rust-ini",
  "seahash",
  "serde",
+ "serde-pickle",
  "serde_derive",
+ "serde_json",
  "sliding_windows",
  "threadpool",
  "toml",
@@ -99,10 +114,11 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "bson"
-version = "0.14.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c177ed0122f24ce5e0f05bf9b29e79f3ac1a359bc504e0e14c3b34896c71c00"
+checksum = "24aa9746a1fa811b92bbd5e29a3a7d2b512da6ed2ce49ee57e0b1ffa15a0b591"
 dependencies = [
+ "base64",
  "byteorder",
  "chrono",
  "hex",
@@ -210,6 +226,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba125de2af0df55319f41944744ad91c71113bf74a4646efff39afe1f6842db1"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -276,6 +301,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b2466559f260f48ad25fe6317b3c8dac77b5bdb5763ac7d9d6103530663bc90"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "deflate"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e5d2a2273fed52a7f947ee55b092c4057025d7a3e04e5ecdbd25d6c3fb1bd7"
+dependencies = [
+ "adler32",
+ "byteorder",
+ "gzip-header",
 ]
 
 [[package]]
@@ -494,6 +530,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gzip-header"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0131feb3d3bb2a5a238d8a4d09f6353b7ebfdc52e77bccbf4ea6eaa751dde639"
+dependencies = [
+ "crc32fast",
+]
+
+[[package]]
 name = "hamming"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -542,6 +587,12 @@ dependencies = [
  "autocfg",
  "serde",
 ]
+
+[[package]]
+name = "iter-read"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d03e6379deaba8f70d594164614dbae5d5354e861d7a9f9864a7492f6a29b303"
 
 [[package]]
 name = "itoa"
@@ -639,6 +690,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc4de93a05386d1e59116dc4f0ee3e94dd10bff66ffd8b2746dc4c183e45c2b2"
 dependencies = [
  "dominance-ord",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "090c7f9998ee0ff65aa5b723e4009f7b217707f1fb5ea551329cc4d6231fb304"
+dependencies = [
+ "autocfg",
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -1063,6 +1125,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99e7b308464d16b56eba9964e4972a3eee817760ab60d88c3f86e1fecb08204c"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-pickle"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88a107730ae624d2d79717a20ef4adb6b5925a6f74c5c786b71a1a1d1ea19836"
+dependencies = [
+ "byteorder",
+ "iter-read",
+ "num-bigint",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]

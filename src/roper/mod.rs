@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt::Formatter;
@@ -10,7 +11,6 @@ use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use indexmap::map::IndexMap;
 use rand::seq::IteratorRandom;
 use rand::{thread_rng, Rng};
-use serde_derive::Deserialize;
 use unicorn::{Cpu, CpuARM, CpuARM64, CpuM68K, CpuMIPS, CpuSPARC, CpuX86, Protection};
 
 use crate::configure::{Config, ObserverConfig, Problem, RoperConfig, Selection};
@@ -38,7 +38,7 @@ use crate::util::count_min_sketch::DecayingSketch;
 
 type Fitness = Pareto;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Creature {
     //pub crossover_mask: u64,
     pub chromosome: Vec<u64>,
@@ -262,7 +262,7 @@ impl Genome for Creature {
         Self {
             chromosome,
             chromosome_parentage,
-            tag: 0,
+            tag: rand::random::<u64>(),
             name: util::name::random(4),
             parents: parent_names,
             generation,
@@ -399,8 +399,12 @@ mod evaluation {
             if let Some(pattern) = params.roper.register_pattern() {
                 // assuming that when the register pattern task is activated, there's only one register state
                 // to worry about. this may need to be adjusted in the future. bit sloppy now.
-                let mut register_pattern_distance = pattern.distance(&profile.registers[0]);
-                register_pattern_distance.push(reg_freq);
+                let mut fitness_vector = pattern.distance(&profile.registers[0]);
+                fitness_vector.push(reg_freq);
+
+                // how many times did it crash?
+                let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
+                fitness_vector.push(crashes);
 
                 // let longest_path = profile
                 //     .bb_path_iter()
@@ -408,8 +412,8 @@ mod evaluation {
                 //     .max()
                 //     .unwrap_or(0) as f64;
                 // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative vals
-                creature.set_fitness(Pareto(register_pattern_distance)); //vec![register_pattern_distance.iter().sum()]));
-                                                                         //log::debug!("fitness: {:?}", creature.fitness());
+                creature.set_fitness(Pareto(fitness_vector)); //vec![register_pattern_distance.iter().sum()]));
+                                                              //log::debug!("fitness: {:?}", creature.fitness());
             } else {
                 log::error!("No register pattern?");
             }
@@ -434,6 +438,7 @@ mod evaluation {
                 .expect("Failed to evaluate creature");
 
             creature.profile = Some(profile);
+            creature.tag = rand::random::<u64>(); // TODO: rethink this tag thing
             (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
         }
 
@@ -501,7 +506,12 @@ mod evaluation {
 
 mod reporting {
     use super::*;
+    use bson::{Bson, Document};
+    use deflate::write::GzEncoder;
+    use deflate::Compression;
+    use indexmap::set::IndexSet;
     use serde::Serialize;
+    use std::io::Write;
 
     #[derive(Serialize, Clone, Debug)]
     pub struct StatRecord {
@@ -516,12 +526,18 @@ mod reporting {
     }
 
     pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
-        let frame = &window.frame;
+        let mut frame = window.frame.clone();
+        frame.dedup();
+        log::error!(
+            "window.frame len is {}, uniq len is {}",
+            window.frame.len(),
+            frame.len()
+        );
         log::info!("default report function");
         let frame_len = frame.len() as f64;
         let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
         let mut sketch = DecayingSketch::default();
-        for g in frame {
+        for g in frame.iter() {
             g.record_genetic_frequency(&mut sketch);
         }
         let avg_genetic_freq = frame
@@ -550,8 +566,16 @@ mod reporting {
             / frame.len() as f64;
         let avg_exec_ratio: f64 =
             frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
+
+        let soup = frame
+            .iter()
+            .map(|g| g.chromosome())
+            .flatten()
+            .cloned()
+            .collect::<IndexSet<u64>>();
+
         log::info!(
-            "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}, avg vectoral fit: {:?}, avg # alleles exec'd: {}, avg exec ratio: {}",
+            "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}, avg vectoral fit: {:?}, avg # alleles exec'd: {}, avg exec ratio: {}, soup size: {}",
             counter,
             avg_len,
             avg_genetic_freq,
@@ -559,10 +583,28 @@ mod reporting {
             avg_vectoral_fitness,
             avg_exec_count,
             avg_exec_ratio,
+            soup.len(),
         );
         log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
-        // let serialized_creatures: Vec<bson::Bson> =
-        //     frame.iter().map(|g| g.into()).collect::<Vec<_>>();
+        // let serialized_creatures: Vec<_> = frame
+        //     .iter()
+        //     .map(|g| bson::to_bson(g).unwrap())
+        //     .collect::<Vec<_>>();
+
+        // let population_dump: bson::Document = bson::doc! {
+        //     "population": serialized_creatures,
+        // };
+        // // FIXME
+        // log::info!("Dumping population to population.bson");
+        let mut population_file =
+            std::fs::File::create("./population.json.gz").expect("Failed to open population file");
+        // population_dump.to_writer(&mut population_file);
+        // log::info!("Population dumped!");
+        let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
+        serde_json::to_writer(&mut gz, &frame);
+        let compressed_population_data = gz.finish().expect("Failed to finish Gzip encoding");
+        population_file.write_all(&compressed_population_data);
+
         let record = StatRecord {
             avg_len,
             avg_genetic_freq,
