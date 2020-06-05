@@ -54,7 +54,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
             iteration,
         } = self;
 
-        let tournament_size = config.tournament_size();
+        let tournament_size = config.tournament.tournament_size;
         let mut rng = thread_rng();
         let mut combatants = iter::repeat(())
             .take(tournament_size)
@@ -86,7 +86,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
         }
 
         // replace the combatants that will neither breed nor die
-        let bystanders = config.tournament_size() - (config.num_offspring() + 2);
+        let bystanders = config.tournament.tournament_size - (config.num_offspring() + 2);
         for _ in 0..bystanders {
             if let Some(c) = combatants.pop() {
                 population.push(c);

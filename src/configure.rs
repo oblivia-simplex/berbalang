@@ -24,13 +24,36 @@ pub struct Config {
     pub pop_size: usize,
     pub problems: Option<Vec<Problem>>,
     pub target_fitness: usize,
-    pub tournament_size: usize,
+    #[serde(default)]
+    pub roulette: RouletteConfig,
+    #[serde(default)]
+    pub tournament: TournamentConfig,
     #[serde(default = "Default::default")]
     pub roper: RoperConfig,
     #[serde(default = "Default::default")]
     pub machine: MachineConfig,
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
+}
+
+fn default_tournament_size() -> usize {
+    4
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct TournamentConfig {
+    #[serde(default = "default_tournament_size")]
+    pub tournament_size: usize,
+}
+
+fn default_weight_decay() -> f64 {
+    0.75
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct RouletteConfig {
+    #[serde(default = "default_weight_decay")]
+    pub weight_decay: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -141,7 +164,7 @@ impl Default for RoperConfig {
 
 impl Config {
     pub fn assert_invariants(&self) {
-        assert!(self.tournament_size >= self.num_offspring + 2);
+        assert!(self.tournament.tournament_size >= self.num_offspring + 2);
         //assert_eq!(self.num_offspring, 2); // all that's supported for now
     }
 
@@ -155,10 +178,6 @@ impl Config {
 
     pub fn population_size(&self) -> usize {
         self.pop_size
-    }
-
-    pub fn tournament_size(&self) -> usize {
-        self.tournament_size
     }
 
     pub fn observer_config(&self) -> ObserverConfig {

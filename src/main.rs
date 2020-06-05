@@ -23,7 +23,6 @@ mod examples;
 mod fitness;
 mod macros;
 mod observer;
-#[allow(unused_imports, dead_code)] // FIXME
 mod roper;
 #[allow(dead_code)] // FIXME
 mod util;

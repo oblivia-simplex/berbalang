@@ -110,7 +110,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
                 }
             }
             front = front.next_front();
-            cur_weight = cur_weight.tanh();
+            cur_weight *= config.roulette.weight_decay;
         }
         indices_weights.sort_by_key(|p| p.0);
         let (indices, weights): (Vec<usize>, Vec<f64>) = indices_weights.iter().cloned().unzip();

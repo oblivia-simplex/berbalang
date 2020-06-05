@@ -400,18 +400,21 @@ pub mod util {
         let pc: i32 = emu.program_counter().into();
 
         let callback = move |engine: &unicorn::Unicorn<'_>, a| {
-            let address = engine.reg_read(pc).unwrap();
-            let memory = loader::get_static_memory_image();
-            let insts = memory.disassemble(address, 64, Some(1)).unwrap();
-            if let Some(inst) = insts.iter().next() {
-                if is_syscall(arch, mode, &inst) {
-                    log::error!(
-                        "INTERRUPT address 0x{:x}, arg: 0x{:x}, disasm:\n{:x?}",
-                        address,
-                        a,
-                        inst
-                    );
-                    engine.emu_stop().expect("Failed to stop engine!");
+            // TODO log the errors
+            if let Ok(address) = engine.reg_read(pc) {
+                let memory = loader::get_static_memory_image();
+                if let Some(insts) = memory.disassemble(address, 64, Some(1)) {
+                    if let Some(inst) = insts.iter().next() {
+                        if is_syscall(arch, mode, &inst) {
+                            log::error!(
+                                "INTERRUPT address 0x{:x}, arg: 0x{:x}, disasm:\n{:x?}",
+                                address,
+                                a,
+                                inst
+                            );
+                            engine.emu_stop().expect("Failed to stop engine!");
+                        }
+                    }
                 }
             }
         };
