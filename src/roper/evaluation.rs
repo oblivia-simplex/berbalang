@@ -23,16 +23,16 @@ pub fn register_pattern_fitness_fn(
     // for now, let's just handle the register pattern task
     if let Some(ref profile) = creature.profile {
         sketch.insert(&profile.registers);
-        let reg_freq = sketch.query(&profile.registers);
+        //let reg_freq = sketch.query(&profile.registers);
         if let Some(pattern) = params.roper.register_pattern() {
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let mut fitness_vector = pattern.distance(&profile.registers[0]);
-            fitness_vector.push(reg_freq);
+            // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
-            fitness_vector.push(crashes);
+            fitness_vector.insert("crashes", crashes);
 
             // let longest_path = profile
             //     .bb_path_iter()
@@ -40,8 +40,8 @@ pub fn register_pattern_fitness_fn(
             //     .max()
             //     .unwrap_or(0) as f64;
             // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative vals
-            creature.set_fitness(Pareto(fitness_vector)); //vec![register_pattern_distance.iter().sum()]));
-                                                          //log::debug!("fitness: {:?}", creature.fitness());
+            creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
+                                                         //log::debug!("fitness: {:?}", creature.fitness());
         } else {
             log::error!("No register pattern?");
         }

@@ -15,6 +15,7 @@ use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
+use crate::fitness::Pareto;
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
 use crate::util::{
@@ -32,7 +33,8 @@ pub struct Creature {
     pub parents: Vec<String>,
     pub generation: usize,
     pub profile: Option<Profile>,
-    pub fitness: Option<Fitness>,
+    #[serde(borrow)]
+    pub fitness: Option<Pareto<'static>>,
 }
 
 impl Creature {
@@ -311,7 +313,7 @@ impl Phenome for Creature {
     }
 
     fn scalar_fitness(&self) -> Option<f64> {
-        self.fitness.as_ref().map(|v| v.0.iter().sum())
+        self.fitness.as_ref().map(|v| v.values().sum())
     }
 
     fn set_fitness(&mut self, f: Self::Fitness) {

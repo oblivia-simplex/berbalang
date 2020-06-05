@@ -29,7 +29,7 @@ mod analysis;
 /// scores to each member of the population.
 mod evaluation;
 
-type Fitness = Pareto;
+type Fitness = Pareto<'static>;
 
 crate::make_phenome_heap_friendly!(Creature);
 

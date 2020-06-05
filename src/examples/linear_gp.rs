@@ -14,7 +14,7 @@ use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
 use crate::util::count_min_sketch::DecayingSketch;
 
-pub type Fitness = Pareto;
+pub type Fitness = Pareto<'static>;
 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
@@ -431,17 +431,17 @@ fn report(window: &Window<Creature>, counter: usize, _params: &ObserverConfig) {
         .map(|g| g.measure_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
-    let avg_fit = frame
-        .iter()
-        .filter_map(|g| g.fitness.as_ref().map(|f| f.0[0]))
-        .sum::<f64>()
-        / frame.len() as f64;
+    // let avg_fit = frame
+    //     .iter()
+    //     .filter_map(|g| g.fitness.as_ref().map(|f| f.0[&0]))
+    //     .sum::<f64>()
+    //     / frame.len() as f64;
     log::info!(
         "[{}] Average length: {}, average genetic frequency: {}; average fitness: {}",
         counter,
         avg_len,
         avg_freq,
-        avg_fit,
+        "NEEDS FIXING", //avg_fit,
     );
 }
 

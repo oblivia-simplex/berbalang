@@ -82,6 +82,7 @@ dependencies = [
  "goblin",
  "hamming",
  "indexmap",
+ "itertools",
  "log",
  "non-dominated-sort",
  "object-pool",
@@ -593,6 +594,15 @@ name = "iter-read"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d03e6379deaba8f70d594164614dbae5d5354e861d7a9f9864a7492f6a29b303"
+
+[[package]]
+name = "itertools"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
+dependencies = [
+ "either",
+]
 
 [[package]]
 name = "itoa"

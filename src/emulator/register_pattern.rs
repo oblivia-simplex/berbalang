@@ -3,9 +3,11 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use byteorder::{ByteOrder, LittleEndian};
-use indexmap::map::IndexMap;
 use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
+
+use indexmap::indexmap;
+use indexmap::map::IndexMap;
 
 use crate::emulator::loader;
 use crate::error::Error;
@@ -145,7 +147,7 @@ impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterSta
 // intractable structure. How do we even begin to "approximate" it?
 
 impl RegisterPattern {
-    pub fn distance(&self, from_emu: &Self) -> Vec<f64> {
+    pub fn distance(&self, from_emu: &Self) -> IndexMap<&'static str, f64> {
         // assumes identical order!
         // let grain = 2;
         // let self_bytes: Vec<u8> = self.into();
@@ -209,7 +211,10 @@ impl RegisterPattern {
             })
             .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
-        vec![reg_score + deref_score, ham_score]
+        indexmap! {
+            "ham_score" => ham_score,
+            "place_score" => reg_score + deref_score,
+        }
     }
 
     pub fn spider(&self) -> IndexMap<String, Vec<u64>> {
