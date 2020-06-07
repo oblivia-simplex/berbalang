@@ -10,6 +10,7 @@ use indexmap::indexmap;
 use indexmap::map::IndexMap;
 
 use crate::emulator::loader;
+use crate::emulator::loader::Seg;
 use crate::error::Error;
 
 pub type Register<C> = <C as Cpu<'static>>::Reg;
@@ -147,7 +148,11 @@ impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterSta
 // intractable structure. How do we even begin to "approximate" it?
 
 impl RegisterPattern {
-    pub fn distance(&self, from_emu: &Self) -> IndexMap<&'static str, f64> {
+    pub fn distance(
+        &self,
+        from_emu: &Self,
+        writeable_memory: Option<&[Seg]>,
+    ) -> IndexMap<&'static str, f64> {
         // assumes identical order!
         // let grain = 2;
         // let self_bytes: Vec<u8> = self.into();
@@ -155,7 +160,7 @@ impl RegisterPattern {
         // let j = jaccard(&self_bytes, &other_bytes, grain, 10);
         // j
         // NOTE: not supporting checking writeable memory yet
-        let spider_map = from_emu.spider();
+        let spider_map = from_emu.spider(writeable_memory);
 
         // find the closest ham
         //log::debug!("Spider map: {:#x?}", spider_map);
@@ -218,11 +223,11 @@ impl RegisterPattern {
         }
     }
 
-    pub fn spider(&self) -> IndexMap<String, Vec<u64>> {
+    pub fn spider(&self, extra_segs: Option<&[Seg]>) -> IndexMap<String, Vec<u64>> {
         let mut map = IndexMap::new();
         let memory = loader::get_static_memory_image();
         for (k, v) in self.0.iter() {
-            let path = memory.deref_chain(v.val, 10, None);
+            let path = memory.deref_chain(v.val, 10, extra_segs);
             // .iter()
             // .enumerate()
             // .map(|(i, a)| RegisterValue {
@@ -330,7 +335,7 @@ mod test {
         });
 
         println!("suppose the resulting state is {:#x?}", res_pat);
-        let distance = pattern.distance(&res_pat);
+        let distance = pattern.distance(&res_pat, None);
         println!("distance = {:?}", distance);
     }
 }

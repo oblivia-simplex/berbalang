@@ -310,7 +310,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         profiler.read_registers(&mut emu);
 
                         // TODO : add this to the profiler
-                        let _writeable_mem = tools::read_writeable_memory(&(*emu))
+                        let writeable_memory = tools::read_writeable_memory(&(*emu))
                             .expect("Failed to read writeable memory");
                         // could some sort of COW structure help here?
                         // TODO consider defining a data structure that looks, from the
@@ -319,6 +319,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         // which areas of the writeable memory need to be read, and read
                         // only those. then fallback to MEM_IMAGE, which should also 
                         // contain writeable areas besides the stack. 
+                        profiler.writeable_memory = writeable_memory;
 
                         // cleanup
                         emu.remove_all_hooks().expect("Failed to clean up hooks");
@@ -388,17 +389,15 @@ pub mod tools {
     // Reads all memory that carries a Protection::WRITE permission.
     // This can be used, e.g., to check to see what a specimen has written
     // to memory.
-    pub fn read_writeable_memory<C: 'static + Cpu<'static>>(
-        emu: &C,
-    ) -> Result<Vec<(MemRegion, Vec<u8>)>, Error> {
+    pub fn read_writeable_memory<C: 'static + Cpu<'static>>(emu: &C) -> Result<Vec<Seg>, Error> {
         emu.mem_regions()?
             .into_iter()
             .filter(MemRegion::writeable)
             .map(|mem_reg| {
                 emu.mem_read_as_vec(mem_reg.begin, mem_reg.size())
-                    .map(|res| (mem_reg, res))
+                    .map(|data| Seg::from_mem_region_and_data(mem_reg, data))
             })
-            .collect::<Result<Vec<(MemRegion, Vec<u8>)>, unicorn::Error>>()
+            .collect::<Result<Vec<Seg>, unicorn::Error>>()
             .map_err(Error::from)
     }
 }

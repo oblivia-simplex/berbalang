@@ -146,8 +146,12 @@ impl fmt::Debug for Creature {
             }
             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
             writeln!(f, "\nSpidered register state:")?;
-            for state in profile.registers.iter() {
-                writeln!(f, "{:#x?}", state.spider())?;
+            for (reg_state, mem) in profile
+                .registers
+                .iter()
+                .zip(profile.writeable_memory.iter())
+            {
+                writeln!(f, "{:#x?}", reg_state.spider(Some(mem)))?;
             }
             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }

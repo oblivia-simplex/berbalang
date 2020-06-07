@@ -26,7 +26,8 @@ pub fn register_pattern_fitness_fn(
         if let Some(pattern) = params.roper.register_pattern() {
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
-            let mut fitness_vector = pattern.distance(&profile.registers[0]);
+            let writeable_memory = Some(&profile.writeable_memory[0][..]);
+            let mut fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
             // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?

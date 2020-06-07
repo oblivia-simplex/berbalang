@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
 use crate::emulator::loader;
+use crate::emulator::loader::Seg;
 use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
 
 // TODO: why store the size at all, if you're just going to
@@ -93,6 +94,7 @@ pub struct Profiler<C: Cpu<'static>> {
     pub block_log: Arc<Mutex<Vec<Block>>>,
     pub gadget_log: Arc<Mutex<Vec<u64>>>,
     /// These fields are written to after the emulation has finished.
+    pub writeable_memory: Vec<Seg>,
     pub cpu_error: Option<unicorn::Error>,
     pub computation_time: Duration,
     pub registers: IndexMap<Register<C>, u64>,
@@ -112,6 +114,7 @@ pub struct Profile {
     pub computation_times: Vec<Duration>,
     pub registers: Vec<RegisterPattern>,
     pub gadgets_executed: IndexSet<u64>,
+    pub writeable_memory: Vec<Vec<Seg>>,
 }
 
 impl Profile {
@@ -122,6 +125,7 @@ impl Profile {
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
         let mut gadgets_executed = IndexSet::new();
+        let mut writeable_memory_regions = Vec::new();
 
         for Profiler {
             block_log,
@@ -130,6 +134,7 @@ impl Profile {
             computation_time,
             registers,
             gadget_log,
+            writeable_memory,
             ..
         } in profilers.into_iter()
         {
@@ -152,6 +157,7 @@ impl Profile {
             computation_times.push(computation_time);
             let state: UnicornRegisterState<C> = UnicornRegisterState(registers);
             register_maps.push(state.into());
+            writeable_memory_regions.push(writeable_memory);
         }
 
         Self {
@@ -161,6 +167,7 @@ impl Profile {
             computation_times,
             gadgets_executed,
             registers: register_maps,
+            writeable_memory: writeable_memory_regions,
         }
     }
 
@@ -251,6 +258,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             computation_time: Duration::default(),
             block_log: Arc::new(Mutex::new(Vec::new())),
             gadget_log: Arc::new(Mutex::new(Vec::new())),
+            writeable_memory: vec![],
         }
     }
 }

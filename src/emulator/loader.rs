@@ -1,5 +1,6 @@
-use crate::disassembler::Disassembler;
-use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+use std::fmt;
+use std::sync::Once;
+
 use capstone::Instructions;
 use goblin::{
     elf::{self, Elf},
@@ -7,9 +8,11 @@ use goblin::{
 };
 use rand::distributions::{Distribution, WeightedIndex};
 use rand::{thread_rng, Rng};
-use std::fmt;
-use std::sync::Once;
+use serde::{Deserialize, Serialize};
 use unicorn::Protection;
+
+use crate::disassembler::Disassembler;
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 
 pub const PAGE_SIZE: u64 = 0x1000;
 
@@ -203,7 +206,7 @@ impl MemoryImage {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct Seg {
     pub addr: u64,
     pub memsz: usize,
@@ -232,15 +235,15 @@ pub fn align(n: u64) -> u64 {
 }
 
 impl Seg {
-    // pub fn from_mem_region_and_data(reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
-    //     Self {
-    //         addr: reg.begin,
-    //         memsz: (reg.end - reg.begin) as usize,
-    //         perm: reg.perms,
-    //         segtype: SegType::Null,
-    //         data,
-    //     }
-    // }
+    pub fn from_mem_region_and_data(reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
+        Self {
+            addr: reg.begin,
+            memsz: (reg.end - reg.begin) as usize,
+            perm: reg.perms,
+            segtype: SegType::Null, // FIXME
+            data,
+        }
+    }
 
     pub fn from_phdr(phdr: &elf::ProgramHeader) -> Self {
         let mut uc_perm = unicorn::Protection::NONE;
@@ -330,7 +333,7 @@ impl Seg {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum SegType {
     Null,
     Load,
