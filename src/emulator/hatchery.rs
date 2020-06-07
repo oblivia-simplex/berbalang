@@ -229,7 +229,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         }));
         let thread_pool = Arc::new(Mutex::new(ThreadPool::new(params.num_workers)));
 
-        let emu_prep_fn = Arc::new(emu_prep_fn.unwrap_or_else(|| Box::new(util::emu_prep_fn)));
+        let emu_prep_fn = Arc::new(emu_prep_fn.unwrap_or_else(|| Box::new(hooking::emu_prep_fn)));
         let wait_limit = params.wait_limit;
         let mode = params.mode;
         let millisecond_timeout = params.millisecond_timeout.unwrap_or(0);
@@ -263,21 +263,21 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         let context: Context = (*emu).context_save().expect("Failed to save context");
 
                         if params.record_basic_blocks {
-                            let _hook = util::install_basic_block_hook(&mut (*emu), &profiler)
+                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &profiler)
                                 .expect("Failed to install basic_block_hook");
                         }
 
                         // track gadget entry execution
-                        let _hook = util::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
+                        let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
                             .expect("Failed to install address tracking hook");
 
                         if cfg!(debug_assertions) {
                             // install the disassembler hook
-                            let _hook = util::install_disas_tracer_hook(&mut (*emu), disas.clone())
+                            let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone())
                                 .expect("Failed to install tracer hook");
                         }
 
-                        let _hook = util::install_syscall_hook(&mut (*emu), params.arch, params.mode);
+                        let _hook = hooking::install_syscall_hook(&mut (*emu), params.arch, params.mode);
                         // if params.record_memory_writes {
                         //     let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
                         //         .expect("Failed to install mem_write_hook");
@@ -308,6 +308,17 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                             profiler.set_error(error_code)
                         };
                         profiler.read_registers(&mut emu);
+
+                        // TODO : add this to the profiler
+                        let _writeable_mem = tools::read_writeable_memory(&(*emu))
+                            .expect("Failed to read writeable memory");
+                        // could some sort of COW structure help here?
+                        // TODO consider defining a data structure that looks, from the
+                        // outside, like a vector, but which is actually composed of an
+                        // indexmap of written-to areas. use the mem-write log to learn
+                        // which areas of the writeable memory need to be read, and read
+                        // only those. then fallback to MEM_IMAGE, which should also 
+                        // contain writeable areas besides the stack. 
 
                         // cleanup
                         emu.remove_all_hooks().expect("Failed to clean up hooks");
@@ -370,7 +381,29 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
 }
 // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
 
-pub mod util {
+pub mod tools {
+    use super::*;
+    use unicorn::MemRegion;
+
+    // Reads all memory that carries a Protection::WRITE permission.
+    // This can be used, e.g., to check to see what a specimen has written
+    // to memory.
+    pub fn read_writeable_memory<C: 'static + Cpu<'static>>(
+        emu: &C,
+    ) -> Result<Vec<(MemRegion, Vec<u8>)>, Error> {
+        emu.mem_regions()?
+            .into_iter()
+            .filter(MemRegion::writeable)
+            .map(|mem_reg| {
+                emu.mem_read_as_vec(mem_reg.begin, mem_reg.size())
+                    .map(|res| (mem_reg, res))
+            })
+            .collect::<Result<Vec<(MemRegion, Vec<u8>)>, unicorn::Error>>()
+            .map_err(Error::from)
+    }
+}
+
+pub mod hooking {
     use unicorn::{CodeHookType, MemHookType, MemRegion, MemType, Protection};
 
     use super::*;
@@ -555,20 +588,6 @@ pub mod util {
         }
     }
 
-    // Reads all memory that carries a Protection::WRITE permission.
-    // This can be used, e.g., to check to see what a specimen has written
-    // to memory.
-    pub fn read_writeable_memory<C: 'static + Cpu<'static>>(
-        emu: &C,
-    ) -> Result<Vec<Vec<u8>>, Error> {
-        emu.mem_regions()?
-            .into_iter()
-            .filter(MemRegion::writeable)
-            .map(|m| emu.mem_read_as_vec(m.begin, m.size()))
-            .collect::<Result<Vec<Vec<u8>>, unicorn::Error>>()
-            .map_err(Error::from)
-    }
-
     /// Add a memory hook wherever the specified protections are satisfied.
     ///
     /// The callback takes four arguments:
@@ -647,7 +666,7 @@ mod test {
             _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
             // now write the payload
-            let stack = util::find_stack(emu)?;
+            let stack = hooking::find_stack(emu)?;
             let sp = stack.begin + (stack.end - stack.begin) / 2;
             emu.mem_write(sp, code)?;
             // set the stack pointer to the middle of the stack

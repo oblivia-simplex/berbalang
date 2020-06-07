@@ -26,7 +26,7 @@ impl Block {
     pub fn get_code(&self) -> &'static [u8] {
         let memory = loader::get_static_memory_image();
         memory
-            .try_dereference(self.entry)
+            .try_dereference(self.entry, None)
             .map(|b| &b[..self.size])
             .unwrap()
     }
@@ -49,6 +49,44 @@ impl fmt::Debug for Block {
         )
     }
 }
+
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct Region {
+//     pub begin: u64,
+//     pub end: u64,
+//     pub perm: unicorn::Protection,
+//     data: Vec<u8>,
+// }
+//
+// impl Region {
+//     pub fn new(mem_reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
+//         Self {
+//             begin: mem_reg.begin,
+//             end: mem_reg.end,
+//             perm: mem_reg.perms,
+//             data,
+//         }
+//     }
+// }
+//
+// impl Index<usize> for Region {
+//     type Output = [u8];
+//
+//     fn index(&self, index: usize) -> &Self::Output {
+//         assert!(
+//             self.begin <= index as u64,
+//             "index cannot be smaller than the first address in the region"
+//         );
+//         let offset = self.begin - index as u64;
+//         assert!(
+//             offset < self.end,
+//             "index cannot be larger than the last address in the region"
+//         );
+//         &self.data[offset as usize..]
+//     }
+// }
+// // TODO: fix this. we want something that composes with MemImage.
+// // should be in the loader crate.
 
 pub struct Profiler<C: Cpu<'static>> {
     /// The Arc<Mutex<_>> fields need to be writeable for the unicorn callbacks.

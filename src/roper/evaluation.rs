@@ -7,7 +7,7 @@ use unicorn::Cpu;
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::evaluator::FitnessFn;
 use crate::{
-    configure::Config, emulator::executor::Hatchery, evaluator::Evaluate, evolution::Phenome,
+    configure::Config, emulator::hatchery::Hatchery, evaluator::Evaluate, evolution::Phenome,
     util::count_min_sketch::DecayingSketch,
 };
 

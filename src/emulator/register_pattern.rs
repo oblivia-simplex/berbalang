@@ -222,7 +222,7 @@ impl RegisterPattern {
         let mut map = IndexMap::new();
         let memory = loader::get_static_memory_image();
         for (k, v) in self.0.iter() {
-            let path = memory.deref_chain(v.val, 10);
+            let path = memory.deref_chain(v.val, 10, None);
             // .iter()
             // .enumerate()
             // .map(|(i, a)| RegisterValue {

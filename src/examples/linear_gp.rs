@@ -655,7 +655,7 @@ mod evaluation {
     }
 }
 
-fn prepare(mut config: Config) -> (Observer<Creature>, evaluation::Evaluator) {
+fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evaluator) {
     let problems = parse_data(&config.data.path);
     assert!(problems.is_some());
     // figure out the number of return registers needed
@@ -686,7 +686,7 @@ fn prepare(mut config: Config) -> (Observer<Creature>, evaluation::Evaluator) {
     let fitness_fn: FitnessFn<Creature, _, _> = Box::new(evaluation::fitness_function);
     let observer = Observer::spawn(&config, report_fn);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-    (observer, evaluator)
+    (config, observer, evaluator)
 }
 
 crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
@@ -694,7 +694,7 @@ crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
 pub fn run(config: Config) -> Option<Creature> {
     //let target_fitness = config.target_fitness;
     let selection = config.selection;
-    let (observer, evaluator) = prepare(config.clone());
+    let (config, observer, evaluator) = prepare(config);
 
     match selection {
         Selection::Tournament => {

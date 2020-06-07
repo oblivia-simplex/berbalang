@@ -265,7 +265,7 @@ impl Genome for Creature {
             0 => {
                 // Dereference mutation
                 let memory = loader::get_static_memory_image();
-                if let Some(bytes) = memory.try_dereference(self.chromosome[i]) {
+                if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
                     if bytes.len() > 8 {
                         let endian = endian(params.roper.arch, params.roper.mode);
                         let word_size = word_size_in_bytes(params.roper.arch, params.roper.mode);
