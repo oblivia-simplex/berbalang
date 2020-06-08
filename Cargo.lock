@@ -83,7 +83,7 @@ dependencies = [
  "futures",
  "goblin",
  "hamming",
- "indexmap",
+ "hashbrown",
  "itertools",
  "log",
  "non-dominated-sort",
@@ -555,6 +555,8 @@ checksum = "96282e96bfcd3da0d3aa9938bedf1e50df3269b6db08b4876d2da0bb1a0841cf"
 dependencies = [
  "ahash",
  "autocfg",
+ "rayon",
+ "serde",
 ]
 
 [[package]]
@@ -588,7 +590,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "076f042c5b7b98f31d205f1249267e12a6518c1481e9dae9764af19b707d2292"
 dependencies = [
  "autocfg",
- "serde",
 ]
 
 [[package]]

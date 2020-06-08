@@ -34,6 +34,12 @@ impl From<std::sync::mpsc::RecvError> for Error {
     }
 }
 
+impl From<serde_json::error::Error> for Error {
+    fn from(e: serde_json::error::Error) -> Self {
+        Self::Parsing(e.to_string())
+    }
+}
+
 // type RegisterParseError<C> = <<C as Cpu<'static>>::Reg as FromStr>::Err;
 //
 // impl<C: Cpu<'static>> From<<<C as Cpu<'static>>::Reg as FromStr>::Err> for Error {

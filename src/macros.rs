@@ -40,3 +40,17 @@ macro_rules! impl_dominance_ord_for_phenome {
         }
     };
 }
+
+#[macro_export]
+macro_rules! hashmap {
+    ($($key:expr => $val:expr$(,)?)*) => {
+        {
+            let mut map = ::hashbrown::HashMap::new();
+            $(
+                let _ = map.insert($key, $val);
+            )*
+            map
+        }
+    }
+
+}

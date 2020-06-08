@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use indexmap::map::IndexMap;
+use hashbrown::HashMap;
 use unicorn::Cpu;
 
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
@@ -34,12 +34,16 @@ pub fn register_pattern_fitness_fn(
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
             fitness_vector.insert("crash_count", crashes);
 
-            // let longest_path = profile
-            //     .bb_path_iter()
-            //     .map(|v: Vec<Block>| v.len())
-            //     .max()
-            //     .unwrap_or(0) as f64;
-            // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative val
+            let longest_path = profile
+                .bb_path_iter()
+                .map(|v: &Vec<_>| {
+                    let mut s = v.clone();
+                    s.dedup();
+                    s.len()
+                })
+                .max()
+                .unwrap_or(0) as f64;
+            fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
             creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
                                                          //log::debug!("fitness: {:?}", creature.fitness());
         } else {
@@ -92,7 +96,7 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         let mut params = params.clone();
         params.roper.parse_register_pattern();
         let hatch_params = Arc::new(params.roper.clone());
-        let inputs = vec![IndexMap::new()]; // TODO: if dealing with data, fill this in
+        let inputs = vec![HashMap::new()]; // TODO: if dealing with data, fill this in
         let register_pattern = params.roper.register_pattern();
         let output_registers: Vec<Register<C>> = {
             let mut out_reg: Vec<Register<C>> = params

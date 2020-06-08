@@ -14,7 +14,8 @@ use unicorn::Protection;
 use crate::disassembler::Disassembler;
 use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 
-pub const PAGE_SIZE: u64 = 0x1000;
+pub const PAGE_BITS: u64 = 12;
+pub const PAGE_SIZE: u64 = 1 << PAGE_BITS;
 
 // placeholders
 pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
@@ -76,11 +77,7 @@ impl MemoryImage {
         addr: u64,
         extra_segs: Option<&'a [Seg]>,
     ) -> Option<&'a Seg> {
-        for s in self.segs.iter() {
-            if s.aligned_start() <= addr && addr < s.aligned_end() {
-                return Some(s);
-            }
-        }
+        // check the extra segs first, since they may be shadowed by the mem_image
         if let Some(extra) = extra_segs {
             for s in extra.iter() {
                 if s.aligned_start() <= addr && addr < s.aligned_end() {
@@ -88,21 +85,14 @@ impl MemoryImage {
                 }
             }
         }
+        for s in self.segs.iter() {
+            if s.aligned_start() <= addr && addr < s.aligned_end() {
+                return Some(s);
+            }
+        }
+
         None
     }
-
-    // pub fn containing_seg_extra<'a>(&'a self, addr: u64, extra_segs: &'a [Seg]) -> Option<&'a Seg> {
-    //     if let Some(seg) = self.containing_seg(addr) {
-    //         Some(seg)
-    //     } else {
-    //         for s in extra_segs.iter() {
-    //             if s.aligned_start() <= addr && addr < s.aligned_end() {
-    //                 return Some(s);
-    //             }
-    //         }
-    //         None
-    //     }
-    // }
 
     pub fn perm_of_addr(&self, addr: u64) -> Option<Protection> {
         self.containing_seg(addr, None).map(|a| a.perm)
@@ -119,8 +109,7 @@ impl MemoryImage {
         extra_segs: Option<&'a [Seg]>,
     ) -> Option<&'a [u8]> {
         self.containing_seg(addr, extra_segs).and_then(|s| {
-            let bump = (s.addr - s.aligned_start()) as usize;
-            let offset = bump + (addr - s.aligned_start()) as usize;
+            let offset = (addr - s.aligned_start()) as usize;
 
             if offset > s.data.len() {
                 None
@@ -231,7 +220,8 @@ impl fmt::Display for Seg {
 
 #[inline]
 pub fn align(n: u64) -> u64 {
-    (n / PAGE_SIZE) * PAGE_SIZE
+    //n >> PAGE_BITS << PAGE_BITS
+    (n + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1)
 }
 
 impl Seg {

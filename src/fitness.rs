@@ -1,10 +1,10 @@
+use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::ops::{Add, Div, Index, IndexMut};
+use std::ops::{Add, Div, Index};
 
-use indexmap::map::IndexMap;
+use hashbrown::HashMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 
 pub trait FitnessScoreReq:
     PartialEq + Debug + Send + Clone + PartialOrd + Serialize + Add + Div
@@ -28,11 +28,11 @@ pub trait FitnessScore:
 impl FitnessScore for Vec<f64> {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Pareto<'a>(#[serde(borrow)] IndexMap<&'a str, f64>);
+pub struct Pareto<'a>(#[serde(borrow)] HashMap<&'a str, f64>);
 
 impl Pareto<'static> {
     pub fn new() -> Self {
-        Pareto(IndexMap::new())
+        Pareto(HashMap::new())
     }
 
     pub fn insert(&mut self, name: &'static str, thing: f64) {
@@ -48,7 +48,7 @@ impl Pareto<'static> {
     }
 
     pub fn average(frame: &[&Self]) -> Self {
-        let mut map = IndexMap::new();
+        let mut map = HashMap::new();
         for p in frame.iter() {
             for (&k, &v) in p.0.iter() {
                 *(map.entry(k).or_insert(0.0)) += v;
@@ -112,7 +112,7 @@ static UNNAMED_OBJECTIVES: [&str; 10] = [
 
 impl From<Vec<f64>> for Pareto<'static> {
     fn from(vec: Vec<f64>) -> Self {
-        let mut map = IndexMap::new();
+        let mut map = HashMap::new();
         for (i, v) in vec.iter().enumerate() {
             map.insert(UNNAMED_OBJECTIVES[i], *v);
         }
@@ -120,8 +120,8 @@ impl From<Vec<f64>> for Pareto<'static> {
     }
 }
 
-impl From<IndexMap<&'static str, f64>> for Pareto<'static> {
-    fn from(map: IndexMap<&'static str, f64>) -> Self {
+impl From<HashMap<&'static str, f64>> for Pareto<'static> {
+    fn from(map: HashMap<&'static str, f64>) -> Self {
         Pareto(map)
     }
 }
@@ -159,16 +159,16 @@ impl Index<usize> for Pareto<'static> {
     }
 }
 
-impl IndexMut<&str> for Pareto<'static> {
-    fn index_mut(&mut self, i: &str) -> &mut Self::Output {
-        &mut self.0[i]
-    }
-}
+// impl IndexMut<&str> for Pareto<'static> {
+//     fn index_mut(&mut self, i: &str) -> &mut Self::Output {
+//         &mut self.0[i]
+//     }
+// }
 
 #[macro_export]
 macro_rules! pareto {
     ($($key:expr => $val:expr, $(,)?)*) => {
-        Pareto(indexmap!{$( $key => $val, )*})
+        Pareto(hashmap!{$( $key => $val, )*})
     }
 }
 
@@ -183,8 +183,9 @@ pub type Lexical<T> = Vec<T>;
 
 #[cfg(test)]
 mod test {
+    use crate::hashmap;
+
     use super::*;
-    use indexmap::indexmap;
 
     #[test]
     fn test_pareto_ordering() {

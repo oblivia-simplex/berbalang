@@ -110,7 +110,7 @@ impl Pack for Creature {
 
 impl fmt::Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Name: {}\nFitness: {:?}", self.name, self.fitness())?;
+        writeln!(f, "Name: {}", self.name)?;
         writeln!(f, "Generation: {}", self.generation)?;
         let memory = loader::get_static_memory_image();
         for i in 0..self.chromosome.len() {
@@ -155,6 +155,7 @@ impl fmt::Debug for Creature {
             }
             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }
+        writeln!(f, "Fitness: {:#?}", self.fitness())?;
         Ok(())
     }
 }
@@ -166,9 +167,15 @@ pub fn init_soup(params: &mut RoperConfig) -> Result<(), Error> {
         // parse the gadget file
         let reader = File::open(gadget_file).map(BufReader::new)?;
 
-        for line in reader.lines() {
-            let word = line?.parse::<u64>()?;
-            soup.push(word)
+        if gadget_file.ends_with(".json") {
+            log::info!("Deserializing soup from {}", gadget_file);
+            soup = serde_json::from_reader(reader)?;
+        } else {
+            log::info!("Parsing soup from {}", gadget_file);
+            for line in reader.lines() {
+                let word = line?.parse::<u64>()?;
+                soup.push(word)
+            }
         }
     } else if let Some(soup_size) = params.soup_size.as_ref() {
         let memory = loader::get_static_memory_image();
@@ -265,7 +272,7 @@ impl Genome for Creature {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.chromosome.len());
 
-        match rng.gen_range(0, 4) {
+        match rng.gen_range(0, 6) {
             0 => {
                 // Dereference mutation
                 let memory = loader::get_static_memory_image();
@@ -300,6 +307,16 @@ impl Genome for Creature {
             }
             3 => {
                 self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+            }
+            4 => {
+                if rng.gen::<bool>() {
+                    self.chromosome[i] >>= 1;
+                } else {
+                    self.chromosome[i] <<= 1;
+                }
+            }
+            5 => {
+                self.chromosome[i] = loader::get_static_memory_image().random_address(None);
             }
             // 5 => {
             //     self.crossover_mask ^= 1 << rng.gen_range(0, 64);

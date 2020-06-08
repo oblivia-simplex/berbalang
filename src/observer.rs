@@ -8,7 +8,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::util::count_min_sketch::DecayingSketch;
 use deflate::write::GzEncoder;
 use deflate::Compression;
-use indexmap::set::IndexSet;
+use hashbrown::HashSet;
 use serde::Serialize;
 use std::fs;
 use std::io::Write;
@@ -184,7 +184,7 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
             .map(|g| g.chromosome())
             .flatten()
             .cloned()
-            .collect::<IndexSet<_>>();
+            .collect::<HashSet<_>>();
         let path = format!(
             "{}/soup/soup_{}.json",
             self.params.data_directory(),
@@ -193,7 +193,7 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
         if let Ok(mut soup_file) =
             fs::File::create(&path).map_err(|e| log::error!("Failed to create soup file: {:?}", e))
         {
-            let soup_vec = soup.drain(..).collect::<Vec<_>>();
+            let soup_vec = soup.drain().collect::<Vec<_>>();
             serde_json::to_writer(&mut soup_file, &soup_vec).expect("Failed to dump soup!");
             log::info!("Soup dumped to {}", path);
         }
