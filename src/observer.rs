@@ -163,7 +163,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.report();
         }
 
-        if self.params.num_epochs != 0 && self.params.num_epochs >= crate::get_epoch_counter() {
+        if self.params.num_epochs != 0 && self.params.num_epochs <= crate::get_epoch_counter() {
             self.stop_evolution();
         }
     }
