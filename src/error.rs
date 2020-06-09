@@ -40,6 +40,12 @@ impl From<serde_json::error::Error> for Error {
     }
 }
 
+impl From<toml::de::Error> for Error {
+    fn from(e: toml::de::Error) -> Self {
+        Self::Parsing(e.to_string())
+    }
+}
+
 // type RegisterParseError<C> = <<C as Cpu<'static>>::Reg as FromStr>::Err;
 //
 // impl<C: Cpu<'static>> From<<<C as Cpu<'static>>::Reg as FromStr>::Err> for Error {

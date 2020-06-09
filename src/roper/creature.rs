@@ -15,7 +15,6 @@ use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::Pareto;
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
 use crate::util::{
@@ -34,12 +33,13 @@ pub struct Creature {
     pub generation: usize,
     pub profile: Option<Profile>,
     #[serde(borrow)]
-    pub fitness: Option<Pareto<'static>>,
+    pub fitness: Option<Fitness<'static>>,
+    pub front: Option<usize>,
 }
 
 impl Creature {
     /// Returns the number of alleles executed.
-    pub fn num_alleles_executed(&self) -> usize {
+    pub fn num_uniq_alleles_executed(&self) -> usize {
         if let Some(ref profile) = self.profile {
             profile.gadgets_executed.len()
         } else {
@@ -67,7 +67,7 @@ impl Creature {
         };
         executable_alleles.dedup();
         let uniq_count = executable_alleles.len();
-        let exec_count = self.num_alleles_executed();
+        let exec_count = self.num_uniq_alleles_executed();
         exec_count as f64 / uniq_count as f64
     }
 }
@@ -227,6 +227,7 @@ impl Genome for Creature {
             generation: 0,
             profile: None,
             fitness: None,
+            front: None,
         }
     }
 
@@ -265,6 +266,7 @@ impl Genome for Creature {
             generation,
             profile: None,
             fitness: None,
+            front: None,
         }
     }
 
@@ -327,7 +329,7 @@ impl Genome for Creature {
 }
 
 impl Phenome for Creature {
-    type Fitness = Fitness;
+    type Fitness = Fitness<'static>;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -359,5 +361,13 @@ impl Phenome for Creature {
 
     fn len(&self) -> usize {
         self.chromosome().len()
+    }
+
+    fn front(&self) -> Option<usize> {
+        self.front
+    }
+
+    fn set_front(&mut self, rank: usize) {
+        self.front = Some(rank)
     }
 }

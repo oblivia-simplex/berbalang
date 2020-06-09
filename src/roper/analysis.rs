@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::Pareto;
+use crate::fitness::MapFit;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
 use crate::util::count_min_sketch::DecayingSketch;
@@ -17,7 +17,7 @@ pub struct StatRecord {
     pub avg_scalar_fitness: f64,
     // TODO: how to report on fitness vectors?
     // #[serde(flatten)]
-    pub avg_exec_count: f64,
+    pub avg_uniq_exec_count: f64,
     pub avg_exec_ratio: f64,
     // Fitness scores // TODO find a way to make this more flexible
     // pub avg_place_error: f64,
@@ -42,11 +42,11 @@ impl StatRecord {
         let avg_scalar_fitness: f64 =
             frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
         let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();
-        let fit_vec = Pareto::average(&fitnesses);
+        let fit_vec = MapFit::average(&fitnesses);
 
         let avg_exec_count: f64 = frame
             .iter()
-            .map(|g| g.num_alleles_executed() as f64)
+            .map(|g| g.num_uniq_alleles_executed() as f64)
             .sum::<f64>()
             / frame.len() as f64;
         let avg_exec_ratio: f64 =
@@ -57,7 +57,7 @@ impl StatRecord {
             avg_len,
             avg_genetic_freq,
             avg_scalar_fitness,
-            avg_exec_count,
+            avg_uniq_exec_count: avg_exec_count,
             avg_exec_ratio,
             // fitness scores
             // TODO: it would be nice if this were less hard-coded
@@ -100,20 +100,17 @@ pub fn report_fn(
     log::info!("{:#?}", record);
 
     window.log_record(record);
-    window.dump_soup();
-    window.dump_population();
 
     let total = window.archive.len();
-    log::info!(
-        "[{}] Current Pareto front contains {} specimens:",
-        counter,
-        total
-    );
+    log::info!("Current Pareto front contains {} specimens:", total);
     for (i, specimen) in window.archive.iter().enumerate() {
         log::info!("Specimen #{}: {:#?}", i, specimen);
         break;
     }
 
+    if let Ok(stat) = procinfo::pid::statm_self() {
+        log::info!("Memory status: {:#x?}", stat);
+    }
     if halting_condition_reached(window, params) {
         window.stop_evolution();
     }

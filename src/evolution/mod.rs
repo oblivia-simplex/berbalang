@@ -136,4 +136,14 @@ pub trait Phenome: Clone + Debug + Send + Ord + Serialize {
     fn store_answers(&mut self, results: Vec<Problem>);
 
     fn len(&self) -> usize;
+
+    /// Return the rank of the Pareto front in which the phenotype most
+    /// recently appeared. Unused when not performing Pareto selection.
+    fn front(&self) -> Option<usize> {
+        unimplemented!("implement as needed")
+    }
+
+    fn set_front(&mut self, _rank: usize) {
+        unimplemented!("implement as needed")
+    }
 }

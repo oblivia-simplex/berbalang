@@ -1,8 +1,10 @@
 use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
+use crate::error::Error;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
+use std::path::Path;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DataConfig {
@@ -49,6 +51,7 @@ pub struct Config {
     pub machine: MachineConfig,
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
+    pub num_epochs: usize,
 }
 
 fn default_tournament_size() -> usize {
@@ -81,6 +84,7 @@ pub struct ObserverConfig {
     pub dump_soup: bool,
     pub window_size: usize,
     pub report_every: usize,
+    pub dump_every: usize,
     #[serde(default)]
     pub full_data_directory: String,
     data_directory: String,
@@ -89,6 +93,16 @@ pub struct ObserverConfig {
 }
 
 impl Config {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        let mut config: Self = toml::from_str(&std::fs::read_to_string(&path)?)?;
+        config.assert_invariants();
+        config.set_data_directory();
+        // copy the config file to the data directory for posterity
+        std::fs::copy(&path, &format!("{}/config.toml", config.data_directory()))?;
+
+        Ok(config)
+    }
+
     /// Returns the path to the full data directory, creating it if necessary.
     pub fn set_data_directory(&mut self) {
         let local_date: DateTime<Local> = Local::now();

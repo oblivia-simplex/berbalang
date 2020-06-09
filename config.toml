@@ -7,7 +7,7 @@ selection = "Roulette"
 #selection = "Tournament" # currently inefficient
 #selection = "Metropolis"
 mut_rate = 0.05
-crossover_period = 3
+crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
@@ -16,13 +16,14 @@ num_offspring = 2
 num_parents = 2
 target_fitness = 0
 max_length = 100
+num_epochs = 1000
 
 [tournament]
 tournament_size = 4
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
-weight_decay = 0.7
+weight_decay = 0.95
 
 [hello]
 target = "Mares eat oats and does eat oats and little lambs eat ivy."
@@ -33,10 +34,11 @@ max_steps = 0x1000
 
 [observer]
 dump_population = false
-dump_soup = false 
+dump_soup = true 
 data_directory = "~/logs"
-window_size  = 1000
-report_every = 10_000
+window_size  = 100
+report_every = 100
+dump_every = 10000
 
 [data]
 path = "./data/iris.tsv"
@@ -46,9 +48,9 @@ path = "./data/iris.tsv"
 [roper]
 arch = "X86"
 mode = "MODE_64"
-gadget_file = "./gadgets/sh_soup.json"
-soup_size = 0x1000
-binary_path = "/bin/sh"
+#gadget_file = "./gadgets/sh_soup.json"
+soup_size = 0x10000
+binary_path = "/tmp/ldconfig"
 num_workers = 41
 num_emulators = 31
 max_emu_steps = 0x1_000
@@ -56,8 +58,8 @@ millisecond_timeout = 500
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 output_registers = [ "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
-[roper.register_pattern] 
-RAX = "59"
-RDI = "&0x41414141_41414141"
-RSI = "&&0"
-RDI = "&&0"
+  [roper.register_pattern] 
+  RAX = "59"                   # execve syscall number
+  RDI = "&0x0068732f_6e69622f" # "/bin/sh" packed as an integer
+  RSI = "&&0"                  # an empty argv array
+  RDI = "&&0"                  # an empty env array

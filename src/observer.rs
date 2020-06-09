@@ -129,6 +129,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
     }
 
     fn insert(&mut self, thing: O) {
+        // Update the "best" seen so far, using scalar fitness measures
         match &self.best {
             None => self.best = Some(thing.clone()),
             Some(champ) => {
@@ -141,18 +142,29 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                 }
             }
         }
-        self.counter += 1;
+        // insert the incoming thing into the observation window
         self.i = (self.i + 1) % self.window_size;
         if self.frame.len() < self.window_size {
             self.frame.push(thing)
         } else {
             self.frame[self.i] = thing;
         }
+
+        // Perform various periodic tasks
+        self.counter += 1;
+        if self.counter % self.params.observer.dump_every == 0 {
+            self.dump_soup();
+            self.dump_population();
+        }
         if self.counter % self.params.pop_size == 0 {
             self.update_archive();
         }
         if self.counter % self.report_every == 0 {
             self.report();
+        }
+
+        if self.params.num_epochs != 0 && self.params.num_epochs >= crate::get_epoch_counter() {
+            self.stop_evolution();
         }
     }
 
@@ -162,12 +174,17 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         let arena = self
             .archive
             .iter()
-            .chain(self.frame.iter())
+            .chain(self.frame.iter().filter(|g| g.front() == Some(0)))
             .cloned() // trouble non_dom sorting refs
             .collect::<Vec<O>>();
-        //log::info!("sorting");
+
+        // arena.sort_by(|a, b| {
+        //     a.fitness()
+        //         .partial_cmp(&b.fitness())
+        //         .unwrap_or(Ordering::Equal)
+        // });
+
         let front = non_dominated_sort(&arena, &self.dominance_order);
-        //log::info!("sorted");
         let sample = front
             .current_front_indices()
             .choose_multiple(&mut thread_rng(), self.params.pop_size);

@@ -31,8 +31,10 @@ pub fn register_pattern_fitness_fn(
             // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?
-            let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
-            fitness_vector.insert("crash_count", crashes);
+            // let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
+            // fitness_vector.insert("crash_count", crashes);
+
+            fitness_vector.insert("gadgets_executed", -(profile.gadgets_executed.len() as f64));
 
             // let longest_path = profile
             //     .bb_path_iter()
