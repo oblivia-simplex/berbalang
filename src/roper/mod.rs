@@ -36,7 +36,7 @@ crate::make_phenome_heap_friendly!(Creature);
 fn prepare<C: 'static + Cpu<'static>>(
     config: Config,
 ) -> (Observer<Creature>, evaluation::Evaluator<C>) {
-    let observer = Observer::spawn(&config, Box::new(analysis::report_fn));
+    let observer = Observer::spawn(&config, Box::new(analysis::report_fn), CreatureDominanceOrd);
     let evaluator =
         evaluation::Evaluator::spawn(&config, Box::new(evaluation::register_pattern_fitness_fn));
     (observer, evaluator)
@@ -61,7 +61,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             let mut world =
                 Tournament::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
             let mut counter = 0;
-            loop {
+            while world.observer.keep_going() {
                 world = world.evolve();
                 counter += 1;
                 if counter % 0x1000 == 0 {
@@ -77,14 +77,14 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                     evaluator,
                     CreatureDominanceOrd,
                 );
-            loop {
+            while world.observer.keep_going() {
                 world = world.evolve();
             }
         }
         Selection::Metropolis => {
             let mut world =
                 Metropolis::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
-            loop {
+            while world.observer.keep_going() {
                 world = world.evolve();
             }
         }

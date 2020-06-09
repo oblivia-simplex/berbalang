@@ -6,11 +6,13 @@ use crate::configure::Config;
 use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
+use crate::EPOCH_COUNTER;
 use rand::distributions::WeightedIndex;
 use std::iter;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-pub struct Roulette<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<T = P>> {
+pub struct Roulette<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> {
     pub population: Vec<P>,
     pub config: Arc<Config>,
     pub best: Option<P>,
@@ -20,7 +22,7 @@ pub struct Roulette<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceO
     pub dominance_order: D,
 }
 
-impl<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<T = P>> Roulette<E, P, D> {
+impl<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> Roulette<E, P, D> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, dominance_order: D) -> Self {
         let population = iter::repeat(())
             .map(|()| P::random(&config))
@@ -39,7 +41,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome + 'static, D: DominanceOrd<T = P>> Roul
     }
 }
 
-impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulette<E, P, D> {
+impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<P>> Roulette<E, P, D> {
     // pub fn new(config: Config) -> Self {
     //     Self {
     //         population
@@ -56,6 +58,8 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
             dominance_order,
         } = self;
 
+        EPOCH_COUNTER.fetch_add(1, Ordering::Relaxed);
+
         // measure and assign fitness scores to entire population
         let population = evaluator.eval_pipeline(population.into_iter());
         population.iter().for_each(|p| {
@@ -67,6 +71,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
         // individuals occur. the lower the front, the better the chances.
         let mut cur_weight = 1.0;
         let mut indices_weights: Vec<(usize, f64)> = Vec::new();
+        let mut elite_fronts = Vec::new();
         while !front.is_empty() {
             //log::info!("Weighting front {} at {}", front.rank(), cur_weight);
             front.current_front_indices().iter().for_each(|i| {
@@ -75,6 +80,8 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
 
             // update the best, if applicable
             if front.rank() == 0 {
+                elite_fronts.push(front.current_front_indices().to_owned());
+
                 log::debug!(
                     "iteration #{}, front 0 contains {} individuals",
                     iteration,
@@ -118,11 +125,18 @@ impl<E: Evaluate<P>, P: Phenome + Genome + Sized, D: DominanceOrd<T = P>> Roulet
         let mut rng = thread_rng();
 
         let mut new_population: Vec<P> = Vec::new();
-        // keep the best
-        // maybe condition this on an `elitism` parameter
-        if let Some(ref best) = best {
-            new_population.push(best.clone())
+        // // keep the best
+        // // maybe condition this on an `elitism` parameter
+        // if let Some(ref best) = best {
+        //     new_population.push(best.clone())
+        // }
+        //
+        for idxs in &elite_fronts {
+            for idx in idxs.iter() {
+                new_population.push(population[*idx].clone());
+            }
         }
+
         while new_population.len() < config.pop_size {
             let parents: Vec<&P> = iter::repeat(())
                 .take(config.num_parents)

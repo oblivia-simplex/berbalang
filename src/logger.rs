@@ -1,4 +1,6 @@
+use crate::EPOCH_COUNTER;
 use std::io::Write;
+use std::sync::atomic::Ordering;
 
 /// This function initializes the Berbalang logger.
 ///
@@ -8,6 +10,8 @@ pub fn init(population_name: &str) {
         .format(move |f, record| {
             use env_logger::fmt::Color;
             use log::Level::*;
+
+            let epoch = EPOCH_COUNTER.load(Ordering::Relaxed);
 
             let path = match record.level() {
                 Error | Debug | Warn | Trace => format!(
@@ -41,12 +45,13 @@ pub fn init(population_name: &str) {
 
             writeln!(
                 f,
-                "[{level}{path}]{time} {pop_name} => {record:#x?}",
+                "[{level}{path}]{time} {pop_name} at epoch {epoch} => {record:#x?}",
                 time = time,
                 path = path,
                 level = level,
                 pop_name = population_name,
                 record = record.args(),
+                epoch = epoch,
             )
         })
         .init();

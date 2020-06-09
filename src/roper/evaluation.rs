@@ -34,16 +34,16 @@ pub fn register_pattern_fitness_fn(
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
             fitness_vector.insert("crash_count", crashes);
 
-            let longest_path = profile
-                .bb_path_iter()
-                .map(|v: &Vec<_>| {
-                    let mut s = v.clone();
-                    s.dedup();
-                    s.len()
-                })
-                .max()
-                .unwrap_or(0) as f64;
-            fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
+            // let longest_path = profile
+            //     .bb_path_iter()
+            //     .map(|v: &Vec<_>| {
+            //         let mut s = v.clone();
+            //         s.dedup();
+            //         s.len()
+            //     })
+            //     .max()
+            //     .unwrap_or(0) as f64;
+            // fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
             creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
                                                          //log::debug!("fitness: {:?}", creature.fitness());
         } else {

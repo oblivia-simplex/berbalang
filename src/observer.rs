@@ -1,19 +1,25 @@
 // A Logger needs to asynchronously gather and periodically
 // record information on the evolutionary process.
 
+use std::fs;
+use std::io::Write;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::thread::{spawn, JoinHandle};
+
+use deflate::write::GzEncoder;
+use deflate::Compression;
+use hashbrown::HashSet;
+use rand::seq::SliceRandom;
+use serde::Serialize;
+
+use non_dominated_sort::{non_dominated_sort, DominanceOrd};
+
 // a hack to make the imports more meaningful
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::util::count_min_sketch::DecayingSketch;
-use deflate::write::GzEncoder;
-use deflate::Compression;
-use hashbrown::HashSet;
-use serde::Serialize;
-use std::fs;
-use std::io::Write;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{spawn, JoinHandle};
+use rand::thread_rng;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
@@ -37,14 +43,14 @@ fn stat_writer(params: &Config) -> csv::Writer<fs::File> {
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
-    // TODO: add a reporter struct field
+    stop_signal_rx: Receiver<bool>,
 }
 
-pub type ReportFn<T> = Box<dyn Fn(&Window<T>, usize, &Config) -> () + Sync + Send + 'static>;
+pub type ReportFn<T, D> = Box<dyn Fn(&Window<T, D>, usize, &Config) -> () + Sync + Send + 'static>;
 
 #[allow(dead_code)]
-pub fn default_report_fn<T: Phenome + Genome>(
-    window: &Window<T>,
+pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
+    window: &Window<P, D>,
     counter: usize,
     _params: &Config,
 ) {
@@ -72,21 +78,28 @@ pub fn default_report_fn<T: Phenome + Genome>(
     log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
 }
 
-pub struct Window<O: Phenome + 'static + Send> {
+pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     pub frame: Vec<O>,
     pub params: Arc<Config>,
     counter: usize,
     report_every: usize,
     i: usize,
     window_size: usize,
-    report_fn: ReportFn<O>,
+    report_fn: ReportFn<O, D>,
     pub best: Option<O>,
     pub archive: Vec<O>,
+    dominance_order: D,
     stat_writer: Arc<Mutex<csv::Writer<fs::File>>>,
+    stop_signal_tx: Sender<bool>,
 }
 
-impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
-    fn new(report_fn: ReportFn<O>, params: Arc<Config>) -> Self {
+impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
+    fn new(
+        report_fn: ReportFn<O, D>,
+        params: Arc<Config>,
+        dominance_order: D,
+        stop_signal_tx: Sender<bool>,
+    ) -> Self {
         let window_size = params.observer.window_size;
         let report_every = params.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
@@ -103,6 +116,15 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
             best: None,
             archive: vec![],
             stat_writer,
+            dominance_order,
+            stop_signal_tx,
+        }
+    }
+
+    pub fn stop_evolution(&self) {
+        log::info!("Target condition reached. Halting the evolution...");
+        if let Err(e) = self.stop_signal_tx.send(true) {
+            log::error!("Error sending stop signal: {:?}", e);
         }
     }
 
@@ -126,9 +148,34 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
         } else {
             self.frame[self.i] = thing;
         }
+        if self.counter % self.params.pop_size == 0 {
+            self.update_archive();
+        }
         if self.counter % self.report_every == 0 {
             self.report();
         }
+    }
+
+    fn update_archive(&mut self) {
+        // TODO: optimize this. it's quite bad.
+
+        let arena = self
+            .archive
+            .iter()
+            .chain(self.frame.iter())
+            .cloned() // trouble non_dom sorting refs
+            .collect::<Vec<O>>();
+        //log::info!("sorting");
+        let front = non_dominated_sort(&arena, &self.dominance_order);
+        //log::info!("sorted");
+        let sample = front
+            .current_front_indices()
+            .choose_multiple(&mut thread_rng(), self.params.pop_size);
+
+        self.archive = sample
+            .into_iter()
+            .map(|i| arena[*i].clone())
+            .collect::<Vec<O>>();
     }
 
     fn report(&self) {
@@ -200,23 +247,42 @@ impl<O: Genome + Phenome + 'static + Send + Serialize> Window<O> {
     }
 }
 
-impl<O: 'static + Send + Phenome + Genome + Serialize> Observer<O> {
+impl<O: 'static + Phenome + Genome> Observer<O> {
     /// The observe method should take a clone of the observable
     /// and store in something like a sliding observation window.
     pub fn observe(&self, ob: O) {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn(params: &Config, report_fn: ReportFn<O>) -> Observer<O> {
+    pub fn spawn<D: 'static + DominanceOrd<O> + Send>(
+        params: &Config,
+        report_fn: ReportFn<O, D>,
+        dominance_order: D,
+    ) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
+        let (window_tx, stop_signal_rx): (Sender<bool>, Receiver<bool>) = channel();
+
         let params = Arc::new(params.clone());
         let handle: JoinHandle<()> = spawn(move || {
-            let mut window: Window<O> = Window::new(report_fn, params.clone());
+            let mut window: Window<O, D> =
+                Window::new(report_fn, params.clone(), dominance_order, window_tx);
             for observable in rx {
                 window.insert(observable);
             }
         });
 
-        Observer { handle, tx }
+        Observer {
+            handle,
+            tx,
+            stop_signal_rx,
+        }
+    }
+
+    pub fn keep_going(&self) -> bool {
+        if let Ok(true) = self.stop_signal_rx.try_recv() {
+            false
+        } else {
+            true
+        }
     }
 }

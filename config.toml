@@ -11,7 +11,7 @@ crossover_period = 3
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
-pop_size = 500
+pop_size = 100
 num_offspring = 2
 num_parents = 2
 target_fitness = 0
@@ -35,7 +35,7 @@ max_steps = 0x1000
 dump_population = false
 dump_soup = false 
 data_directory = "~/logs"
-window_size  = 10_000
+window_size  = 1000
 report_every = 10_000
 
 [data]
@@ -57,8 +57,7 @@ emulator_stack_size = 0x1000
 record_basic_blocks = true
 output_registers = [ "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
 [roper.register_pattern] 
-RCX = "0xbeef"
-RDX = "&&0"
-RBX = "0x4e2010"
-RDX = "0x4d4000"
-
+RAX = "59"
+RDI = "&0x41414141_41414141"
+RSI = "&&0"
+RDI = "&&0"

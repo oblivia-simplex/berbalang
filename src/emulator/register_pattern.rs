@@ -218,8 +218,9 @@ impl RegisterPattern {
             .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
         hashmap! {
-            "value_error" => ham_score,
-            "place_error" => reg_score + deref_score,
+            "register_error" => ham_score + (reg_score + deref_score) * 10.0,
+           // "value_error" => ham_score,
+           // "place_error" => reg_score + deref_score,
         }
     }
 

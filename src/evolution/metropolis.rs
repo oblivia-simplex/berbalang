@@ -4,6 +4,8 @@ use crate::configure::Config;
 use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
+use crate::EPOCH_COUNTER;
+use std::sync::atomic::Ordering;
 
 pub struct Metropolis<E: Evaluate<P>, P: Phenome + Genome + 'static> {
     pub specimen: P,
@@ -39,6 +41,8 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Metropolis<E, P> {
             mut evaluator,
             best,
         } = self;
+
+        EPOCH_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let mut specimen = if specimen.fitness().is_none() {
             evaluator.evaluate(specimen)

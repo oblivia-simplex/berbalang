@@ -7,6 +7,8 @@ use crate::observer::Window;
 use crate::roper::creature::Creature;
 use crate::util::count_min_sketch::DecayingSketch;
 
+use super::CreatureDominanceOrd;
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct StatRecord {
     pub counter: usize,
@@ -18,15 +20,15 @@ pub struct StatRecord {
     pub avg_exec_count: f64,
     pub avg_exec_ratio: f64,
     // Fitness scores // TODO find a way to make this more flexible
-    pub avg_place_error: f64,
-    pub avg_value_error: f64,
-    pub avg_crash_count: f64,
+    // pub avg_place_error: f64,
+    // pub avg_value_error: f64,
+    // pub avg_crash_count: f64,
+    pub avg_register_error: f64,
 }
 
 impl StatRecord {
-    fn from_window(window: &Window<Creature>, counter: usize) -> Self {
+    fn from_window(window: &Window<Creature, CreatureDominanceOrd>, counter: usize) -> Self {
         let frame = &window.frame;
-        log::info!("default report function");
         let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
         let mut sketch = DecayingSketch::default();
         for g in frame.iter() {
@@ -59,9 +61,10 @@ impl StatRecord {
             avg_exec_ratio,
             // fitness scores
             // TODO: it would be nice if this were less hard-coded
-            avg_place_error: fit_vec["place_error"],
-            avg_value_error: fit_vec["value_error"],
-            avg_crash_count: fit_vec["crash_count"],
+            // avg_place_error: fit_vec["place_error"],
+            // avg_value_error: fit_vec["value_error"],
+            // avg_crash_count: fit_vec["crash_count"],
+            avg_register_error: fit_vec["register_error"],
         }
     }
 }
@@ -87,7 +90,11 @@ mod test {
     }
 }
 
-pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &Config) {
+pub fn report_fn(
+    window: &Window<Creature, super::CreatureDominanceOrd>,
+    counter: usize,
+    params: &Config,
+) {
     let record = StatRecord::from_window(window, counter);
 
     log::info!("{:#?}", record);
@@ -96,5 +103,25 @@ pub fn report_fn(window: &Window<Creature>, counter: usize, _params: &Config) {
     window.dump_soup();
     window.dump_population();
 
-    log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
+    let total = window.archive.len();
+    log::info!(
+        "[{}] Current Pareto front contains {} specimens:",
+        counter,
+        total
+    );
+    for (i, specimen) in window.archive.iter().enumerate() {
+        log::info!("Specimen #{}: {:#?}", i, specimen);
+        break;
+    }
+
+    if halting_condition_reached(window, params) {
+        window.stop_evolution();
+    }
+}
+
+fn halting_condition_reached(
+    _window: &Window<Creature, super::CreatureDominanceOrd>,
+    _params: &Config,
+) -> bool {
+    false
 }

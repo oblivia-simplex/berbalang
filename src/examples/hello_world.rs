@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::configure::{Config, Problem};
 use crate::evolution::{Genome, Phenome};
+use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
 use crate::util::count_min_sketch::DecayingSketch;
 use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
@@ -165,7 +166,9 @@ impl Genome for Genotype {
     }
 }
 
-fn report(window: &Window<Genotype>, counter: usize, _params: &Config) {
+impl_dominance_ord_for_phenome!(Genotype, Dom);
+
+fn report(window: &Window<Genotype, Dom>, counter: usize, _params: &Config) {
     let frame = &window.frame;
     let fitnesses: Vec<Fitness> = frame.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
@@ -228,7 +231,7 @@ pub fn run(config: Config) -> Option<Genotype> {
     let target_fitness = config.target_fitness as f64;
     let report_fn = Box::new(report);
     let fitness_fn = Box::new(fitness_function);
-    let observer = Observer::spawn(&config, report_fn);
+    let observer = Observer::spawn(&config, report_fn, Dom);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
     let mut world =
         Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(config, observer, evaluator);

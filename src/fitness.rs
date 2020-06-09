@@ -16,15 +16,6 @@ pub trait FitnessScore:
 {
 }
 
-// this smells bad
-// impl FitnessScore for usize {}
-// impl FitnessScore for (usize, usize) {}
-// impl FitnessScore for (usize, f32) {}
-// impl FitnessScore for (usize, f32, usize) {}
-// impl FitnessScore for (usize, f32, f32, usize) {}
-// impl FitnessScore for f32 {}
-// impl FitnessScore for f64 {}
-//impl FitnessScore for Vec<f32> {}
 impl FitnessScore for Vec<f64> {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,25 +156,12 @@ impl Index<usize> for Pareto<'static> {
 //     }
 // }
 
-#[macro_export]
-macro_rules! pareto {
-    ($($key:expr => $val:expr, $(,)?)*) => {
-        Pareto(hashmap!{$( $key => $val, )*})
-    }
-}
-
-#[macro_export]
-macro_rules! lexical {
-    ($($v:expr $(,)?)*) => {
-        vec![$( $v, )*]
-    }
-}
-
 pub type Lexical<T> = Vec<T>;
 
 #[cfg(test)]
 mod test {
     use crate::hashmap;
+    use crate::pareto;
 
     use super::*;
 

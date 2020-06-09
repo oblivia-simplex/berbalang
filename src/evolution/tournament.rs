@@ -9,6 +9,7 @@ use crate::configure::Config;
 use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
+use crate::EPOCH_COUNTER;
 
 // consider an island-pier structure
 
@@ -53,6 +54,8 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
             config,
             iteration,
         } = self;
+
+        EPOCH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let tournament_size = config.tournament.tournament_size;
         let mut rng = thread_rng();

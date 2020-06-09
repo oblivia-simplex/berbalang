@@ -1,6 +1,8 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::option_map_unit_fn))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_range_loop))]
 
+use std::sync::atomic::AtomicUsize;
+
 use configure::Config;
 
 use crate::configure::Job;
@@ -23,6 +25,8 @@ mod observer;
 mod roper;
 #[allow(dead_code)] // FIXME
 mod util;
+
+pub static EPOCH_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn main() {
     let mut config: Config = toml::from_str(
