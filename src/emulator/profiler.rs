@@ -1,16 +1,18 @@
 use std::cmp::{Ord, PartialOrd};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use capstone::Instructions;
-use indexmap::map::IndexMap;
-use indexmap::set::IndexSet;
+//use indexmap::map::IndexMap;
+//use indexmap::set::IndexSet;
+use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
 use crate::emulator::loader;
+use crate::emulator::loader::Seg;
 use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
 
 // TODO: why store the size at all, if you're just going to
@@ -26,7 +28,7 @@ impl Block {
     pub fn get_code(&self) -> &'static [u8] {
         let memory = loader::get_static_memory_image();
         memory
-            .try_dereference(self.entry)
+            .try_dereference(self.entry, None)
             .map(|b| &b[..self.size])
             .unwrap()
     }
@@ -50,14 +52,54 @@ impl fmt::Debug for Block {
     }
 }
 
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct Region {
+//     pub begin: u64,
+//     pub end: u64,
+//     pub perm: unicorn::Protection,
+//     data: Vec<u8>,
+// }
+//
+// impl Region {
+//     pub fn new(mem_reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
+//         Self {
+//             begin: mem_reg.begin,
+//             end: mem_reg.end,
+//             perm: mem_reg.perms,
+//             data,
+//         }
+//     }
+// }
+//
+// impl Hash<usize> for Region {
+//     type Output = [u8];
+//
+//     fn index(&self, index: usize) -> &Self::Output {
+//         assert!(
+//             self.begin <= index as u64,
+//             "index cannot be smaller than the first address in the region"
+//         );
+//         let offset = self.begin - index as u64;
+//         assert!(
+//             offset < self.end,
+//             "index cannot be larger than the last address in the region"
+//         );
+//         &self.data[offset as usize..]
+//     }
+// }
+// // TODO: fix this. we want something that composes with MemImage.
+// // should be in the loader crate.
+
 pub struct Profiler<C: Cpu<'static>> {
-    /// The Arc<Mutex<_>> fields need to be writeable for the unicorn callbacks.
-    pub block_log: Arc<Mutex<Vec<Block>>>,
-    pub gadget_log: Arc<Mutex<Vec<u64>>>,
+    /// The Arc<RwLock<_>> fields need to be writeable for the unicorn callbacks.
+    pub block_log: Arc<RwLock<Vec<Block>>>,
+    pub gadget_log: Arc<RwLock<Vec<u64>>>,
     /// These fields are written to after the emulation has finished.
+    pub written_memory: Vec<Seg>,
+    //pub write_log: Arc<Mutex<Vec<MemLogEntry>>>,
     pub cpu_error: Option<unicorn::Error>,
     pub computation_time: Duration,
-    pub registers: IndexMap<Register<C>, u64>,
+    pub registers: HashMap<Register<C>, u64>,
     registers_to_read: Vec<Register<C>>,
 }
 
@@ -70,20 +112,22 @@ impl<C: Cpu<'static>> Profiler<C> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub paths: Vec<Vec<Block>>, //PrefixSet<Block>,
-    pub cpu_errors: IndexMap<unicorn::Error, usize>,
+    pub cpu_errors: HashMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
     pub registers: Vec<RegisterPattern>,
-    pub gadgets_executed: IndexSet<u64>,
+    pub gadgets_executed: HashSet<u64>,
+    pub writeable_memory: Vec<Vec<Seg>>,
 }
 
 impl Profile {
     pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
         //let mut write_trie = Trie::new();
         let mut paths = Vec::new(); // PrefixSet::new();
-        let mut cpu_errors = IndexMap::new();
+        let mut cpu_errors = HashMap::new();
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
-        let mut gadgets_executed = IndexSet::new();
+        let mut gadgets_executed = HashSet::new();
+        let mut writeable_memory_regions = Vec::new();
 
         for Profiler {
             block_log,
@@ -92,6 +136,7 @@ impl Profile {
             computation_time,
             registers,
             gadget_log,
+            written_memory: writeable_memory,
             ..
         } in profilers.into_iter()
         {
@@ -102,8 +147,8 @@ impl Profile {
             //         //.map(|b| (b.entry, b.size))
             //         .collect::<Vec<Block>>(),
             // );
-            paths.push(block_log.lock().unwrap().to_vec());
-            gadget_log.lock().into_iter().for_each(|glog| {
+            paths.push(block_log.read().unwrap().to_vec());
+            gadget_log.read().into_iter().for_each(|glog| {
                 glog.iter().for_each(|g| {
                     gadgets_executed.insert(*g);
                 })
@@ -114,6 +159,7 @@ impl Profile {
             computation_times.push(computation_time);
             let state: UnicornRegisterState<C> = UnicornRegisterState(registers);
             register_maps.push(state.into());
+            writeable_memory_regions.push(writeable_memory);
         }
 
         Self {
@@ -123,6 +169,7 @@ impl Profile {
             computation_times,
             gadgets_executed,
             registers: register_maps,
+            writeable_memory: writeable_memory_regions,
         }
     }
 
@@ -167,7 +214,7 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
             "computation_time: {} μs; ",
             self.computation_time.as_micros()
         )?;
-        write!(f, "{} blocks", self.block_log.lock().unwrap().len())
+        write!(f, "{} blocks", self.block_log.read().unwrap().len())
     }
 }
 
@@ -206,13 +253,14 @@ pub struct MemLogEntry {
 impl<C: Cpu<'static>> Default for Profiler<C> {
     fn default() -> Self {
         Self {
-            //write_log: Arc::new(Mutex::new(Vec::default())),
-            registers: IndexMap::default(),
+            //write_log: Arc::new(RwLock::new(Vec::default())),
+            registers: HashMap::default(),
             cpu_error: None,
             registers_to_read: Vec::new(),
             computation_time: Duration::default(),
-            block_log: Arc::new(Mutex::new(Vec::new())),
-            gadget_log: Arc::new(Mutex::new(Vec::new())),
+            block_log: Arc::new(RwLock::new(Vec::new())),
+            gadget_log: Arc::new(RwLock::new(Vec::new())),
+            written_memory: vec![],
         }
     }
 }
@@ -227,23 +275,23 @@ mod test {
     fn test_collate() {
         let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
             Profiler {
-                block_log: Arc::new(Mutex::new(vec![
+                block_log: Arc::new(RwLock::new(vec![
                     Block { entry: 1, size: 2 },
                     Block { entry: 3, size: 4 },
                 ])),
                 cpu_error: None,
                 computation_time: Default::default(),
-                registers: IndexMap::new(),
+                registers: HashMap::new(),
                 ..Default::default()
             },
             Profiler {
-                block_log: Arc::new(Mutex::new(vec![
+                block_log: Arc::new(RwLock::new(vec![
                     Block { entry: 1, size: 2 },
                     Block { entry: 6, size: 6 },
                 ])),
                 cpu_error: None,
                 computation_time: Default::default(),
-                registers: IndexMap::new(),
+                registers: HashMap::new(),
                 ..Default::default()
             },
         ];

@@ -54,7 +54,7 @@ impl Disassembler {
         num_bytes: usize,
     ) -> Result<Instructions<'_>, Error> {
         let memory = loader::get_static_memory_image();
-        let seg = match memory.containing_seg(start) {
+        let seg = match memory.containing_seg(start, None) {
             Some(s) => s,
             None => return Err(Error::BadAddress(start)),
         };

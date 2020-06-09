@@ -1,5 +1,6 @@
-use crate::disassembler::Disassembler;
-use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+use std::fmt;
+use std::sync::Once;
+
 use capstone::Instructions;
 use goblin::{
     elf::{self, Elf},
@@ -7,11 +8,14 @@ use goblin::{
 };
 use rand::distributions::{Distribution, WeightedIndex};
 use rand::{thread_rng, Rng};
-use std::fmt;
-use std::sync::Once;
+use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
-pub const PAGE_SIZE: u64 = 0x1000;
+use crate::disassembler::Disassembler;
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+
+pub const PAGE_BITS: u64 = 12;
+pub const PAGE_SIZE: u64 = 1 << PAGE_BITS;
 
 // placeholders
 pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
@@ -55,7 +59,7 @@ impl MemoryImage {
         size: usize,
         count: Option<usize>,
     ) -> Option<Instructions<'_>> {
-        self.try_dereference(addr)
+        self.try_dereference(addr, None)
             .map(|b| &b[..size])
             .and_then(|b| {
                 self.disasm
@@ -68,27 +72,44 @@ impl MemoryImage {
         self.segs[0].aligned_start()
     }
 
-    pub fn containing_seg(&self, addr: u64) -> Option<&Seg> {
+    pub fn containing_seg<'a>(
+        &'a self,
+        addr: u64,
+        extra_segs: Option<&'a [Seg]>,
+    ) -> Option<&'a Seg> {
+        // check the extra segs first, since they may be shadowed by the mem_image
+        if let Some(extra) = extra_segs {
+            for s in extra.iter() {
+                if s.aligned_start() <= addr && addr < s.aligned_end() {
+                    return Some(s);
+                }
+            }
+        }
         for s in self.segs.iter() {
             if s.aligned_start() <= addr && addr < s.aligned_end() {
                 return Some(s);
             }
         }
+
         None
     }
 
     pub fn perm_of_addr(&self, addr: u64) -> Option<Protection> {
-        self.containing_seg(addr).map(|a| a.perm)
+        self.containing_seg(addr, None).map(|a| a.perm)
     }
 
     pub fn offset_of_addr(&self, addr: u64) -> Option<u64> {
-        self.containing_seg(addr).map(|a| addr - a.aligned_start())
+        self.containing_seg(addr, None)
+            .map(|a| addr - a.aligned_start())
     }
 
-    pub fn try_dereference(&self, addr: u64) -> Option<&[u8]> {
-        self.containing_seg(addr).and_then(|s| {
-            let bump = (s.addr - s.aligned_start()) as usize;
-            let offset = bump + (addr - s.aligned_start()) as usize;
+    pub fn try_dereference<'a>(
+        &'a self,
+        addr: u64,
+        extra_segs: Option<&'a [Seg]>,
+    ) -> Option<&'a [u8]> {
+        self.containing_seg(addr, extra_segs).and_then(|s| {
+            let offset = (addr - s.aligned_start()) as usize;
 
             if offset > s.data.len() {
                 None
@@ -121,8 +142,8 @@ impl MemoryImage {
         rng.gen_range(seg.aligned_start(), seg.aligned_end())
     }
 
-    pub fn seek(&self, offset: u64, sequence: &[u8]) -> Option<u64> {
-        if let Some(s) = self.containing_seg(offset) {
+    pub fn seek(&self, offset: u64, sequence: &[u8], extra_segs: Option<&[Seg]>) -> Option<u64> {
+        if let Some(s) = self.containing_seg(offset, extra_segs) {
             let start = (offset - s.aligned_start()) as usize;
             let mut ptr = start;
             for window in s.data[start..].windows(sequence.len()) {
@@ -139,7 +160,7 @@ impl MemoryImage {
     }
 
     pub fn seek_from_random_address(&self, sequence: &[u8]) -> Option<u64> {
-        self.seek(self.random_address(None), sequence)
+        self.seek(self.random_address(None), sequence, None)
     }
 
     pub fn segments(&self) -> &Vec<Seg> {
@@ -150,7 +171,7 @@ impl MemoryImage {
     /// If `start` fails to dereference to any value, the chain will just
     /// be `vec![start]`, so the caller can always assume that the chain
     /// is non-empty.
-    pub fn deref_chain(&self, start: u64, steps: usize) -> Vec<u64> {
+    pub fn deref_chain(&self, start: u64, steps: usize, extra_segs: Option<&[Seg]>) -> Vec<u64> {
         let word_size = word_size_in_bytes(self.arch, self.mode);
         let endian = endian(self.arch, self.mode);
         let mut chain = vec![start];
@@ -160,7 +181,7 @@ impl MemoryImage {
         let crawl = Crawl {
             f: &|crawl, addr, steps, mut chain| {
                 if steps > 0 {
-                    if let Some(bytes) = self.try_dereference(addr) {
+                    if let Some(bytes) = self.try_dereference(addr, extra_segs) {
                         if let Some(addr) = read_integer(bytes, endian, word_size) {
                             chain.push(addr);
                             (crawl.f)(crawl, addr, steps - 1, &mut chain);
@@ -174,7 +195,7 @@ impl MemoryImage {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct Seg {
     pub addr: u64,
     pub memsz: usize,
@@ -199,10 +220,21 @@ impl fmt::Display for Seg {
 
 #[inline]
 pub fn align(n: u64) -> u64 {
-    (n / PAGE_SIZE) * PAGE_SIZE
+    //n >> PAGE_BITS << PAGE_BITS
+    (n + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1)
 }
 
 impl Seg {
+    pub fn from_mem_region_and_data(reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
+        Self {
+            addr: reg.begin,
+            memsz: (reg.end - reg.begin) as usize,
+            perm: reg.perms,
+            segtype: SegType::Null, // FIXME
+            data,
+        }
+    }
+
     pub fn from_phdr(phdr: &elf::ProgramHeader) -> Self {
         let mut uc_perm = unicorn::Protection::NONE;
         if phdr.is_executable() {
@@ -291,7 +323,7 @@ impl Seg {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum SegType {
     Null,
     Load,

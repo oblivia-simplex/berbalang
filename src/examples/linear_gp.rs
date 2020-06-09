@@ -11,6 +11,7 @@ use crate::evolution::metropolis::Metropolis;
 use crate::evolution::roulette::Roulette;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::Pareto;
+use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
 use crate::util::count_min_sketch::DecayingSketch;
@@ -422,7 +423,9 @@ impl Genome for Creature {
     }
 }
 
-fn report(window: &Window<Creature>, counter: usize, _params: &Config) {
+impl_dominance_ord_for_phenome!(Creature, Dom);
+
+fn report(window: &Window<Creature, Dom>, counter: usize, _params: &Config) {
     let frame = &window.frame;
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = DecayingSketch::default();
@@ -655,7 +658,7 @@ mod evaluation {
     }
 }
 
-fn prepare(mut config: Config) -> (Observer<Creature>, evaluation::Evaluator) {
+fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evaluator) {
     let problems = parse_data(&config.data.path);
     assert!(problems.is_some());
     // figure out the number of return registers needed
@@ -682,11 +685,11 @@ fn prepare(mut config: Config) -> (Observer<Creature>, evaluation::Evaluator) {
     config.machine.return_registers = Some(return_registers);
     config.machine.num_registers = Some(num_registers);
     log::info!("Config: {:#?}", config);
-    let report_fn: ReportFn<_> = Box::new(report);
+    let report_fn: ReportFn<_, _> = Box::new(report);
     let fitness_fn: FitnessFn<Creature, _, _> = Box::new(evaluation::fitness_function);
-    let observer = Observer::spawn(&config, report_fn);
+    let observer = Observer::spawn(&config, report_fn, Dom);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-    (observer, evaluator)
+    (config, observer, evaluator)
 }
 
 crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
@@ -694,7 +697,7 @@ crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
 pub fn run(config: Config) -> Option<Creature> {
     //let target_fitness = config.target_fitness;
     let selection = config.selection;
-    let (observer, evaluator) = prepare(config.clone());
+    let (config, observer, evaluator) = prepare(config);
 
     match selection {
         Selection::Tournament => {

@@ -1,13 +1,13 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use indexmap::map::IndexMap;
+use hashbrown::HashMap;
 use unicorn::Cpu;
 
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::evaluator::FitnessFn;
 use crate::{
-    configure::Config, emulator::executor::Hatchery, evaluator::Evaluate, evolution::Phenome,
+    configure::Config, emulator::hatchery::Hatchery, evaluator::Evaluate, evolution::Phenome,
     util::count_min_sketch::DecayingSketch,
 };
 
@@ -26,7 +26,8 @@ pub fn register_pattern_fitness_fn(
         if let Some(pattern) = params.roper.register_pattern() {
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
-            let mut fitness_vector = pattern.distance(&profile.registers[0]);
+            let writeable_memory = Some(&profile.writeable_memory[0][..]);
+            let mut fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
             // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?
@@ -35,10 +36,14 @@ pub fn register_pattern_fitness_fn(
 
             // let longest_path = profile
             //     .bb_path_iter()
-            //     .map(|v: Vec<Block>| v.len())
+            //     .map(|v: &Vec<_>| {
+            //         let mut s = v.clone();
+            //         s.dedup();
+            //         s.len()
+            //     })
             //     .max()
             //     .unwrap_or(0) as f64;
-            // register_pattern_distance.push(-(longest_path).log2()); // let's see what happens when we use negative val
+            // fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
             creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
                                                          //log::debug!("fitness: {:?}", creature.fitness());
         } else {
@@ -91,7 +96,7 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         let mut params = params.clone();
         params.roper.parse_register_pattern();
         let hatch_params = Arc::new(params.roper.clone());
-        let inputs = vec![IndexMap::new()]; // TODO: if dealing with data, fill this in
+        let inputs = vec![HashMap::new()]; // TODO: if dealing with data, fill this in
         let register_pattern = params.roper.register_pattern();
         let output_registers: Vec<Register<C>> = {
             let mut out_reg: Vec<Register<C>> = params

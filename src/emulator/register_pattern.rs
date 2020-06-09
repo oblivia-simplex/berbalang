@@ -6,11 +6,12 @@ use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
-use indexmap::indexmap;
-use indexmap::map::IndexMap;
+use hashbrown::HashMap;
 
 use crate::emulator::loader;
+use crate::emulator::loader::Seg;
 use crate::error::Error;
+use crate::hashmap;
 
 pub type Register<C> = <C as Cpu<'static>>::Reg;
 
@@ -73,7 +74,7 @@ impl FromStr for RegisterValue {
 
 impl<C: Cpu<'static>> From<UnicornRegisterState<C>> for RegisterPattern {
     fn from(registers: UnicornRegisterState<C>) -> Self {
-        let mut map = IndexMap::new();
+        let mut map = HashMap::new();
         for (k, v) in registers.0.into_iter() {
             map.insert(format!("{:?}", k), v.into()); // FIXME use stable conversion method
         }
@@ -82,7 +83,7 @@ impl<C: Cpu<'static>> From<UnicornRegisterState<C>> for RegisterPattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegisterPattern(pub IndexMap<String, RegisterValue>);
+pub struct RegisterPattern(pub HashMap<String, RegisterValue>);
 
 impl Hash for RegisterPattern {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -99,11 +100,11 @@ impl PartialEq for RegisterPattern {
 impl Eq for RegisterPattern {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct RegisterPatternConfig(pub IndexMap<String, String>);
+pub struct RegisterPatternConfig(pub HashMap<String, String>);
 
 impl From<&RegisterPatternConfig> for RegisterPattern {
     fn from(rp: &RegisterPatternConfig) -> Self {
-        let mut map = IndexMap::new();
+        let mut map = HashMap::new();
         for (k, v) in rp.0.iter() {
             map.insert(
                 k.to_string(),
@@ -122,13 +123,13 @@ impl From<RegisterPatternConfig> for RegisterPattern {
 }
 
 #[derive(Debug)]
-pub struct UnicornRegisterState<C: 'static + Cpu<'static>>(pub IndexMap<Register<C>, u64>);
+pub struct UnicornRegisterState<C: 'static + Cpu<'static>>(pub HashMap<Register<C>, u64>);
 
 impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterState<C> {
     type Error = Error;
 
     fn try_from(rp: &RegisterPattern) -> Result<Self, Self::Error> {
-        let mut map = IndexMap::new();
+        let mut map = HashMap::new();
         for (k, v) in rp.0.iter() {
             let reg = k
                 .parse()
@@ -147,7 +148,11 @@ impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterSta
 // intractable structure. How do we even begin to "approximate" it?
 
 impl RegisterPattern {
-    pub fn distance(&self, from_emu: &Self) -> IndexMap<&'static str, f64> {
+    pub fn distance(
+        &self,
+        from_emu: &Self,
+        writeable_memory: Option<&[Seg]>,
+    ) -> HashMap<&'static str, f64> {
         // assumes identical order!
         // let grain = 2;
         // let self_bytes: Vec<u8> = self.into();
@@ -155,7 +160,7 @@ impl RegisterPattern {
         // let j = jaccard(&self_bytes, &other_bytes, grain, 10);
         // j
         // NOTE: not supporting checking writeable memory yet
-        let spider_map = from_emu.spider();
+        let spider_map = from_emu.spider(writeable_memory);
 
         // find the closest ham
         //log::debug!("Spider map: {:#x?}", spider_map);
@@ -212,24 +217,18 @@ impl RegisterPattern {
             })
             .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
-        indexmap! {
-            "value_error" => ham_score,
-            "place_error" => reg_score + deref_score,
+        hashmap! {
+            "register_error" => ham_score + (reg_score + deref_score) * 10.0,
+           // "value_error" => ham_score,
+           // "place_error" => reg_score + deref_score,
         }
     }
 
-    pub fn spider(&self) -> IndexMap<String, Vec<u64>> {
-        let mut map = IndexMap::new();
+    pub fn spider(&self, extra_segs: Option<&[Seg]>) -> HashMap<String, Vec<u64>> {
+        let mut map = HashMap::new();
         let memory = loader::get_static_memory_image();
         for (k, v) in self.0.iter() {
-            let path = memory.deref_chain(v.val, 10);
-            // .iter()
-            // .enumerate()
-            // .map(|(i, a)| RegisterValue {
-            //     val: *a,
-            //     deref: i + 1,
-            // })
-            // .collect::<Vec<_>>();
+            let path = memory.deref_chain(v.val, 10, extra_segs);
             map.insert(k.to_string(), path);
         }
         map
@@ -254,7 +253,7 @@ impl From<&RegisterPattern> for Vec<u8> {
 mod test {
     use serde_derive::Deserialize;
 
-    use indexmap::indexmap;
+    use crate::hashmap;
 
     use crate::emulator::loader;
     use crate::emulator::register_pattern::{RegisterPattern, RegisterValue};
@@ -323,14 +322,14 @@ mod test {
         let pattern = RegisterPattern::from(&pattern_conf.pattern);
         println!("pattern: {:#x?}", pattern);
 
-        let res_pat = RegisterPattern(indexmap! {
+        let res_pat = RegisterPattern(hashmap! {
             "RAX".into() => RegisterValue { val: 0xdead_beef, deref: 0 },
             "RCX".into() => RegisterValue { val: 1234, deref: 0 },
             "RDX".into() => RegisterValue { val: 0x40_0000, deref: 0 },
         });
 
         println!("suppose the resulting state is {:#x?}", res_pat);
-        let distance = pattern.distance(&res_pat);
+        let distance = pattern.distance(&res_pat, None);
         println!("distance = {:?}", distance);
     }
 }
