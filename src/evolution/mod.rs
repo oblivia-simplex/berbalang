@@ -20,6 +20,10 @@ pub trait Genome: Debug {
 
     fn chromosome_mut(&mut self) -> &mut [Self::Allele];
 
+    fn len(&self) -> usize {
+        self.chromosome().len()
+    }
+
     fn random(params: &Config) -> Self
     where
         Self: Sized;
@@ -108,11 +112,15 @@ pub trait Genome: Debug {
         //     sum += (sketch.query(digram, timestamp)?);
         // };
         // Ok(sum)
+        let d = self.len();
+        let d = if d <= 1 { 1.0 } else { d as f64 - 1.0 };
         self.digrams()
             .map(|digram| sketch.query(digram))
             .collect::<Vec<_>>()
             .into_iter()
-            .fold(std::f64::MAX, |a, b| a.min(b))
+            //.fold(std::f64::MAX, |a, b| a.min(b))
+            .sum::<f64>()
+            / d
     }
 }
 
@@ -134,8 +142,6 @@ pub trait Phenome: Clone + Debug + Send + Ord + Serialize {
     fn problems(&self) -> Option<&Vec<Problem>>;
 
     fn store_answers(&mut self, results: Vec<Problem>);
-
-    fn len(&self) -> usize;
 
     /// Return the rank of the Pareto front in which the phenotype most
     /// recently appeared. Unused when not performing Pareto selection.

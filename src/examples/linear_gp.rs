@@ -327,10 +327,6 @@ impl Phenome for Creature {
     fn store_answers(&mut self, answers: Vec<Problem>) {
         self.answers = Some(answers);
     }
-
-    fn len(&self) -> usize {
-        self.chromosome.len()
-    }
 }
 
 impl PartialOrd for Creature {

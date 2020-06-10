@@ -11,19 +11,19 @@ crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
-pop_size = 100
+pop_size = 150
 num_offspring = 2
 num_parents = 2
 target_fitness = 0
 max_length = 100
-num_epochs = 1000
+num_epochs = 0 # = infinite
 
 [tournament]
 tournament_size = 4
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
-weight_decay = 0.95
+weight_decay = 0.8
 
 [hello]
 target = "Mares eat oats and does eat oats and little lambs eat ivy."
@@ -36,8 +36,8 @@ max_steps = 0x1000
 dump_population = false
 dump_soup = true 
 data_directory = "~/logs"
-window_size  = 100
-report_every = 100
+window_size  = 1000
+report_every = 1000
 dump_every = 10000
 
 [data]
@@ -48,9 +48,9 @@ path = "./data/iris.tsv"
 [roper]
 arch = "X86"
 mode = "MODE_64"
-#gadget_file = "./gadgets/sh_soup.json"
+gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "/tmp/ldconfig"
+binary_path = "/bin/sh"
 num_workers = 41
 num_emulators = 31
 max_emu_steps = 0x1_000

@@ -1,13 +1,17 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use hashbrown::HashMap;
 use unicorn::Cpu;
 
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::evaluator::FitnessFn;
+use crate::util::count_min_sketch;
 use crate::{
-    configure::Config, emulator::hatchery::Hatchery, evaluator::Evaluate, evolution::Phenome,
+    configure::Config,
+    emulator::hatchery::Hatchery,
+    evaluator::Evaluate,
+    evolution::{Genome, Phenome},
+    util,
     util::count_min_sketch::DecayingSketch,
 };
 
@@ -34,8 +38,11 @@ pub fn register_pattern_fitness_fn(
             // let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
             // fitness_vector.insert("crash_count", crashes);
 
-            fitness_vector.insert("gadgets_executed", -(profile.gadgets_executed.len() as f64));
+            let gadgets_executed = profile.gadgets_executed.len();
+            fitness_vector.insert("gadgets_executed", -(gadgets_executed as f64));
 
+            //let gen_freq = creature.measure_genetic_frequency(sketch);
+            //fitness_vector.insert("genetic_frequency", gen_freq);
             // let longest_path = profile
             //     .bb_path_iter()
             //     .map(|v: &Vec<_>| {
@@ -80,7 +87,11 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         &mut self,
         inbound: I,
     ) -> Vec<Creature> {
-        self.hatchery
+        // we need to have the entire sample pass through the count-min sketch
+        // before we can use it to measure the frequency of any individual
+
+        let mut batch = self
+            .hatchery
             .execute_batch(inbound)
             .expect("execute batch failure")
             .into_iter()
@@ -88,7 +99,11 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
                 creature.profile = Some(profile);
                 (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        batch
+            .iter_mut()
+            .for_each(|c| c.record_genetic_frequency(&mut self.sketch));
+        batch
     }
 
     fn spawn(
@@ -98,7 +113,16 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         let mut params = params.clone();
         params.roper.parse_register_pattern();
         let hatch_params = Arc::new(params.roper.clone());
-        let inputs = vec![HashMap::new()]; // TODO: if dealing with data, fill this in
+        // fn random_register_state<C: 'static + Cpu<'static>>(
+        //     registers: &[Register<C>],
+        // ) -> HashMap<Register<C>, u64> {
+        //     let mut map = HashMap::new();
+        //     let mut rng = thread_rng();
+        //     for reg in registers.iter() {
+        //         map.insert(reg.clone(), rng.gen::<u64>());
+        //     }
+        //     map
+        // }
         let register_pattern = params.roper.register_pattern();
         let output_registers: Vec<Register<C>> = {
             let mut out_reg: Vec<Register<C>> = params
@@ -121,6 +145,9 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
                 //out_reg
             }
         };
+        let inputs = vec![util::architecture::random_register_state::<C>(
+            &output_registers,
+        )];
         let hatchery: Hatchery<C, Creature> = Hatchery::new(
             hatch_params,
             Arc::new(inputs),
@@ -128,10 +155,15 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
             None,
         );
 
+        let sketch = DecayingSketch::new(
+            count_min_sketch::suggest_depth(params.pop_size),
+            count_min_sketch::suggest_width(params.pop_size),
+            params.pop_size as f64 * 2.0,
+        );
         Self {
             params: Arc::new(params),
             hatchery,
-            sketch: DecayingSketch::default(), // TODO parameterize
+            sketch,
             fitness_fn: Box::new(fitness_fn),
         }
     }

@@ -21,6 +21,7 @@ use crate::util::{
     self,
     architecture::{endian, word_size_in_bytes, Endian},
 };
+use itertools::Itertools;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Creature {
@@ -50,6 +51,7 @@ impl Creature {
     /// Returns the ratio of executed to non-executed, but *executable*, alleles.
     /// If the `Creature` hasn't been executed yet, then this
     /// will always return `0.0`.
+    /// FIXME: this seems to be returning n > 1 sometimes! Why?
     pub fn execution_ratio(&self) -> f64 {
         let memory = loader::get_static_memory_image();
         let mut executable_alleles = self
@@ -151,7 +153,23 @@ impl fmt::Debug for Creature {
                 .iter()
                 .zip(profile.writeable_memory.iter())
             {
-                writeln!(f, "{:#x?}", reg_state.spider(Some(mem)))?;
+                //writeln!(f, "{:#x?}", reg_state.spider(Some(mem)))?;
+                let spider_map = reg_state.spider(Some(mem));
+                spider_map
+                    .iter()
+                    .sorted_by_key(|p| p.0)
+                    .map(|(r, m)| {
+                        writeln!(
+                            f,
+                            "{}: {}",
+                            r,
+                            m.iter()
+                                .map(|v| format!("0x{:x}", v))
+                                .collect::<Vec<_>>()
+                                .join(" -> ")
+                        )
+                    })
+                    .collect::<Result<Vec<()>, _>>()?;
             }
             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }
@@ -357,10 +375,6 @@ impl Phenome for Creature {
 
     fn store_answers(&mut self, _results: Vec<Problem>) {
         unimplemented!()
-    }
-
-    fn len(&self) -> usize {
-        self.chromosome().len()
     }
 
     fn front(&self) -> Option<usize> {

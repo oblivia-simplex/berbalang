@@ -4,8 +4,10 @@ use std::ops::{Add, Div, Index};
 
 use hashbrown::HashMap;
 use itertools::Itertools;
+use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 pub trait FitnessScoreReq:
@@ -20,7 +22,7 @@ pub trait FitnessScore:
 
 impl FitnessScore for Vec<f64> {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Pareto<'a>(#[serde(borrow)] HashMap<&'a str, f64>);
 
 impl Pareto<'static> {
@@ -179,6 +181,18 @@ impl Index<usize> for Pareto<'static> {
     }
 }
 
+impl fmt::Debug for Pareto<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Pareto [")?;
+        self.0
+            .iter()
+            .sorted_by_key(|p| p.0)
+            .map(|(obj, score)| writeln!(f, "\t{} => {},", obj, score))
+            .collect::<Result<Vec<()>, _>>()?;
+        writeln!(f, "]")
+    }
+}
+
 // impl IndexMut<&str> for Pareto<'static> {
 //     fn index_mut(&mut self, i: &str) -> &mut Self::Output {
 //         &mut self.0[i]
@@ -281,22 +295,22 @@ mod test {
         assert_eq!(ps[0], &p2);
     }
 
-    #[test]
-    fn test_find_minima() {
-        fn random_pareto() -> Pareto {
-            let mut par = Pareto::new();
-            for i in 0..10 {
-                par.insert(UNNAMED_OBJECTIVES[i], rand::random::<f64>());
-            }
-            par
-        }
-
-        let sample = iter::repeat(())
-            .take(100)
-            .map(|()| random_pareto())
-            .collect::<Vec<Pareto>>();
-
-        let mut minima = HashSet::new();
-        for x in sample {}
-    }
+    // #[test]
+    // fn test_find_minima() {
+    //     fn random_pareto() -> Pareto<'static> {
+    //         let mut par = Pareto::new();
+    //         for i in 0..10 {
+    //             par.insert(UNNAMED_OBJECTIVES[i], rand::random::<f64>());
+    //         }
+    //         par
+    //     }
+    //
+    //     let sample = iter::repeat(())
+    //         .take(100)
+    //         .map(|()| random_pareto())
+    //         .collect::<Vec<Pareto>>();
+    //
+    //     let mut minima = HashSet::new();
+    //     for x in sample {}
+    // }
 }

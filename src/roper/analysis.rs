@@ -5,7 +5,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::MapFit;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
-use crate::util::count_min_sketch::DecayingSketch;
+use crate::util::count_min_sketch::{suggest_depth, suggest_width, DecayingSketch};
 
 use super::CreatureDominanceOrd;
 
@@ -13,7 +13,8 @@ use super::CreatureDominanceOrd;
 pub struct StatRecord {
     pub counter: usize,
     pub avg_len: f64,
-    pub avg_genetic_freq: f64,
+    pub avg_genetic_freq_by_window: f64,
+    //pub avg_genetic_freq_by_gen: f64,
     pub avg_scalar_fitness: f64,
     // TODO: how to report on fitness vectors?
     // #[serde(flatten)]
@@ -30,7 +31,8 @@ impl StatRecord {
     fn from_window(window: &Window<Creature, CreatureDominanceOrd>, counter: usize) -> Self {
         let frame = &window.frame;
         let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-        let mut sketch = DecayingSketch::default();
+        let mut sketch =
+            DecayingSketch::new(suggest_depth(frame.len()), suggest_width(frame.len()), 0.0);
         for g in frame.iter() {
             g.record_genetic_frequency(&mut sketch);
         }
@@ -55,7 +57,7 @@ impl StatRecord {
         StatRecord {
             counter,
             avg_len,
-            avg_genetic_freq,
+            avg_genetic_freq_by_window: avg_genetic_freq,
             avg_scalar_fitness,
             avg_uniq_exec_count: avg_exec_count,
             avg_exec_ratio,
@@ -65,6 +67,7 @@ impl StatRecord {
             // avg_value_error: fit_vec["value_error"],
             // avg_crash_count: fit_vec["crash_count"],
             avg_register_error: fit_vec["register_error"],
+            //avg_genetic_freq_by_gen: fit_vec["genetic_frequency"],
         }
     }
 }
@@ -109,7 +112,7 @@ pub fn report_fn(
     }
 
     if let Ok(stat) = procinfo::pid::statm_self() {
-        log::info!("Memory status: {:#x?}", stat);
+        log::debug!("Memory status: {:#x?}", stat);
     }
     if halting_condition_reached(window, params) {
         window.stop_evolution();

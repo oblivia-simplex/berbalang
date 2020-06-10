@@ -122,9 +122,11 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
     }
 
     pub fn stop_evolution(&self) {
-        log::info!("Target condition reached. Halting the evolution...");
         if let Err(e) = self.stop_signal_tx.send(true) {
-            log::error!("Error sending stop signal: {:?}", e);
+            log::debug!(
+                "Error sending stop signal: {:?}. This is normal if things have already shut down.",
+                e
+            );
         }
     }
 
@@ -297,6 +299,7 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
 
     pub fn keep_going(&self) -> bool {
         if let Ok(true) = self.stop_signal_rx.try_recv() {
+            log::info!("Target condition reached. Halting the evolution...");
             false
         } else {
             true

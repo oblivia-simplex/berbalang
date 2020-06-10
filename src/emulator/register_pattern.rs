@@ -163,62 +163,104 @@ impl RegisterPattern {
         let spider_map = from_emu.spider(writeable_memory);
 
         // find the closest ham
-        //log::debug!("Spider map: {:#x?}", spider_map);
-        #[inline]
         fn word_distance(w1: u64, w2: u64) -> f64 {
             let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
             let num = (w1 as f64 - w2 as f64).abs(); // log-scale numeric distance
-            let num = if num > 0.0 { num.log2() } else { 0.0 };
+                                                     //let num = if num > 0.0 { num.log2() } else { 0.0 };
             ham.min(num)
         }
 
-        let find_least_ham = |val: &RegisterValue| -> (&str, usize, f64) {
-            let word = val.val;
-            spider_map
-                .iter()
-                // map (register, path) to (reg name, index of min_ham, min_ham)
-                .map(|(register, path)| -> (&str, usize, f64) {
-                    let (index, ham): (usize, f64) = path
-                        .iter()
-                        .enumerate()
-                        .map(|(i, w): (usize, &u64)| -> (usize, f64) {
-                            (i, word_distance(word, *w))
-                        })
-                        .fold(
-                            (0, std::f64::MAX),
-                            |p, q| {
-                                if (p.1) <= (q.1) {
-                                    p
-                                } else {
-                                    q
-                                }
-                            },
-                        );
-                    (register, index, ham)
-                }) // now iterating over (index, minimal ham for path)
-                .fold(("DUMMY_REG", 0, std::f64::MAX), |p, q| {
-                    if (p.2) <= (q.2) {
-                        p
-                    } else {
-                        q
-                    }
-                })
-        };
+        // fn reg_distance(reg: &str, target: &str) -> f64 {
+        //     if reg == target {
+        //         0.0
+        //     } else {
+        //         1.0
+        //     }
+        // }
 
-        let (reg_score, deref_score, ham_score) = self
+        fn pos_distance(pos: usize, target: usize) -> f64 {
+            (pos as i32 - target as i32).abs() as f64
+        }
+
+        // let's just try treating each register independently for now
+        let summed_dist = self
             .0
             .iter()
-            .map(|(reg, val)| {
-                let (r, deref_steps, least_ham) = find_least_ham(val);
-                let correct_reg = if r == reg { 0.0 } else { 1.0 };
-                let deref_error = (val.deref as i32 - deref_steps as i32).abs() as f64;
-                let hamming_error = least_ham as f64;
-                (correct_reg, deref_error, hamming_error)
+            .map(|(reg, r_val): (&String, &RegisterValue)| {
+                log::debug!("want {:x?}", r_val);
+                let vals = spider_map.get(reg).expect("missing reg");
+                let target_val = r_val.val;
+                let target_pos = r_val.deref;
+                let least_distance = vals
+                    .iter()
+                    .enumerate()
+                    .map(|(pos, val)| {
+                        let pos_dist = pos_distance(pos, target_pos);
+                        let word_dist = word_distance(*val, target_val);
+                        log::debug!(
+                            "{} val 0x{:x}: word_dist {} + pos_dist {} = {}",
+                            reg,
+                            val,
+                            word_dist,
+                            pos_dist,
+                            word_dist + pos_dist
+                        );
+                        word_dist + pos_dist
+                    })
+                    .fold(std::f64::MAX, |a, b| a.min(b));
+                log::debug!("{} least_distance = {}", reg, least_distance);
+                least_distance
             })
-            .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
+            .sum();
+        log::debug!("summed_dist = {}", summed_dist);
+        //
+        // let find_least_ham = |val: &RegisterValue| -> (&str, usize, f64) {
+        //     let word = val.val;
+        //     spider_map
+        //         .iter()
+        //         // map (register, path) to (reg name, index of min_ham, min_ham)
+        //         .map(|(register, path)| -> (&str, usize, f64) {
+        //             let (index, ham): (usize, f64) = path
+        //                 .iter()
+        //                 .enumerate()
+        //                 .map(|(i, w): (usize, &u64)| -> (usize, f64) {
+        //                     (i, word_distance(word, *w))
+        //                 })
+        //                 .fold(
+        //                     (0, std::f64::MAX),
+        //                     |p, q| {
+        //                         if (p.1) <= (q.1) {
+        //                             p
+        //                         } else {
+        //                             q
+        //                         }
+        //                     },
+        //                 );
+        //             (register, index, ham)
+        //         }) // now iterating over (index, minimal ham for path)
+        //         .fold(("DUMMY_REG", 0, std::f64::MAX), |p, q| {
+        //             if (p.2) <= (q.2) {
+        //                 p
+        //             } else {
+        //                 q
+        //             }
+        //         })
+        // };
+        //
+        // let (reg_score, deref_score, ham_score) = self
+        //     .0
+        //     .iter()
+        //     .map(|(reg, val)| {
+        //         let (r, deref_steps, least_ham) = find_least_ham(val);
+        //         let correct_reg = if r == reg { 0.0 } else { 1.0 };
+        //         let deref_error = (val.deref as i32 - deref_steps as i32).abs() as f64;
+        //         let hamming_error = least_ham as f64;
+        //         (correct_reg, deref_error, hamming_error)
+        //     })
+        //     .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
         hashmap! {
-            "register_error" => ham_score + (reg_score + deref_score) * 10.0,
+            "register_error" => summed_dist,
            // "value_error" => ham_score,
            // "place_error" => reg_score + deref_score,
         }

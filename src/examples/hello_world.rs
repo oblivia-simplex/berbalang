@@ -77,10 +77,6 @@ impl Phenome for Genotype {
     fn store_answers(&mut self, _results: Vec<Problem>) {
         unimplemented!("n/a") // CODE SMELL FIXME!
     }
-
-    fn len(&self) -> usize {
-        self.genes.len()
-    }
 }
 
 impl Genotype {
