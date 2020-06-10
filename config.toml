@@ -18,6 +18,10 @@ target_fitness = 0
 max_length = 100
 num_epochs = 0 # = infinite
 
+[fitness_weights]
+gadgets_executed = -1
+register_distance = 1
+
 [tournament]
 tournament_size = 4
 

@@ -10,20 +10,27 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-pub trait FitnessScoreReq:
-    PartialEq + Debug + Send + Clone + PartialOrd + Serialize + Add + Div
-{
+pub type FitnessMap<'a> = HashMap<&'a str, f64>;
+
+pub trait HasScalar {
+    fn scalar(&self) -> f64;
+}
+
+impl HasScalar for Vec<f64> {
+    fn scalar(&self) -> f64 {
+        self.iter().sum()
+    }
 }
 
 pub trait FitnessScore:
-    Sized + PartialEq + Debug + Send + Clone + PartialOrd + Serialize + PartialOrd + Index<usize>
+    Sized + PartialEq + Debug + Send + Clone + PartialOrd + Serialize + PartialOrd + HasScalar
 {
 }
 
 impl FitnessScore for Vec<f64> {}
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Pareto<'a>(#[serde(borrow)] HashMap<&'a str, f64>);
+pub struct Pareto<'a>(#[serde(borrow)] FitnessMap<'a>);
 
 impl Pareto<'static> {
     pub fn new() -> Self {
@@ -35,26 +42,32 @@ impl Pareto<'static> {
     }
 }
 
+impl HasScalar for Pareto<'static> {
+    fn scalar(&self) -> f64 {
+        self.values().sum()
+    }
+}
+
 impl MapFit for Pareto<'static> {
-    fn inner_mut(&mut self) -> &mut HashMap<&'static str, f64> {
+    fn inner_mut(&mut self) -> &mut FitnessMap<'static> {
         &mut self.0
     }
 
-    fn inner(&self) -> &HashMap<&'static str, f64> {
+    fn inner(&self) -> &FitnessMap<'static> {
         &self.0
     }
 
-    fn from_map(map: HashMap<&'static str, f64>) -> Self {
+    fn from_map(map: FitnessMap<'static>) -> Self {
         Self(map)
     }
 }
 
 pub trait MapFit {
-    fn inner_mut(&mut self) -> &mut HashMap<&'static str, f64>;
+    fn inner_mut(&mut self) -> &mut FitnessMap<'static>;
 
-    fn inner(&self) -> &HashMap<&'static str, f64>;
+    fn inner(&self) -> &FitnessMap<'static>;
 
-    fn from_map(map: HashMap<&'static str, f64>) -> Self
+    fn from_map(map: FitnessMap<'static>) -> Self
     where
         Self: Sized;
 
@@ -142,8 +155,8 @@ impl From<Vec<f64>> for Pareto<'static> {
     }
 }
 
-impl From<HashMap<&'static str, f64>> for Pareto<'static> {
-    fn from(map: HashMap<&'static str, f64>) -> Self {
+impl From<FitnessMap<'static>> for Pareto<'static> {
+    fn from(map: FitnessMap<'static>) -> Self {
         Pareto(map)
     }
 }
@@ -205,7 +218,7 @@ impl fmt::Debug for Pareto<'_> {
 pub type Lexical<T> = Vec<T>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ShuffleFit(#[serde(borrow)] HashMap<&'static str, f64>);
+pub struct ShuffleFit(#[serde(borrow)] FitnessMap<'static>);
 
 impl ShuffleFit {
     pub fn new() -> Self {
@@ -227,16 +240,22 @@ impl ShuffleFit {
     }
 }
 
+impl HasScalar for ShuffleFit {
+    fn scalar(&self) -> f64 {
+        self.values().sum()
+    }
+}
+
 impl MapFit for ShuffleFit {
-    fn inner_mut(&mut self) -> &mut HashMap<&'static str, f64> {
+    fn inner_mut(&mut self) -> &mut FitnessMap<'static> {
         &mut self.0
     }
 
-    fn inner(&self) -> &HashMap<&'static str, f64> {
+    fn inner(&self) -> &FitnessMap<'static> {
         &self.0
     }
 
-    fn from_map(map: HashMap<&'static str, f64>) -> Self {
+    fn from_map(map: FitnessMap<'static>) -> Self {
         Self(map)
     }
 }
@@ -269,13 +288,83 @@ impl Index<&str> for ShuffleFit {
     }
 }
 
-impl From<HashMap<&'static str, f64>> for ShuffleFit {
-    fn from(map: HashMap<&'static str, f64>) -> Self {
+impl From<FitnessMap<'static>> for ShuffleFit {
+    fn from(map: FitnessMap<'static>) -> Self {
         Self::from_map(map)
     }
 }
 
 impl FitnessScore for ShuffleFit {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Weighted<'a> {
+    pub weights: HashMap<String, f64>,
+    #[serde(borrow)]
+    pub scores: HashMap<&'a str, f64>,
+}
+
+impl Weighted<'static> {
+    pub fn new(weights: HashMap<String, f64>) -> Self {
+        Self {
+            weights,
+            scores: FitnessMap::new(),
+        }
+    }
+
+    pub fn scalar(&self) -> f64 {
+        self.scores
+            .iter()
+            .sorted_by_key(|p| p.0)
+            // FIXME wasteful allocations here.
+            .map(|(k, v)| {
+                let weight = self
+                    .weights
+                    .get(&k.to_string())
+                    .unwrap_or_else(|| panic!("Missing key for {} in fitness_weights", k));
+                v * weight
+            })
+            .sum::<f64>()
+    }
+}
+
+impl HasScalar for Weighted<'static> {
+    fn scalar(&self) -> f64 {
+        Weighted::scalar(&self)
+    }
+}
+
+impl PartialOrd for Weighted<'static> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.scalar().partial_cmp(&other.scalar())
+    }
+}
+
+impl FitnessScore for Weighted<'static> {}
+
+impl MapFit for Weighted<'static> {
+    fn inner_mut(&mut self) -> &mut FitnessMap<'static> {
+        &mut self.scores
+    }
+
+    fn inner(&self) -> &FitnessMap<'static> {
+        &self.scores
+    }
+
+    fn from_map(map: FitnessMap<'static>) -> Self
+    where
+        Self: Sized,
+    {
+        unimplemented!("doesn't really make sense for Weighted")
+    }
+}
+
+impl Index<&str> for Weighted<'static> {
+    type Output = f64;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        &self.scores[index]
+    }
+}
 
 #[cfg(test)]
 mod test {

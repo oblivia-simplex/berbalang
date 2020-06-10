@@ -1,6 +1,7 @@
 use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
 use crate::error::Error;
 use chrono::prelude::*;
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -52,6 +53,7 @@ pub struct Config {
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
     pub num_epochs: usize,
+    pub fitness_weights: HashMap<String, f64>,
 }
 
 fn default_tournament_size() -> usize {
@@ -99,6 +101,8 @@ impl Config {
         config.set_data_directory();
         // copy the config file to the data directory for posterity
         std::fs::copy(&path, &format!("{}/config.toml", config.data_directory()))?;
+
+        println!("{:#?}", config);
 
         Ok(config)
     }

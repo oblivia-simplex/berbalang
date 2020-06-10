@@ -47,7 +47,7 @@ macro_rules! hashmap {
         {
             let mut map = ::hashbrown::HashMap::new();
             $(
-                let _ = map.insert($key, $val);
+                let _ = map.insert($key.into(), $val);
             )*
             map
         }

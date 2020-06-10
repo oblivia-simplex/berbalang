@@ -15,6 +15,7 @@ use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
+use crate::fitness::HasScalar;
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
 use crate::util::{
@@ -354,7 +355,7 @@ impl Phenome for Creature {
     }
 
     fn scalar_fitness(&self) -> Option<f64> {
-        self.fitness.as_ref().map(|v| v.values().sum())
+        self.fitness.as_ref().map(HasScalar::scalar)
     }
 
     fn set_fitness(&mut self, f: Self::Fitness) {

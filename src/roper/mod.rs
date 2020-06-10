@@ -12,7 +12,7 @@ use crate::{
 use crate::evaluator::Evaluate;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::roulette::Roulette;
-use crate::fitness::Pareto;
+use crate::fitness::{Pareto, Weighted};
 use crate::observer::Observer;
 
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
@@ -29,7 +29,7 @@ mod analysis;
 /// scores to each member of the population.
 mod evaluation;
 
-type Fitness<'a> = Pareto<'a>; //Pareto<'static>;
+type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
 crate::make_phenome_heap_friendly!(Creature);
 

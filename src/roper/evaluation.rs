@@ -16,6 +16,7 @@ use crate::{
 };
 
 use super::Creature;
+use crate::fitness::Weighted;
 
 pub fn register_pattern_fitness_fn(
     mut creature: Creature,
@@ -32,6 +33,10 @@ pub fn register_pattern_fitness_fn(
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let writeable_memory = Some(&profile.writeable_memory[0][..]);
             let mut fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
+            let mut weighted_fitness = Weighted {
+                scores: fitness_vector,
+                weights: params.fitness_weights.clone(),
+            };
             // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?
@@ -39,7 +44,9 @@ pub fn register_pattern_fitness_fn(
             // fitness_vector.insert("crash_count", crashes);
 
             let gadgets_executed = profile.gadgets_executed.len();
-            fitness_vector.insert("gadgets_executed", -(gadgets_executed as f64));
+            weighted_fitness
+                .scores
+                .insert("gadgets_executed", gadgets_executed as f64);
 
             //let gen_freq = creature.measure_genetic_frequency(sketch);
             //fitness_vector.insert("genetic_frequency", gen_freq);
@@ -53,8 +60,8 @@ pub fn register_pattern_fitness_fn(
             //     .max()
             //     .unwrap_or(0) as f64;
             // fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
-            creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
-                                                         //log::debug!("fitness: {:?}", creature.fitness());
+            creature.set_fitness(weighted_fitness);
+        //log::debug!("fitness: {:?}", creature.fitness());
         } else {
             log::error!("No register pattern?");
         }
