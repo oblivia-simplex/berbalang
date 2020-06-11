@@ -131,7 +131,7 @@ fn init_emu<C: Cpu<'static>>(
         let mut results = Vec::new();
         // First, map the non-writeable segments to memory. These can be shared.
         segments.iter().for_each(|s| {
-            log::info!(
+            log::debug!(
                 "Mapping segment 0x{:x} - 0x{:x} [{:?}]",
                 s.aligned_start(),
                 s.aligned_end(),

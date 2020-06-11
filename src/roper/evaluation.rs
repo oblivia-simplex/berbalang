@@ -32,9 +32,11 @@ pub fn register_pattern_fitness_fn(
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let writeable_memory = Some(&profile.writeable_memory[0][..]);
-            let fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
+            let register_error = pattern.distance_from_register_state(&profile.registers[0]);
             let mut weighted_fitness = Weighted::new(params.fitness_weights.clone());
-            weighted_fitness.scores = fitness_vector;
+            weighted_fitness
+                .scores
+                .insert("register_error", register_error);
             // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?
@@ -46,7 +48,8 @@ pub fn register_pattern_fitness_fn(
                 .scores
                 .insert("gadgets_executed", gadgets_executed as f64);
 
-            //let gen_freq = creature.measure_genetic_frequency(sketch);
+            let gen_freq = creature.measure_genetic_frequency(sketch);
+            weighted_fitness.scores.insert("genetic_freq", gen_freq);
             //fitness_vector.insert("genetic_frequency", gen_freq);
             // let longest_path = profile
             //     .bb_path_iter()

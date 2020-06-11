@@ -8,6 +8,7 @@ pub enum Error {
     Channel(String),
     Parsing(String),
     Eval(fasteval::error::Error),
+    MissingKey(String),
 }
 
 macro_rules! impl_error_from {

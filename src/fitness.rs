@@ -396,11 +396,11 @@ impl Weighted<'static> {
             .sorted_by_key(|p| p.0)
             // FIXME wasteful allocations here.
             .map(|(k, score)| {
-                let weight = self
-                    .weights
-                    .get(&k.to_string())
-                    .unwrap_or_else(|| panic!("Missing key for {} in fitness_weights", k));
-                apply_weighting(weight, *score)
+                if let Some(weight) = self.weights.get(&k.to_string()) {
+                    apply_weighting(weight, *score)
+                } else {
+                    *score
+                }
             })
             .sum::<f64>();
         *cache = Some(val);

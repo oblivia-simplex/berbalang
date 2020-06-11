@@ -20,8 +20,9 @@ num_epochs = 0 # = infinite
 
 [fitness_weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "min(x, 10) * -1"
+gadgets_executed = "0" #"-1 * min(3, x)"
 register_error = "x"
+genetic_freq = "0" #"min(2, x * 50)"
 
 [tournament]
 tournament_size = 16

@@ -13,7 +13,12 @@ use unicorn::Cpu;
 
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
-use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
+use crate::emulator::register_pattern::{
+    Register, RegisterPattern, RegisterState, UnicornRegisterState,
+};
+use itertools::Itertools;
+use serde::export::Formatter;
+use std::hash::{Hash, Hasher};
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?
@@ -114,7 +119,7 @@ pub struct Profile {
     pub paths: Vec<Vec<Block>>, //PrefixSet<Block>,
     pub cpu_errors: HashMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
-    pub registers: Vec<RegisterPattern>,
+    pub registers: Vec<RegisterState>,
     pub gadgets_executed: HashSet<u64>,
     pub writeable_memory: Vec<Vec<Seg>>,
 }
@@ -157,8 +162,8 @@ impl Profile {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
             computation_times.push(computation_time);
-            let state: UnicornRegisterState<C> = UnicornRegisterState(registers);
-            register_maps.push(state.into());
+            // FIXME: use a different data type for output states.
+            register_maps.push(RegisterState::new::<C>(&registers, Some(&writeable_memory)));
             writeable_memory_regions.push(writeable_memory);
         }
 

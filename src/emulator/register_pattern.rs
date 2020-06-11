@@ -12,6 +12,8 @@ use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::error::Error;
 use crate::hashmap;
+use itertools::Itertools;
+use std::fmt;
 
 pub type Register<C> = <C as Cpu<'static>>::Reg;
 
@@ -147,69 +149,18 @@ impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterSta
 // graph (where the edits are mutations and crossovers). This is a computationally
 // intractable structure. How do we even begin to "approximate" it?
 
+fn word_distance(w1: u64, w2: u64) -> f64 {
+    let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
+    let num = (w1 as f64 - w2 as f64).abs(); // log-scale numeric distance
+                                             //let num = if num > 0.0 { num.log2() } else { 0.0 };
+    ham.min(num)
+}
+
 // TODO: write some integration tests for this. there's a LOT of room for error!
 impl RegisterPattern {
-    pub fn distance(
-        &self,
-        from_emu: &Self,
-        writeable_memory: Option<&[Seg]>,
-    ) -> HashMap<&'static str, f64> {
-        // assumes identical order!
-        // let grain = 2;
-        // let self_bytes: Vec<u8> = self.into();
-        // let other_bytes: Vec<u8> = other.into();
-        // let j = jaccard(&self_bytes, &other_bytes, grain, 10);
-        // j
-        // NOTE: not supporting checking writeable memory yet
-        let spider_map = from_emu.spider(writeable_memory);
-
-        // find the closest ham
-        fn word_distance(w1: u64, w2: u64) -> f64 {
-            let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
-            let num = (w1 as f64 - w2 as f64).abs(); // log-scale numeric distance
-                                                     //let num = if num > 0.0 { num.log2() } else { 0.0 };
-            ham.min(num)
-        }
-
-        // fn reg_distance(reg: &str, target: &str) -> f64 {
-        //     if reg == target {
-        //         0.0
-        //     } else {
-        //         1.0
-        //     }
-        // }
-
-        fn pos_distance(pos: usize, target: usize) -> f64 {
-            (pos as i32 - target as i32).abs() as f64
-        }
-
-        // let's just try treating each register independently for now
-        let summed_dist_for_reg = |reg, r_val: &RegisterValue| {
-            log::debug!("want {:x?}", r_val);
-            let vals = spider_map.get(reg).expect("missing reg");
-            let target_val = r_val.val;
-            let target_pos = r_val.deref;
-            let least_distance = vals
-                .iter()
-                .enumerate()
-                .map(|(pos, val)| {
-                    let pos_dist = pos_distance(pos, target_pos);
-                    let word_dist = word_distance(*val, target_val);
-                    log::debug!(
-                        "{} val 0x{:x}: word_dist {} + pos_dist {} = {}",
-                        reg,
-                        val,
-                        word_dist,
-                        pos_dist,
-                        word_dist + pos_dist
-                    );
-                    word_dist + pos_dist
-                })
-                .fold(std::f64::MAX, |a, b| a.min(b));
-            log::debug!("{} least_distance = {}", reg, least_distance);
-            least_distance
-        };
+    pub fn distance_from_register_state(&self, register_state: &RegisterState) -> f64 {
         const WRONG_REG_PENALTY: f64 = 1.0;
+
         let summed_dist = self
             .0
             .iter()
@@ -217,7 +168,10 @@ impl RegisterPattern {
                 self.0
                     .keys()
                     .map(|r| {
-                        let mut d = summed_dist_for_reg(r, r_val);
+                        let mut d = register_state
+                            .distance_from_register_val(r, r_val)
+                            .expect("Failed to get distance from register val");
+                        println!("[{}] summed_dist_for_reg({}, {:x?}) = {}", reg, r, r_val, d);
                         if r != reg {
                             d += WRONG_REG_PENALTY
                         };
@@ -227,57 +181,8 @@ impl RegisterPattern {
             })
             .sum();
         log::debug!("summed_dist = {}", summed_dist);
-        //
-        // let find_least_ham = |val: &RegisterValue| -> (&str, usize, f64) {
-        //     let word = val.val;
-        //     spider_map
-        //         .iter()
-        //         // map (register, path) to (reg name, index of min_ham, min_ham)
-        //         .map(|(register, path)| -> (&str, usize, f64) {
-        //             let (index, ham): (usize, f64) = path
-        //                 .iter()
-        //                 .enumerate()
-        //                 .map(|(i, w): (usize, &u64)| -> (usize, f64) {
-        //                     (i, word_distance(word, *w))
-        //                 })
-        //                 .fold(
-        //                     (0, std::f64::MAX),
-        //                     |p, q| {
-        //                         if (p.1) <= (q.1) {
-        //                             p
-        //                         } else {
-        //                             q
-        //                         }
-        //                     },
-        //                 );
-        //             (register, index, ham)
-        //         }) // now iterating over (index, minimal ham for path)
-        //         .fold(("DUMMY_REG", 0, std::f64::MAX), |p, q| {
-        //             if (p.2) <= (q.2) {
-        //                 p
-        //             } else {
-        //                 q
-        //             }
-        //         })
-        // };
-        //
-        // let (reg_score, deref_score, ham_score) = self
-        //     .0
-        //     .iter()
-        //     .map(|(reg, val)| {
-        //         let (r, deref_steps, least_ham) = find_least_ham(val);
-        //         let correct_reg = if r == reg { 0.0 } else { 1.0 };
-        //         let deref_error = (val.deref as i32 - deref_steps as i32).abs() as f64;
-        //         let hamming_error = least_ham as f64;
-        //         (correct_reg, deref_error, hamming_error)
-        //     })
-        //     .fold((0.0, 0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
 
-        hashmap! {
-            "register_error" => summed_dist,
-           // "value_error" => ham_score,
-           // "place_error" => reg_score + deref_score,
-        }
+        summed_dist
     }
 
     pub fn spider(&self, extra_segs: Option<&[Seg]>) -> HashMap<String, Vec<u64>> {
@@ -302,6 +207,109 @@ impl From<&RegisterPattern> for Vec<u8> {
             offset += WORD_SIZE;
         }
         buf
+    }
+}
+
+/// The `RegisterState` represents the state of the emulator's CPU
+/// at the end of execution, seen from the perspective of a subset
+/// of registers and their referential chains in memory.
+///
+/// It can be compared against a `RegisterPattern` specification
+/// to produce a distance measure, which can then be used in fitness
+/// functions.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegisterState(pub HashMap<String, Vec<u64>>);
+
+impl Hash for RegisterState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for (_k, vals) in self.0.iter().sorted_by_key(|p| p.0) {
+            for v in vals {
+                state.write_u64(*v)
+            }
+            // And then an unusual sequence to mark the end of a vector
+            state.write_u64(0xdeadbeef_01010101);
+            state.write_u64(0x01010101_baadf00d);
+            state.write_u64(0xc001face_01010101);
+        }
+    }
+}
+
+impl RegisterState {
+    pub fn new<C: 'static + Cpu<'static>>(
+        registers: &HashMap<Register<C>, u64>,
+        extra_segs: Option<&[Seg]>,
+    ) -> Self {
+        Self(Self::spider::<C>(registers, extra_segs))
+    }
+
+    fn spider<C: 'static + Cpu<'static>>(
+        registers: &HashMap<Register<C>, u64>,
+        extra_segs: Option<&[Seg]>,
+    ) -> HashMap<String, Vec<u64>> {
+        const MAX_SPIDER_STEPS: usize = 10;
+        let mut map = HashMap::new();
+        let memory = loader::get_static_memory_image();
+        for (k, v) in registers.iter() {
+            let path = memory.deref_chain(*v, MAX_SPIDER_STEPS, extra_segs);
+            let reg_name = format!("{:?}", k);
+            map.insert(reg_name, path);
+        }
+        map
+    }
+
+    fn distance_from_register_val(&self, reg: &str, r_val: &RegisterValue) -> Result<f64, Error> {
+        const POS_DIST_SCALE: f64 = 1.0;
+        fn pos_distance(pos: usize, target: usize) -> f64 {
+            let res = (pos as i32 - target as i32).abs() as f64;
+            res
+        }
+        log::debug!("want {:x?}", r_val);
+        if let Some(vals) = self.0.get(reg) {
+            let target_val = r_val.val;
+            let target_pos = r_val.deref;
+            let least_distance = vals
+                .iter()
+                .enumerate()
+                .map(|(pos, val)| {
+                    let pos_dist = pos_distance(pos, target_pos);
+                    let word_dist = word_distance(*val, target_val);
+                    log::debug!(
+                        "{} val 0x{:x}: word_dist {} + pos_dist {} = {}",
+                        reg,
+                        val,
+                        word_dist,
+                        pos_dist,
+                        word_dist + pos_dist
+                    );
+                    word_dist + pos_dist * POS_DIST_SCALE
+                })
+                .fold(std::f64::MAX, |a, b| a.min(b));
+            log::debug!("{} least_distance = {}", reg, least_distance);
+            Ok(least_distance)
+        } else {
+            Err(Error::MissingKey(reg.to_string()))
+        }
+    }
+}
+
+impl fmt::Debug for RegisterState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0
+            .iter()
+            .sorted_by_key(|p| p.0)
+            .map(|(r, m)| {
+                writeln!(
+                    f,
+                    "{}: {}",
+                    r,
+                    m.iter()
+                        .map(|v| format!("0x{:x}", v))
+                        .collect::<Vec<_>>()
+                        .join(" -> ")
+                )
+            })
+            .collect::<Result<Vec<()>, _>>()
+            .map(|_| ())
     }
 }
 
@@ -357,35 +365,81 @@ mod test {
 
     #[test]
     fn test_register_pattern_distance() {
-        // load a binary
-        let _segs = loader::load_from_path(
-            "/bin/sh",
-            0x1000,
-            unicorn::Arch::X86,
-            unicorn::Mode::MODE_64,
-        )
-        .expect("failed to load");
-        // set a pattern
+        let spider_map: HashMap<String, Vec<u64>> = hashmap! {
+            "RAX".to_string() => vec![0xdead, 0xbeef, 0],
+            "RBX".to_string() => vec![1, 2, 3],
+        };
+        let register_state = RegisterState(spider_map);
 
-        let pat_str = r#"
-            [pattern]
-            RAX = "0xdeadbeef"
-            RCX = "&&0xbeef"
-            RDX = "& & & 1234"
-        "#;
-        println!("pat_str = {}", pat_str);
-        let pattern_conf: Conf = toml::from_str(&pat_str).expect("failed to parse");
-        let pattern = RegisterPattern::from(&pattern_conf.pattern);
-        println!("pattern: {:#x?}", pattern);
+        let register_pattern = RegisterPattern(hashmap! {
+            "RAX".to_string() => RegisterValue {
+                val: 0xbeef,
+                deref: 1,
+            },
 
-        let res_pat = RegisterPattern(hashmap! {
-            "RAX".into() => RegisterValue { val: 0xdead_beef, deref: 0 },
-            "RCX".into() => RegisterValue { val: 1234, deref: 0 },
-            "RDX".into() => RegisterValue { val: 0x40_0000, deref: 0 },
+            "RBX".to_string() => RegisterValue {
+                val: 3,
+                deref: 2,
+            },
         });
 
-        println!("suppose the resulting state is {:#x?}", res_pat);
-        let distance = pattern.distance(&res_pat, None);
-        println!("distance = {:?}", distance);
+        let res = register_pattern.distance_from_register_state(&register_state);
+
+        assert_eq!(res, 0.0, "nonzero score on match");
+    }
+
+    #[test]
+    fn test_summed_dist() {
+        let spider_map: HashMap<String, Vec<u64>> = hashmap! {
+            "RAX".to_string() => vec![0xdead, 0xbeef, 0],
+            "RBX".to_string() => vec![1, 2, 3],
+        };
+        let register_state = RegisterState(spider_map);
+
+        let res = register_state
+            .distance_from_register_val(
+                "RAX",
+                &RegisterValue {
+                    val: 0xbeef,
+                    deref: 1,
+                },
+            )
+            .unwrap();
+        assert_eq!(res, 0.0, "Match failed");
+
+        let res = register_state
+            .distance_from_register_val("RBX", &RegisterValue { val: 3, deref: 2 })
+            .unwrap();
+        assert_eq!(res, 0.0, "Match failed");
+
+        let res = register_state
+            .distance_from_register_val(
+                "RAX",
+                &RegisterValue {
+                    val: 0x1000_beef,
+                    deref: 1,
+                },
+            )
+            .unwrap();
+        assert_eq!(res, 1.0, "Match failed");
+
+        let res = register_state
+            .distance_from_register_val(
+                "RAX",
+                &RegisterValue {
+                    val: 0x1000_beef,
+                    deref: 0,
+                },
+            )
+            .unwrap();
+        assert_eq!(res, 2.0, "Match failed");
+
+        let register_state = RegisterState(hashmap! {
+            "RAX".to_string() => vec![1, 7],
+        });
+        let res = register_state
+            .distance_from_register_val("RAX", &RegisterValue { val: 9, deref: 3 })
+            .unwrap();
+        assert_eq!(res, 1.0 + 3.0);
     }
 }

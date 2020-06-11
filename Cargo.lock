@@ -31,6 +31,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomig"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803b362be61e51c9515580161fa6fe75abac0e4987590050fa20c1840f171e3e"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -70,6 +76,7 @@ checksum = "53d1ccbaf7d9ec9537465a97bf19edc1a4e158ecb49fc16178202238c569cc42"
 name = "berbalang"
 version = "0.1.0"
 dependencies = [
+ "atomig",
  "bson",
  "byte-slice-cast",
  "byteorder",
