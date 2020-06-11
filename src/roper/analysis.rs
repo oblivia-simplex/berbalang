@@ -105,11 +105,12 @@ pub fn report_fn(
     window.log_record(record);
 
     let total = window.archive.len();
-    log::info!("Current Pareto front contains {} specimens:", total);
-    for (i, specimen) in window.archive.iter().enumerate() {
-        log::info!("Specimen #{}: {:#?}", i, specimen);
-        break;
-    }
+    // log::info!("Current Pareto front contains {} specimens:", total);
+    // for (i, specimen) in window.archive.iter().enumerate() {
+    //     log::info!("Specimen #{}: {:#?}", i, specimen);
+    //     break;
+    // }
+    log::info!("Current best: {:#x?}", window.best);
 
     if let Ok(stat) = procinfo::pid::statm_self() {
         log::debug!("Memory status: {:#x?}", stat);

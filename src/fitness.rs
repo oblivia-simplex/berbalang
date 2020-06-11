@@ -301,7 +301,7 @@ impl From<FitnessMap<'static>> for ShuffleFit {
 
 impl FitnessScore for ShuffleFit {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Weighted<'a> {
     weights: HashMap<String, String>,
     //   #[serde(skip)]
@@ -468,6 +468,17 @@ impl Index<&str> for Weighted<'static> {
 
     fn index(&self, index: &str) -> &Self::Output {
         &self.scores[index]
+    }
+}
+
+impl fmt::Debug for Weighted<'static> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Weighted:")?;
+        for (attr, weight) in self.weights.iter().sorted_by_key(|p| p.0) {
+            let score = self.scores.get(attr.as_str()).unwrap();
+            writeln!(f, "  {}: {}, to be weighted by ({})", attr, score, weight)?;
+        }
+        writeln!(f, "Scalar: {}", self.scalar())
     }
 }
 

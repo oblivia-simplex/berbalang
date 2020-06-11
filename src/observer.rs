@@ -159,7 +159,8 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.dump_population();
         }
         if self.counter % self.params.pop_size == 0 {
-            self.update_archive();
+            // UNCOMMENT FOR PARETO FIXME // self.update_archive();
+            self.update_best();
         }
         if self.counter % self.report_every == 0 {
             self.report();
@@ -170,13 +171,28 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         }
     }
 
+    fn update_best(&mut self) {
+        for specimen in self.frame.iter() {
+            if let Some(f) = specimen.scalar_fitness() {
+                match self.best.as_ref() {
+                    None => self.best = Some(specimen.clone()),
+                    Some(champ) => {
+                        if f < champ.scalar_fitness().unwrap() {
+                            self.best = Some(specimen.clone())
+                        }
+                    }
+                }
+            }
+        }
+    }
     fn update_archive(&mut self) {
         // TODO: optimize this. it's quite bad.
 
         let arena = self
             .archive
             .iter()
-            .chain(self.frame.iter().filter(|g| g.front() == Some(0)))
+            //.chain(self.frame.iter().filter(|g| g.front() == Some(0)))
+            .chain(self.frame.iter())
             .cloned() // trouble non_dom sorting refs
             .collect::<Vec<O>>();
 

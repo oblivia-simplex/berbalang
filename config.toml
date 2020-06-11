@@ -11,7 +11,7 @@ crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
-pop_size = 150
+pop_size = 500
 num_offspring = 2
 num_parents = 2
 target_fitness = 0
@@ -21,10 +21,10 @@ num_epochs = 0 # = infinite
 [fitness_weights]
 # uses fasteval to evaluate weighting expressions
 gadgets_executed = "min(x, 10) * -1"
-register_error = "x "
+register_error = "x"
 
 [tournament]
-tournament_size = 4
+tournament_size = 16
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
@@ -53,9 +53,10 @@ path = "./data/iris.tsv"
 [roper]
 arch = "X86"
 mode = "MODE_64"
-gadget_file = "./gadgets/sh_soup.json"
+#gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "/bin/sh"
+#binary_path = "/bin/sh"
+binary_path = "/tmp/ldconfig"
 num_workers = 41
 num_emulators = 31
 max_emu_steps = 0x1_000

@@ -147,6 +147,7 @@ impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterSta
 // graph (where the edits are mutations and crossovers). This is a computationally
 // intractable structure. How do we even begin to "approximate" it?
 
+// TODO: write some integration tests for this. there's a LOT of room for error!
 impl RegisterPattern {
     pub fn distance(
         &self,
@@ -183,33 +184,46 @@ impl RegisterPattern {
         }
 
         // let's just try treating each register independently for now
+        let summed_dist_for_reg = |reg, r_val: &RegisterValue| {
+            log::debug!("want {:x?}", r_val);
+            let vals = spider_map.get(reg).expect("missing reg");
+            let target_val = r_val.val;
+            let target_pos = r_val.deref;
+            let least_distance = vals
+                .iter()
+                .enumerate()
+                .map(|(pos, val)| {
+                    let pos_dist = pos_distance(pos, target_pos);
+                    let word_dist = word_distance(*val, target_val);
+                    log::debug!(
+                        "{} val 0x{:x}: word_dist {} + pos_dist {} = {}",
+                        reg,
+                        val,
+                        word_dist,
+                        pos_dist,
+                        word_dist + pos_dist
+                    );
+                    word_dist + pos_dist
+                })
+                .fold(std::f64::MAX, |a, b| a.min(b));
+            log::debug!("{} least_distance = {}", reg, least_distance);
+            least_distance
+        };
+        const WRONG_REG_PENALTY: f64 = 1.0;
         let summed_dist = self
             .0
             .iter()
             .map(|(reg, r_val): (&String, &RegisterValue)| {
-                log::debug!("want {:x?}", r_val);
-                let vals = spider_map.get(reg).expect("missing reg");
-                let target_val = r_val.val;
-                let target_pos = r_val.deref;
-                let least_distance = vals
-                    .iter()
-                    .enumerate()
-                    .map(|(pos, val)| {
-                        let pos_dist = pos_distance(pos, target_pos);
-                        let word_dist = word_distance(*val, target_val);
-                        log::debug!(
-                            "{} val 0x{:x}: word_dist {} + pos_dist {} = {}",
-                            reg,
-                            val,
-                            word_dist,
-                            pos_dist,
-                            word_dist + pos_dist
-                        );
-                        word_dist + pos_dist
+                self.0
+                    .keys()
+                    .map(|r| {
+                        let mut d = summed_dist_for_reg(r, r_val);
+                        if r != reg {
+                            d += WRONG_REG_PENALTY
+                        };
+                        d
                     })
-                    .fold(std::f64::MAX, |a, b| a.min(b));
-                log::debug!("{} least_distance = {}", reg, least_distance);
-                least_distance
+                    .fold(std::f64::MAX, |a, b| a.min(b))
             })
             .sum();
         log::debug!("summed_dist = {}", summed_dist);
