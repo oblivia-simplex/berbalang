@@ -13,12 +13,7 @@ use unicorn::Cpu;
 
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
-use crate::emulator::register_pattern::{
-    Register, RegisterPattern, RegisterState, UnicornRegisterState,
-};
-use itertools::Itertools;
-use serde::export::Formatter;
-use std::hash::{Hash, Hasher};
+use crate::emulator::register_pattern::{Register, RegisterState};
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?

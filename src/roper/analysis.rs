@@ -129,7 +129,7 @@ pub fn report_fn(
 
     window.log_record(record);
 
-    let total = window.archive.len();
+    // let total = window.archive.len();
     // log::info!("Current Pareto front contains {} specimens:", total);
     // for (i, specimen) in window.archive.iter().enumerate() {
     //     log::info!("Specimen #{}: {:#?}", i, specimen);

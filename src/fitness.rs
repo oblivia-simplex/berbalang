@@ -1,9 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::ops::{Add, Div, Index};
+use std::ops::Index;
 
-use crate::error::Error;
-use fasteval::Evaler;
 use fasteval::{Compiler, Slab};
 use hashbrown::HashMap;
 use itertools::Itertools;
@@ -240,8 +238,7 @@ impl ShuffleFit {
         epoch.hash(&mut hasher);
         let h = hasher.finish() as usize;
         let keys = self.0.keys().collect::<Vec<_>>();
-        let k = keys[h % keys.len()];
-        k
+        keys[h % keys.len()]
     }
 }
 
@@ -378,7 +375,7 @@ impl Weighted<'static> {
     pub fn new(weights: HashMap<String, String>) -> Self {
         Self {
             //slab: Mutex::new(slab),
-            weights: weights,
+            weights,
             //weights: weight_map,
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
@@ -396,7 +393,7 @@ impl Weighted<'static> {
             .sorted_by_key(|p| p.0)
             // FIXME wasteful allocations here.
             .map(|(k, score)| {
-                if let Some(weight) = self.weights.get(&k.to_string()) {
+                if let Some(weight) = self.weights.get(&(*k).to_string()) {
                     apply_weighting(weight, *score)
                 } else {
                     *score
@@ -431,7 +428,7 @@ impl MapFit for Weighted<'static> {
         &self.scores
     }
 
-    fn from_map(map: FitnessMap<'static>) -> Self
+    fn from_map(_map: FitnessMap<'static>) -> Self
     where
         Self: Sized,
     {
@@ -472,7 +469,7 @@ impl Index<&str> for Weighted<'static> {
 }
 
 impl fmt::Debug for Weighted<'static> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Weighted:")?;
         for (attr, weight) in self.weights.iter().sorted_by_key(|p| p.0) {
             let score = self.scores.get(attr.as_str()).unwrap();
@@ -488,8 +485,6 @@ mod test {
     use crate::pareto;
 
     use super::*;
-    use hashbrown::HashSet;
-    use std::iter;
 
     #[test]
     fn test_pareto_ordering() {

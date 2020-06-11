@@ -2,7 +2,7 @@ use std::iter;
 use std::sync::Arc;
 
 use rand::distributions::WeightedIndex;
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use rand_distr::Distribution;
 
 use non_dominated_sort::{non_dominated_sort, DominanceOrd};

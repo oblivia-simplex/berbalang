@@ -12,7 +12,7 @@ use crate::{
 use crate::evaluator::Evaluate;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
-use crate::fitness::{Pareto, Weighted};
+use crate::fitness::Weighted;
 use crate::observer::Observer;
 
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`

@@ -60,11 +60,7 @@ impl DecayingSketch {
             freq_table,
             time_table,
             counter: 0,
-            decay: if half_life <= std::f64::EPSILON {
-                false
-            } else {
-                true
-            },
+            decay: half_life > std::f64::EPSILON,
         }
     }
 
@@ -243,10 +239,8 @@ mod test {
         println!("width = {}, depth = {}", width, depth);
         println!("First run:");
         println!(
-            "expected sum: {}, actual d_sum: {}, actual c_sum: {}",
-            count as f64 / count as f64,
-            d_sum,
-            c_sum
+            "expected sum: 1.0, actual d_sum: {}, actual c_sum: {}",
+            d_sum, c_sum
         );
 
         println!("Second run:");
@@ -275,10 +269,8 @@ mod test {
         d_sum += d_res;
         c_sum += c_res;
         println!(
-            "expected sum: {}, actual d_sum: {}, actual c_sum: {}",
-            count as f64 / count as f64,
-            d_sum,
-            c_sum
+            "expected sum: 1.0, actual d_sum: {}, actual c_sum: {}",
+            d_sum, c_sum
         );
     }
 }

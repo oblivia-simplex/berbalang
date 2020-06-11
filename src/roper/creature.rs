@@ -22,7 +22,6 @@ use crate::util::{
     self,
     architecture::{endian, word_size_in_bytes, Endian},
 };
-use itertools::Itertools;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Creature {

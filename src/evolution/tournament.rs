@@ -9,7 +9,6 @@ use crate::configure::Config;
 use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::EPOCH_COUNTER;
 
 // consider an island-pier structure
 

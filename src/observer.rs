@@ -88,6 +88,7 @@ pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     report_fn: ReportFn<O, D>,
     pub best: Option<O>,
     pub archive: Vec<O>,
+    #[allow(dead_code)] // TODO: re-establish pareto archive as optional
     dominance_order: D,
     stat_writer: Arc<Mutex<csv::Writer<fs::File>>>,
     stop_signal_tx: Sender<bool>,
@@ -185,6 +186,8 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             }
         }
     }
+
+    #[allow(dead_code)] // TODO re-establish as optional
     fn update_archive(&mut self) {
         // TODO: optimize this. it's quite bad.
 
@@ -207,10 +210,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             .current_front_indices()
             .choose_multiple(&mut thread_rng(), self.params.pop_size);
 
-        self.archive = sample
-            .into_iter()
-            .map(|i| arena[*i].clone())
-            .collect::<Vec<O>>();
+        self.archive = sample.map(|i| arena[*i].clone()).collect::<Vec<O>>();
     }
 
     fn report(&self) {

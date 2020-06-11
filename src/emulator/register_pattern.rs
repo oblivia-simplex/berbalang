@@ -11,7 +11,6 @@ use hashbrown::HashMap;
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::error::Error;
-use crate::hashmap;
 use itertools::Itertools;
 use std::fmt;
 
@@ -220,6 +219,8 @@ impl From<&RegisterPattern> for Vec<u8> {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegisterState(pub HashMap<String, Vec<u64>>);
 
+// we can see that identity implies hash identity, so we don't need this warning
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for RegisterState {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for (_k, vals) in self.0.iter().sorted_by_key(|p| p.0) {
@@ -260,8 +261,7 @@ impl RegisterState {
     fn distance_from_register_val(&self, reg: &str, r_val: &RegisterValue) -> Result<f64, Error> {
         const POS_DIST_SCALE: f64 = 1.0;
         fn pos_distance(pos: usize, target: usize) -> f64 {
-            let res = (pos as i32 - target as i32).abs() as f64;
-            res
+            (pos as i32 - target as i32).abs() as f64
         }
         log::debug!("want {:x?}", r_val);
         if let Some(vals) = self.0.get(reg) {
@@ -319,7 +319,6 @@ mod test {
 
     use crate::hashmap;
 
-    use crate::emulator::loader;
     use crate::emulator::register_pattern::{RegisterPattern, RegisterValue};
 
     use super::*;
@@ -385,7 +384,7 @@ mod test {
 
         let res = register_pattern.distance_from_register_state(&register_state);
 
-        assert_eq!(res, 0.0, "nonzero score on match");
+        assert!(res < std::f64::EPSILON, "nonzero score on match");
     }
 
     #[test]
@@ -405,12 +404,12 @@ mod test {
                 },
             )
             .unwrap();
-        assert_eq!(res, 0.0, "Match failed");
+        assert!(res < std::f64::EPSILON, "Match failed");
 
         let res = register_state
             .distance_from_register_val("RBX", &RegisterValue { val: 3, deref: 2 })
             .unwrap();
-        assert_eq!(res, 0.0, "Match failed");
+        assert!(res < std::f64::EPSILON, "Match failed");
 
         let res = register_state
             .distance_from_register_val(
@@ -421,7 +420,7 @@ mod test {
                 },
             )
             .unwrap();
-        assert_eq!(res, 1.0, "Match failed");
+        assert!(res - 1.0 < std::f64::EPSILON, "Match failed");
 
         let res = register_state
             .distance_from_register_val(
@@ -432,7 +431,7 @@ mod test {
                 },
             )
             .unwrap();
-        assert_eq!(res, 2.0, "Match failed");
+        assert!(res - 2.0 < std::f64::EPSILON, "Match failed");
 
         let register_state = RegisterState(hashmap! {
             "RAX".to_string() => vec![1, 7],
@@ -440,6 +439,6 @@ mod test {
         let res = register_state
             .distance_from_register_val("RAX", &RegisterValue { val: 9, deref: 3 })
             .unwrap();
-        assert_eq!(res, 1.0 + 3.0);
+        assert!(res - (1.0 + 3.0) < std::f64::EPSILON);
     }
 }
