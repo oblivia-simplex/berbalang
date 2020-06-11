@@ -7,6 +7,7 @@ pub enum Error {
     ParseInt(std::num::ParseIntError),
     Channel(String),
     Parsing(String),
+    Eval(fasteval::error::Error),
 }
 
 macro_rules! impl_error_from {
@@ -20,6 +21,7 @@ macro_rules! impl_error_from {
 }
 
 impl_error_from!(std::io::Error, IO);
+impl_error_from!(fasteval::error::Error, Eval);
 impl_error_from!(std::num::ParseIntError, ParseInt);
 
 impl<T: Debug> From<std::sync::mpsc::SendError<T>> for Error {

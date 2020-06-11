@@ -80,6 +80,7 @@ dependencies = [
  "deflate",
  "distance",
  "env_logger",
+ "fasteval",
  "fnv",
  "goblin",
  "hamming",
@@ -431,6 +432,11 @@ dependencies = [
  "syn",
  "synstructure",
 ]
+
+[[package]]
+name = "fasteval"
+version = "0.2.4"
+source = "git+https://github.com/oblivia-simplex/fasteval#514d068fb4cc294b23fbb3a25c04909d10cc8ed2"
 
 [[package]]
 name = "fnv"

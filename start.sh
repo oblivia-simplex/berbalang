@@ -1,3 +1,3 @@
 #! /bin/sh
-
-cargo run --release
+export RUSTFLAGS="--emit=asm"
+RUST_BACKTRACE=1 cargo run --release

@@ -174,6 +174,11 @@ impl fmt::Debug for Creature {
             }
             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }
+        writeln!(
+            f,
+            "Scalar fitness: {:?}",
+            self.fitness().as_ref().map(|f| f.scalar())
+        )?;
         writeln!(f, "Fitness: {:#?}", self.fitness())?;
         Ok(())
     }

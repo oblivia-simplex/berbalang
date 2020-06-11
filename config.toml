@@ -3,8 +3,8 @@
 ##############################
 
 job = "Roper"
-selection = "Roulette"
-#selection = "Tournament" # currently inefficient
+#selection = "Roulette"
+selection = "Tournament" # currently inefficient
 #selection = "Metropolis"
 mut_rate = 0.05
 crossover_period = 2
@@ -19,8 +19,9 @@ max_length = 100
 num_epochs = 0 # = infinite
 
 [fitness_weights]
-gadgets_executed = -1
-register_distance = 1
+# uses fasteval to evaluate weighting expressions
+gadgets_executed = "min(x, 10) * -1"
+register_error = "x "
 
 [tournament]
 tournament_size = 4

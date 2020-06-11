@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::configure::{Config, Problem, Selection};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
-use crate::evolution::roulette::Roulette;
+use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::Pareto;
 use crate::impl_dominance_ord_for_phenome;

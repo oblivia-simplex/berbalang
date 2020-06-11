@@ -53,7 +53,7 @@ pub struct Config {
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
     pub num_epochs: usize,
-    pub fitness_weights: HashMap<String, f64>,
+    pub fitness_weights: HashMap<String, String>,
 }
 
 fn default_tournament_size() -> usize {

@@ -10,7 +10,7 @@ use crate::fitness::FitnessScore;
 use crate::util::count_min_sketch::DecayingSketch;
 
 pub mod metropolis;
-pub mod roulette;
+pub mod pareto_roulette;
 pub mod tournament;
 
 pub trait Genome: Debug {

@@ -2,13 +2,18 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::{Add, Div, Index};
 
+use crate::error::Error;
+use fasteval::Evaler;
+use fasteval::{Compiler, Slab};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
 
 pub type FitnessMap<'a> = HashMap<&'a str, f64>;
 
@@ -296,34 +301,110 @@ impl From<FitnessMap<'static>> for ShuffleFit {
 
 impl FitnessScore for ShuffleFit {}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Weighted<'a> {
-    pub weights: HashMap<String, f64>,
+    weights: HashMap<String, String>,
+    //   #[serde(skip)]
+    //   pub weights: HashMap<String, fasteval::Instruction>,
+    //#[serde(skip)]
+    //slab: Mutex<Slab>,
     #[serde(borrow)]
     pub scores: HashMap<&'a str, f64>,
+    cached_scalar: Mutex<Option<f64>>,
+}
+
+impl PartialEq for Weighted<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.scores == other.scores && self.weights == other.weights
+    }
+}
+
+fn compile_weight_expression(
+    expr: &str,
+    slab: &mut fasteval::Slab,
+    parser: &fasteval::Parser,
+) -> fasteval::Instruction {
+    // See the `parse` documentation to understand why we use `from` like this:
+    parser
+        .parse(expr, &mut slab.ps)
+        .expect("Failed to parse expression")
+        .from(&slab.ps)
+        .compile(&slab.ps, &mut slab.cs)
+}
+
+impl Clone for Weighted<'_> {
+    fn clone(&self) -> Self {
+        Self {
+            cached_scalar: Mutex::new(None),
+            weights: self.weights.clone(),
+            scores: self.scores.clone(),
+        }
+    }
+}
+
+// TODO: this could be optimized quite a bit by parsing the fasteval expressions
+// // when constructing the Weighted instance.
+// fn apply_weighting(
+//     weighting: &fasteval::Instruction,
+//     score: f64,
+//     mut slab: &mut Slab,
+// ) -> Result<f64, Error> {
+//     let mut map = BTreeMap::new();
+//     map.insert("x".to_string(), score);
+//     let res = fasteval::eval_compiled_ref!(weighting, &mut slab, &mut map);
+//     Ok(res)
+// }
+
+fn apply_weighting(weighting: &str, score: f64) -> f64 {
+    let mut ns = BTreeMap::new();
+    ns.insert("x", score);
+    fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression")
+}
+
+fn compile_weight_map(
+    weights: &HashMap<String, String>,
+    mut slab: &mut Slab,
+) -> HashMap<String, fasteval::Instruction> {
+    let parser = fasteval::Parser::new();
+    let mut weight_map = HashMap::new();
+    for (attr, weight) in weights.iter() {
+        let compiled = compile_weight_expression(weight, &mut slab, &parser);
+        weight_map.insert(attr.clone(), compiled);
+    }
+    weight_map
 }
 
 impl Weighted<'static> {
-    pub fn new(weights: HashMap<String, f64>) -> Self {
+    pub fn new(weights: HashMap<String, String>) -> Self {
         Self {
-            weights,
+            //slab: Mutex::new(slab),
+            weights: weights,
+            //weights: weight_map,
             scores: FitnessMap::new(),
+            cached_scalar: Mutex::new(None),
         }
     }
 
     pub fn scalar(&self) -> f64 {
-        self.scores
+        let mut cache = self.cached_scalar.lock().unwrap();
+        if let Some(val) = *cache {
+            return val;
+        }
+        let val = self
+            .scores
             .iter()
             .sorted_by_key(|p| p.0)
             // FIXME wasteful allocations here.
-            .map(|(k, v)| {
+            .map(|(k, score)| {
                 let weight = self
                     .weights
                     .get(&k.to_string())
                     .unwrap_or_else(|| panic!("Missing key for {} in fitness_weights", k));
-                v * weight
+                apply_weighting(weight, *score)
             })
-            .sum::<f64>()
+            .sum::<f64>();
+        *cache = Some(val);
+        val
     }
 }
 
@@ -355,6 +436,30 @@ impl MapFit for Weighted<'static> {
         Self: Sized,
     {
         unimplemented!("doesn't really make sense for Weighted")
+    }
+
+    fn average(frame: &[&Self]) -> Self {
+        debug_assert!(!frame.is_empty(), "Don't try to average empty frames");
+        let mut map = HashMap::new();
+        let mut weights = None;
+        for p in frame.iter() {
+            if weights.is_none() {
+                weights = Some(p.weights.clone());
+            }
+            for (&k, &v) in p.inner().iter() {
+                *(map.entry(k).or_insert(0.0)) += v;
+            }
+        }
+        let len = frame.len() as f64;
+        for (_k, v) in map.iter_mut() {
+            *v /= len;
+        }
+        let weights = weights.unwrap();
+        Self {
+            weights,
+            scores: map,
+            cached_scalar: Mutex::new(None),
+        }
     }
 }
 

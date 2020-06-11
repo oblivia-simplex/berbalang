@@ -55,18 +55,20 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
             iteration,
         } = self;
 
-        EPOCH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
         let tournament_size = config.tournament.tournament_size;
         let mut rng = thread_rng();
-        let mut combatants = iter::repeat(())
+        let combatants: Vec<P> = iter::repeat(())
             .take(tournament_size)
             .filter_map(|()| population.pop())
+            .collect();
+
+        let mut combatants = evaluator
+            .eval_pipeline(combatants.into_iter())
+            .into_iter()
             .map(|mut e| {
                 e.set_tag(rng.gen::<u64>());
                 e
             })
-            .map(|e| evaluator.evaluate(e))
             .map(|e| {
                 observer.observe(e.clone());
                 e
@@ -115,6 +117,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
         }
 
         // put the epoch back together
+        crate::increment_epoch_counter();
         Self {
             population,
             config,

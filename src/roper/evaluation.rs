@@ -32,11 +32,9 @@ pub fn register_pattern_fitness_fn(
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let writeable_memory = Some(&profile.writeable_memory[0][..]);
-            let mut fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
-            let mut weighted_fitness = Weighted {
-                scores: fitness_vector,
-                weights: params.fitness_weights.clone(),
-            };
+            let fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
+            let mut weighted_fitness = Weighted::new(params.fitness_weights.clone());
+            weighted_fitness.scores = fitness_vector;
             // FIXME broken // fitness_vector.push(reg_freq);
 
             // how many times did it crash?

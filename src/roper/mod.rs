@@ -11,7 +11,7 @@ use crate::{
 // the runner
 use crate::evaluator::Evaluate;
 use crate::evolution::metropolis::Metropolis;
-use crate::evolution::roulette::Roulette;
+use crate::evolution::pareto_roulette::Roulette;
 use crate::fitness::{Pareto, Weighted};
 use crate::observer::Observer;
 
