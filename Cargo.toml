@@ -10,6 +10,7 @@ edition = "2018"
 default = []
 linear_gp = []
 hello_world = []
+disassemble_trace = []
 
 [profile.release]
 debug = true

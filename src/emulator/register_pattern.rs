@@ -9,8 +9,11 @@ use unicorn::Cpu;
 use hashbrown::HashMap;
 
 use crate::emulator::loader;
-use crate::emulator::loader::Seg;
+use crate::emulator::loader::{get_static_memory_image, Seg};
 use crate::error::Error;
+use crate::util;
+use crate::util::architecture::Endian;
+use crate::util::bitwise;
 use itertools::Itertools;
 use std::fmt;
 
@@ -53,6 +56,17 @@ impl FromStr for RegisterValue {
                 // You could handle short strings here, too.
                 // Match on an opening single quote, and pack `word_size` bytes into an
                 // integer. TODO
+                Some('\'') => {
+                    let s = chars.collect::<String>();
+                    // FIXME: don't hardcode the endian
+                    if let Some(w) = bitwise::try_str_as_word(s, Endian::Little) {
+                        Ok(RegisterValue { val: w, deref })
+                    } else {
+                        Err(Error::Parsing(
+                            "can only encode strings of fewer than 8 characters".into(),
+                        ))
+                    }
+                }
                 Some(x) => {
                     let rest = chars.collect::<String>();
                     let numeral = format!("{}{}", x, rest);
@@ -148,11 +162,19 @@ impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterSta
 // graph (where the edits are mutations and crossovers). This is a computationally
 // intractable structure. How do we even begin to "approximate" it?
 
+// This is the algorithm I used in ROPER 1.
+fn word_distance2(w1: u64, w2: u64) -> f64 {
+    const BOUND: f64 = 2048.0;
+    // hamming distance
+    let ham = (w1 ^ w2).count_ones() as f64 / 64.0;
+    // bounded arithmetic distance
+    let diff = (w1 as f64 - w2 as f64).abs().max(BOUND);
+    let num = diff / BOUND;
+    (ham + num) / 2.0
+}
+
 fn word_distance(w1: u64, w2: u64) -> f64 {
-    let ham = (w1 ^ w2).count_ones() as f64; // hamming distance
-    let num = (w1 as f64 - w2 as f64).abs(); // log-scale numeric distance
-                                             //let num = if num > 0.0 { num.log2() } else { 0.0 };
-    ham.min(num)
+    (w1 ^ w2).count_ones() as f64
 }
 
 // TODO: write some integration tests for this. there's a LOT of room for error!
@@ -170,7 +192,7 @@ impl RegisterPattern {
                         let mut d = register_state
                             .distance_from_register_val(r, r_val)
                             .expect("Failed to get distance from register val");
-                        println!("[{}] summed_dist_for_reg({}, {:x?}) = {}", reg, r, r_val, d);
+                        log::debug!("[{}] summed_dist_for_reg({}, {:x?}) = {}", reg, r, r_val, d);
                         if r != reg {
                             d += WRONG_REG_PENALTY
                         };
@@ -261,7 +283,19 @@ impl RegisterState {
     fn distance_from_register_val(&self, reg: &str, r_val: &RegisterValue) -> Result<f64, Error> {
         const POS_DIST_SCALE: f64 = 1.0;
         fn pos_distance(pos: usize, target: usize) -> f64 {
-            (pos as i32 - target as i32).abs() as f64
+            //(pos as i32 - target as i32).abs() as f64
+            // It's much easier to shunt a register forward along its
+            // referential path than backward. TODO: verify
+            // so, suppose we want &&x. then target = 2.
+            // suppose we find x at 0. pos - target = -2
+            // but suppose we find x at &&x, pos 2, but
+            // target is 0. easy to bring it in. pos - target = +2
+            let forward_dist = pos as i32 - target as i32;
+            if forward_dist > 0 {
+                forward_dist as f64
+            } else {
+                -4.0 * forward_dist as f64
+            }
         }
         log::debug!("want {:x?}", r_val);
         if let Some(vals) = self.0.get(reg) {
@@ -294,6 +328,8 @@ impl RegisterState {
 
 impl fmt::Debug for RegisterState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let memory = get_static_memory_image();
+        let endian = memory.endian;
         self.0
             .iter()
             .sorted_by_key(|p| p.0)
@@ -303,7 +339,13 @@ impl fmt::Debug for RegisterState {
                     "{}: {}",
                     r,
                     m.iter()
-                        .map(|v| format!("0x{:x}", v))
+                        .map(|v| format!(
+                            "0x{:x}{}",
+                            v,
+                            util::bitwise::try_word_as_string(*v, endian)
+                                .map(|s| format!(" ({})", s))
+                                .unwrap_or("".to_string())
+                        ))
                         .collect::<Vec<_>>()
                         .join(" -> ")
                 )
@@ -357,7 +399,7 @@ mod test {
 
         for (s, reg_val) in rvs.into_iter() {
             let rv: RegisterValue = s.parse().expect("Failed to parse");
-            println!("{} --> {:?}", s, rv);
+            log::debug!("{} --> {:?}", s, rv);
             assert_eq!(rv, reg_val);
         }
     }

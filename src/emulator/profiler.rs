@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
 use crate::emulator::loader;
-use crate::emulator::loader::Seg;
+use crate::emulator::loader::{get_static_memory_image, Seg};
 use crate::emulator::register_pattern::{Register, RegisterState};
 
 // TODO: why store the size at all, if you're just going to
@@ -52,44 +52,6 @@ impl fmt::Debug for Block {
     }
 }
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// pub struct Region {
-//     pub begin: u64,
-//     pub end: u64,
-//     pub perm: unicorn::Protection,
-//     data: Vec<u8>,
-// }
-//
-// impl Region {
-//     pub fn new(mem_reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
-//         Self {
-//             begin: mem_reg.begin,
-//             end: mem_reg.end,
-//             perm: mem_reg.perms,
-//             data,
-//         }
-//     }
-// }
-//
-// impl Hash<usize> for Region {
-//     type Output = [u8];
-//
-//     fn index(&self, index: usize) -> &Self::Output {
-//         assert!(
-//             self.begin <= index as u64,
-//             "index cannot be smaller than the first address in the region"
-//         );
-//         let offset = self.begin - index as u64;
-//         assert!(
-//             offset < self.end,
-//             "index cannot be larger than the last address in the region"
-//         );
-//         &self.data[offset as usize..]
-//     }
-// }
-// // TODO: fix this. we want something that composes with MemImage.
-// // should be in the loader crate.
-
 pub struct Profiler<C: Cpu<'static>> {
     /// The Arc<RwLock<_>> fields need to be writeable for the unicorn callbacks.
     pub block_log: Arc<RwLock<Vec<Block>>>,
@@ -97,6 +59,7 @@ pub struct Profiler<C: Cpu<'static>> {
     /// These fields are written to after the emulation has finished.
     pub written_memory: Vec<Seg>,
     //pub write_log: Arc<Mutex<Vec<MemLogEntry>>>,
+    pub addresses_written_to: Arc<RwLock<HashSet<u64>>>,
     pub cpu_error: Option<unicorn::Error>,
     pub computation_time: Duration,
     pub registers: HashMap<Register<C>, u64>,
@@ -117,6 +80,7 @@ pub struct Profile {
     pub registers: Vec<RegisterState>,
     pub gadgets_executed: HashSet<u64>,
     pub writeable_memory: Vec<Vec<Seg>>,
+    pub addresses_written_to: HashSet<u64>,
 }
 
 impl Profile {
@@ -128,6 +92,7 @@ impl Profile {
         let mut register_maps = Vec::new();
         let mut gadgets_executed = HashSet::new();
         let mut writeable_memory_regions = Vec::new();
+        let mut all_addresses_written_to = HashSet::new();
 
         for Profiler {
             block_log,
@@ -136,7 +101,8 @@ impl Profile {
             computation_time,
             registers,
             gadget_log,
-            written_memory: writeable_memory,
+            written_memory,
+            addresses_written_to,
             ..
         } in profilers.into_iter()
         {
@@ -158,8 +124,11 @@ impl Profile {
             };
             computation_times.push(computation_time);
             // FIXME: use a different data type for output states.
-            register_maps.push(RegisterState::new::<C>(&registers, Some(&writeable_memory)));
-            writeable_memory_regions.push(writeable_memory);
+            register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
+            writeable_memory_regions.push(written_memory);
+            addresses_written_to.read().unwrap().iter().for_each(|a| {
+                all_addresses_written_to.insert(*a);
+            });
         }
 
         Self {
@@ -170,6 +139,7 @@ impl Profile {
             gadgets_executed,
             registers: register_maps,
             writeable_memory: writeable_memory_regions,
+            addresses_written_to: all_addresses_written_to,
         }
     }
 
@@ -191,6 +161,13 @@ impl Profile {
                 })
                 .collect::<String>()
         })
+    }
+
+    pub fn mem_ratio_written(&self) -> f64 {
+        let memory = get_static_memory_image();
+        let size_of_writeable = memory.size_of_writeable_memory();
+        let bytes_written = self.addresses_written_to.len();
+        bytes_written as f64 / size_of_writeable as f64
     }
 }
 
@@ -261,6 +238,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             block_log: Arc::new(RwLock::new(Vec::new())),
             gadget_log: Arc::new(RwLock::new(Vec::new())),
             written_memory: vec![],
+            addresses_written_to: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 }

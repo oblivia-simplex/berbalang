@@ -63,7 +63,7 @@ pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
     }
     let avg_freq = frame
         .iter()
-        .map(|g| g.measure_genetic_frequency(&sketch))
+        .map(|g| g.query_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
     let avg_fit: f64 =

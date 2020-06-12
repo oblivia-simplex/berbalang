@@ -104,7 +104,7 @@ pub trait Genome: Debug {
         }
     }
 
-    fn measure_genetic_frequency(&self, sketch: &DecayingSketch) -> f64 {
+    fn query_genetic_frequency(&self, sketch: &DecayingSketch) -> f64 {
         // The lower the score, the rarer the digrams composing the genome.
         // We divide by the length to avoid penalizing longer genomes.
         // let mut sum = 0_f64;

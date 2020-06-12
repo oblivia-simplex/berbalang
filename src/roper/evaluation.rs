@@ -18,7 +18,7 @@ use crate::{
 use super::Creature;
 use crate::fitness::Weighted;
 
-pub fn register_pattern_fitness_fn(
+pub fn register_pattern_fitness_ff(
     mut creature: Creature,
     sketch: &mut DecayingSketch,
     params: Arc<Config>,
@@ -26,7 +26,7 @@ pub fn register_pattern_fitness_fn(
     // measure fitness
     // for now, let's just handle the register pattern task
     if let Some(ref profile) = creature.profile {
-        sketch.insert(&profile.registers);
+        //sketch.insert(&profile.registers);
         //let reg_freq = sketch.query(&profile.registers);
         if let Some(pattern) = params.roper.register_pattern() {
             // assuming that when the register pattern task is activated, there's only one register state
@@ -38,36 +38,62 @@ pub fn register_pattern_fitness_fn(
                 .insert("register_error", register_error);
             // FIXME broken // fitness_vector.push(reg_freq);
 
+            let mem_ratio_written = profile.mem_ratio_written();
+            weighted_fitness
+                .scores
+                .insert("mem_ratio_written", mem_ratio_written);
+
             // how many times did it crash?
-            // let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
-            // fitness_vector.insert("crash_count", crashes);
+            let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
+            weighted_fitness.scores.insert("crash_count", crashes);
 
             let gadgets_executed = profile.gadgets_executed.len();
             weighted_fitness
                 .scores
                 .insert("gadgets_executed", gadgets_executed as f64);
 
-            let gen_freq = creature.measure_genetic_frequency(sketch);
+            // FIXME: not sure how sound this frequency gauging scheme is.
+            let gen_freq = creature.query_genetic_frequency(sketch);
+            //creature.record_genetic_frequency(sketch);
+
             weighted_fitness.scores.insert("genetic_freq", gen_freq);
-            //fitness_vector.insert("genetic_frequency", gen_freq);
-            // let longest_path = profile
-            //     .bb_path_iter()
-            //     .map(|v: &Vec<_>| {
-            //         let mut s = v.clone();
-            //         s.dedup();
-            //         s.len()
-            //     })
-            //     .max()
-            //     .unwrap_or(0) as f64;
-            // fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
+
             creature.set_fitness(weighted_fitness);
-        //log::debug!("fitness: {:?}", creature.fitness());
         } else {
             log::error!("No register pattern?");
         }
     }
     creature
 }
+
+pub fn register_conjunction_ff(
+    mut creature: Creature,
+    _sketch: &mut DecayingSketch,
+    params: Arc<Config>,
+) -> Creature {
+    if let Some(ref profile) = creature.profile {
+        if let Some(registers) = profile.registers.last() {
+            let conj = registers
+                .0
+                .values()
+                .fold(0xffff_ffff_ffff_ffff, |a, b| a & b[0]);
+            let score = conj.count_zeros() as f64;
+            let mut weighted_fitness = Weighted::new(params.fitness_weights.clone());
+            weighted_fitness.scores.insert("zeroes", score);
+            weighted_fitness
+                .scores
+                .insert("gadgets_executed", profile.gadgets_executed.len() as f64);
+
+            let mem_ratio_written = profile.mem_ratio_written();
+            weighted_fitness
+                .scores
+                .insert("mem_ratio_written", mem_ratio_written);
+            creature.set_fitness(weighted_fitness);
+        }
+    }
+    creature
+}
+
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     params: Arc<Config>,
     hatchery: Hatchery<C, Creature>,
@@ -96,16 +122,18 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
     ) -> Vec<Creature> {
         // we need to have the entire sample pass through the count-min sketch
         // before we can use it to measure the frequency of any individual
-
+        let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(|c| c.profile.is_some());
         let mut batch = self
             .hatchery
-            .execute_batch(inbound)
+            .execute_batch(fresh_meat.into_iter())
             .expect("execute batch failure")
             .into_iter()
             .map(|(mut creature, profile)| {
                 creature.profile = Some(profile);
-                (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
+                creature
             })
+            .chain(old_meat)
+            .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.params.clone()))
             .collect::<Vec<_>>();
         batch
             .iter_mut()
@@ -148,7 +176,8 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
                 // out_reg.sort_by_key(|r| format!("{:?}", r));
                 out_reg
             } else {
-                todo!("implement a conversion method from problem sets to register maps");
+                out_reg
+                //todo!("implement a conversion method from problem sets to register maps");
                 //out_reg
             }
         };

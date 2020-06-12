@@ -396,6 +396,7 @@ impl Weighted<'static> {
                 if let Some(weight) = self.weights.get(&(*k).to_string()) {
                     apply_weighting(weight, *score)
                 } else {
+                    // if no weight is provided, just return the score as-is
                     *score
                 }
             })
@@ -471,9 +472,12 @@ impl Index<&str> for Weighted<'static> {
 impl fmt::Debug for Weighted<'static> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Weighted:")?;
-        for (attr, weight) in self.weights.iter().sorted_by_key(|p| p.0) {
-            let score = self.scores.get(attr.as_str()).unwrap();
-            writeln!(f, "  {}: {}, to be weighted by ({})", attr, score, weight)?;
+        for (attr, score) in self.scores.iter().sorted_by_key(|p| p.0) {
+            if let Some(weight) = self.weights.get(&attr.to_string()) {
+                writeln!(f, "    {}: {}, to be weighted by ({})", attr, score, weight)?;
+            } else {
+                writeln!(f, "    {}: {}, unweighted", attr, score)?;
+            }
         }
         writeln!(f, "Scalar: {}", self.scalar())
     }

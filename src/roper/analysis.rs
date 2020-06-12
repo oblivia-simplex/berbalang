@@ -26,6 +26,7 @@ pub struct StatRecord {
     pub avg_register_error: f64,
     pub avg_scalar_fitness: f64,
     pub avg_uniq_exec_count: f64,
+    pub avg_ratio_written: f64,
 
     pub best_exec_ratio: f64,
     pub best_genetic_freq_by_window: f64,
@@ -33,6 +34,7 @@ pub struct StatRecord {
     pub best_register_error: f64,
     pub best_scalar_fitness: f64,
     pub best_uniq_exec_count: f64,
+    pub best_ratio_written: f64,
     // NOTE duplication here. maybe define a struct that is used for both
     // average and best, and a func that derives it
 }
@@ -50,7 +52,7 @@ impl StatRecord {
         best.record_genetic_frequency(&mut sketch);
         let avg_genetic_freq = frame
             .iter()
-            .map(|g| g.measure_genetic_frequency(&sketch))
+            .map(|g| g.query_genetic_frequency(&sketch))
             .sum::<f64>()
             / frame.len() as f64;
         let avg_scalar_fitness: f64 =
@@ -66,12 +68,27 @@ impl StatRecord {
         let avg_exec_ratio: f64 =
             frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
 
-        let best_genetic_freq_by_window = best.measure_genetic_frequency(&sketch);
+        let best_genetic_freq_by_window = best.query_genetic_frequency(&sketch);
         let best_exec_ratio = best.execution_ratio();
         let best_scalar_fitness = best.scalar_fitness().unwrap();
-        let best_register_error = best.fitness.as_ref().unwrap().scores["register_error"];
+        let best_register_error = best
+            .fitness
+            .as_ref()
+            .unwrap()
+            .scores
+            .get("register_error")
+            .cloned()
+            .unwrap_or_default();
         let best_len = best.len() as f64;
         let best_uniq_exec_count = best.num_uniq_alleles_executed() as f64;
+        let best_ratio_written = best
+            .fitness
+            .as_ref()
+            .unwrap()
+            .scores
+            .get("mem_ratio_written")
+            .cloned()
+            .unwrap_or_default();
 
         StatRecord {
             counter,
@@ -85,7 +102,8 @@ impl StatRecord {
             // avg_place_error: fit_vec["place_error"],
             // avg_value_error: fit_vec["value_error"],
             // avg_crash_count: fit_vec["crash_count"],
-            avg_register_error: fit_vec["register_error"],
+            avg_register_error: fit_vec.get("register_error").unwrap_or_default(),
+            avg_ratio_written: fit_vec.get("mem_ratio_written").unwrap_or_default(),
             //avg_genetic_freq_by_gen: fit_vec["genetic_frequency"],
             best_genetic_freq_by_window,
             best_scalar_fitness,
@@ -93,6 +111,7 @@ impl StatRecord {
             best_register_error,
             best_len,
             best_uniq_exec_count,
+            best_ratio_written,
         }
     }
 }
@@ -125,6 +144,7 @@ pub fn report_fn(
 ) {
     let record = StatRecord::from_window(window, counter);
 
+    log::info!("Current best: {:#x?}", window.best);
     log::info!("{:#?}", record);
 
     window.log_record(record);
@@ -135,7 +155,6 @@ pub fn report_fn(
     //     log::info!("Specimen #{}: {:#?}", i, specimen);
     //     break;
     // }
-    log::info!("Current best: {:#x?}", window.best);
 
     if let Ok(stat) = procinfo::pid::statm_self() {
         log::debug!("Memory status: {:#x?}", stat);

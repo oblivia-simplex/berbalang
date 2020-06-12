@@ -1,3 +1,6 @@
+use crate::util::architecture::Endian;
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
+
 pub fn bit(n: u64, bit: usize) -> bool {
     (n >> (bit as u64 % 64)) & 1 == 1
 }
@@ -12,4 +15,49 @@ pub fn bit(n: u64, bit: usize) -> bool {
 #[inline]
 pub fn ham_rat(a: u64, b: u64) -> f64 {
     (a ^ b).count_ones() as f64 / 64.0
+}
+
+pub fn try_word_as_string(w: u64, endian: Endian) -> Option<String> {
+    let mut buf = [0_u8; 8];
+    let mut s = String::new();
+    let mut max_ch_count = 0;
+    let mut ch_count = 0;
+    match endian {
+        Endian::Little => {
+            LittleEndian::write_u64(&mut buf, w);
+        }
+        Endian::Big => {
+            BigEndian::write_u64(&mut buf, w);
+        }
+    }
+    for byte in buf.iter() {
+        if 0x20 <= *byte && *byte < 0x7f {
+            let ch = *byte as char;
+            s.push(ch);
+            ch_count += 1;
+        } else {
+            //s.push('☐')
+            if ch_count > max_ch_count {
+                max_ch_count = ch_count;
+            }
+            ch_count = 0;
+            s.push('·');
+        }
+    }
+    if max_ch_count >= 3 {
+        Some(s)
+    } else {
+        None
+    }
+}
+
+pub fn try_str_as_word(mut s: String, endian: Endian) -> Option<u64> {
+    if s.len() >= 8 {
+        return None;
+    }
+    s.push('\x00');
+    match endian {
+        Endian::Little => Some(LittleEndian::read_u64(s.as_bytes())),
+        Endian::Big => Some(BigEndian::read_u64(s.as_bytes())),
+    }
 }

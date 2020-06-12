@@ -266,25 +266,25 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         let context: Context = (*emu).context_save().expect("Failed to save context");
 
                         if params.record_basic_blocks {
-                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &profiler)
+                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
                                 .expect("Failed to install basic_block_hook");
                         }
 
-                        // track gadget entry execution
-                        let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
-                            .expect("Failed to install address tracking hook");
+                        // track gadget entry execution // NO, this has a loophole in overlapping gadgets
+                        // let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
+                        //     .expect("Failed to install address tracking hook");
 
-                        if cfg!(debug_assertions) {
+                        if cfg!(feature = "disassemble_trace") {
                             // install the disassembler hook
                             let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone())
                                 .expect("Failed to install tracer hook");
                         }
 
                         let _hook = hooking::install_syscall_hook(&mut (*emu), params.arch, params.mode);
-                        // if params.record_memory_writes {
-                        //     let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
-                        //         .expect("Failed to install mem_write_hook");
-                        // }
+                        if params.record_memory_writes {
+                            let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler)
+                                .expect("Failed to install mem_write_hook");
+                        }
                         // Prepare the emulator with the user-supplied preparation function.
                         // This function will generally be used to load the payload and install
                         // callbacks, which should be able to write to the Profiler instance.
@@ -352,7 +352,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                             });
                         }
                         profiler
-                    }).collect::<Vec<Profiler<C>>>().into();
+                    }).collect::<Vec<Profiler<C>>>().into(); // into Profile
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
                     our_tx.send((payload, profile))
@@ -438,9 +438,10 @@ pub mod tools {
 pub mod hooking {
     use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use capstone::Insn;
+    use hashbrown::HashSet;
     use unicorn::{CodeHookType, MemHookType, MemType, Protection};
 
-    use crate::emulator::profiler::{Block, MemLogEntry};
+    use crate::emulator::profiler::Block;
     use crate::util::architecture::{endian, word_size_in_bytes, Endian};
 
     use super::*;
@@ -540,11 +541,18 @@ pub mod hooking {
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         profiler: &Profiler<C>,
+        gadget_addrs: &Vec<u64>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+        let gadget_addrs: Arc<HashSet<u64>> = Arc::new(gadget_addrs.iter().cloned().collect());
         let block_log = profiler.block_log.clone();
+        let gadget_log = profiler.gadget_log.clone();
         //let ret_log = profiler.ret_log.clone();
         let bb_callback = move |_engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
+
+            if gadget_addrs.contains(&entry) {
+                gadget_log.write().expect("poisoned").push(entry);
+            }
 
             // If the code ends with a return, log it in the ret log.
             // but how to make this platform-generic? We could define a
@@ -565,21 +573,27 @@ pub mod hooking {
     // NOTE: Currently disabled.
     pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        _profiler: &Profiler<C>,
+        profiler: &Profiler<C>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
-        let pc: i32 = emu.program_counter().into();
+        //let pc: i32 = emu.program_counter().into();
         //let write_log = profiler.write_log.clone();
+        let addresses_written_to = profiler.addresses_written_to.clone();
         let mem_write_callback =
-            move |engine: &unicorn::Unicorn<'_>, mem_type, address, num_bytes_written, value| {
+        // TODO: we might want to track the # of unique addresses written to instead.
+            move |_engine: &unicorn::Unicorn<'_>, mem_type, address, num_bytes_written, _value| {
                 //log::trace!("Inside memory hook!");
                 if let MemType::WRITE = mem_type {
-                    let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
-                    let _entry = MemLogEntry {
-                        program_counter,
-                        mem_address: address,
-                        num_bytes_written,
-                        value,
-                    };
+                    let mut set = addresses_written_to.write().expect("poison");
+                    for i in 0..num_bytes_written {
+                        set.insert(address + i as u64);
+                    }
+                    //let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
+                    // let _entry = MemLogEntry {
+                    //     program_counter,
+                    //     mem_address: address,
+                    //     num_bytes_written,
+                    //     value,
+                    // };
                     // let mut write_log = write_log.write().expect("Poisoned mutex in callback");
                     // write_log.push(entry);
                     true // NOTE: I'm not really sure what this return value means, here.
@@ -662,7 +676,6 @@ mod test {
     use unicorn::{CpuX86, RegisterX86};
 
     use crate::hashmap;
-
     use crate::util::architecture::{endian, word_size_in_bytes, Endian};
 
     use super::*;

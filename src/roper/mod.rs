@@ -38,7 +38,7 @@ fn prepare<C: 'static + Cpu<'static>>(
 ) -> (Observer<Creature>, evaluation::Evaluator<C>) {
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn), CreatureDominanceOrd);
     let evaluator =
-        evaluation::Evaluator::spawn(&config, Box::new(evaluation::register_pattern_fitness_fn));
+        evaluation::Evaluator::spawn(&config, Box::new(evaluation::register_conjunction_ff)); // ::register_pattern_fitness_fn));
     (observer, evaluator)
 }
 

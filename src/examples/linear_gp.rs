@@ -430,7 +430,7 @@ fn report(window: &Window<Creature, Dom>, counter: usize, _params: &Config) {
     }
     let avg_freq = frame
         .iter()
-        .map(|g| g.measure_genetic_frequency(&sketch))
+        .map(|g| g.query_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
     // let avg_fit = frame

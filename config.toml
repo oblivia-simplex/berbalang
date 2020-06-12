@@ -11,18 +11,23 @@ crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
-pop_size = 500
+pop_size = 2048
 num_offspring = 2
 num_parents = 2
 target_fitness = 0
 max_length = 100
 num_epochs = 0 # = infinite
+# add this:
+is_fitness_dynamic = true
 
 [fitness_weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "0" #"-1 * min(3, x)"
+gadgets_executed = "100 - min(10, x)" #"-1 * min(3, x)"
 register_error = "x"
-genetic_freq = "0" #"min(2, x * 50)"
+genetic_freq = "x" #"min(2, x * 50)"
+mem_ratio_written = "10 * (1.0 - x)"
+crash_count = "x/3"
+zeroes = "0"
 
 [tournament]
 tournament_size = 16
@@ -42,8 +47,8 @@ max_steps = 0x1000
 dump_population = false
 dump_soup = true 
 data_directory = "~/logs"
-window_size  = 1000
-report_every = 1000
+window_size  = 3000
+report_every = 3000
 dump_every = 10000
 
 [data]
@@ -56,17 +61,18 @@ arch = "X86"
 mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-#binary_path = "/bin/sh"
-binary_path = "/tmp/ldconfig"
+binary_path = "/bin/sh"
+#binary_path = "/tmp/ldconfig"
 num_workers = 41
 num_emulators = 31
 max_emu_steps = 0x1_000
 millisecond_timeout = 500
 emulator_stack_size = 0x1000
 record_basic_blocks = true
-output_registers = [ "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+record_memory_writes = true
+output_registers = ["RAX", "RBX", "RCX" ] # ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
   [roper.register_pattern] 
   RAX = "59"                   # execve syscall number
-  RDI = "&0x0068732f_6e69622f" # "/bin/sh" packed as an integer
-  RSI = "&&0"                  # an empty argv array
-  RDI = "&&0"                  # an empty env array
+  RDI = "&'/bin/sh"
+#  RSI = "&&0"                  # an empty argv array
+#  RDI = "&&0"                  # an empty env array

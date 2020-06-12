@@ -200,6 +200,7 @@ mod test {
     use std::iter;
 
     use super::*;
+    use crate::increment_epoch_counter;
 
     #[test]
     fn test_decaying_count_min_sketch() {
@@ -214,6 +215,8 @@ mod test {
         let mut d_sketch = DecayingSketch::new(depth, width, 2.0);
         let mut c_sketch = CountMinSketch::new(depth, width);
 
+        increment_epoch_counter();
+        increment_epoch_counter();
         // println!("inserting {} random u128 elements", count);
         // for item in &items {
         //     d_sketch.insert(item);

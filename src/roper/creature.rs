@@ -165,6 +165,10 @@ impl fmt::Debug for Creature {
 /// load binary before calling this function
 pub fn init_soup(params: &mut RoperConfig) -> Result<(), Error> {
     let mut soup = Vec::new();
+    // might as well take the constants from the register pattern
+    if let Some(pattern) = params.register_pattern() {
+        pattern.0.values().for_each(|w| soup.push(w.val))
+    }
     if let Some(gadget_file) = params.gadget_file.as_ref() {
         // parse the gadget file
         let reader = File::open(gadget_file).map(BufReader::new)?;

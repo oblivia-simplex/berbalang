@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
 use crate::disassembler::Disassembler;
-use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
 
 pub const PAGE_BITS: u64 = 12;
 pub const PAGE_SIZE: u64 = 1 << PAGE_BITS;
@@ -22,6 +22,8 @@ pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
     segs: Vec::new(),
     arch: unicorn::Arch::X86,
     mode: unicorn::Mode::MODE_64,
+    endian: Endian::Little,
+    word_size: 8,
     disasm: None,
 };
 static INIT_MEM_IMAGE: Once = Once::new();
@@ -49,6 +51,8 @@ pub struct MemoryImage {
     pub segs: Vec<Seg>,
     pub arch: unicorn::Arch,
     pub mode: unicorn::Mode,
+    pub endian: Endian,
+    pub word_size: usize,
     pub disasm: Option<Disassembler>,
 }
 
@@ -66,6 +70,14 @@ impl MemoryImage {
                     .as_ref()
                     .and_then(|dis| dis.disas(b, addr, count).ok())
             })
+    }
+
+    pub fn size_of_writeable_memory(&self) -> usize {
+        self.segs
+            .iter()
+            .filter(|seg| seg.is_writeable())
+            .map(Seg::aligned_size)
+            .sum::<usize>()
     }
 
     pub fn first_address(&self) -> u64 {
@@ -439,11 +451,15 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
 }
 
 fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn::Mode) {
+    let endian = endian(arch, mode);
+    let word_size = word_size_in_bytes(arch, mode);
     unsafe {
         MEM_IMAGE = MemoryImage {
             segs: segments.to_owned(),
             arch,
             mode,
+            endian,
+            word_size,
             disasm: Some(Disassembler::new(arch, mode).expect("Failed to initialize disassembler")),
         }
     }
