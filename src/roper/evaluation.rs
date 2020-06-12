@@ -12,23 +12,65 @@ use crate::{
     evaluator::Evaluate,
     evolution::{Genome, Phenome},
     util,
-    util::count_min_sketch::SeasonalSketch,
+    util::count_min_sketch::CountMinSketch,
 };
 
 use super::Creature;
+use crate::emulator::loader::get_static_memory_image;
 use crate::fitness::Weighted;
+use hashbrown::HashSet;
 
-pub fn address_coverage_ff(
+pub fn code_coverage_ff(
     mut creature: Creature,
-    sketch: &mut SeasonalSketch,
+    sketch: &mut CountMinSketch,
     config: Arc<Config>,
 ) -> Creature {
+    if let Some(ref profile) = creature.profile {
+        let mut addresses_visited = HashSet::new();
+        // TODO: optimize this, maybe parallelize
+        profile.bb_path_iter().for_each(|path| {
+            for block in path {
+                for addr in block.entry..(block.entry + block.size as u64) {
+                    addresses_visited.insert(addr);
+                }
+            }
+        });
+        let mut freq_score = 0.0;
+        for addr in addresses_visited.iter() {
+            sketch.insert(*addr);
+            freq_score += sketch.query(*addr);
+        }
+        let num_addr_visit = addresses_visited.len() as f64;
+        let avg_freq = if num_addr_visit < 1.0 {
+            1.0
+        } else {
+            freq_score / num_addr_visit
+        };
+        // might be worth memoizing this call, but it's pretty cheap
+        let code_size = get_static_memory_image().size_of_executable_memory();
+        let code_coverage = 1.0 - num_addr_visit / code_size as f64;
+
+        let mut fitness = Weighted::new(config.fitness_weights.clone());
+        fitness.insert("code_coverage", code_coverage);
+        fitness.insert("code_frequency", avg_freq);
+
+        let gadgets_executed = profile.gadgets_executed.len();
+        fitness.insert("gadgets_executed", gadgets_executed as f64);
+
+        let mem_ratio_written = 1.0 - profile.mem_ratio_written();
+        fitness.insert("mem_ratio_written", mem_ratio_written);
+
+        creature.set_fitness(fitness);
+
+        // TODO: look into how unicorn tracks bbs. might be surprising in the context of ROP
+    }
+
     creature
 }
 
 pub fn register_pattern_ff(
     mut creature: Creature,
-    _sketch: &mut SeasonalSketch,
+    _sketch: &mut CountMinSketch,
     config: Arc<Config>,
 ) -> Creature {
     // measure fitness
@@ -47,18 +89,14 @@ pub fn register_pattern_ff(
             // FIXME broken // fitness_vector.push(reg_freq);
 
             let mem_ratio_written = profile.mem_ratio_written();
-            weighted_fitness
-                .scores
-                .insert("mem_ratio_written", mem_ratio_written);
+            weighted_fitness.insert("mem_ratio_written", mem_ratio_written);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
             weighted_fitness.scores.insert("crash_count", crashes);
 
             let gadgets_executed = profile.gadgets_executed.len();
-            weighted_fitness
-                .scores
-                .insert("gadgets_executed", gadgets_executed as f64);
+            weighted_fitness.insert("gadgets_executed", gadgets_executed as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
             //let gen_freq = creature.query_genetic_frequency(sketch);
@@ -76,7 +114,7 @@ pub fn register_pattern_ff(
 
 pub fn register_conjunction_ff(
     mut creature: Creature,
-    _sketch: &mut SeasonalSketch,
+    _sketch: &mut CountMinSketch,
     config: Arc<Config>,
 ) -> Creature {
     if let Some(ref profile) = creature.profile {
@@ -105,11 +143,11 @@ pub fn register_conjunction_ff(
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
     hatchery: Hatchery<C, Creature>,
-    sketch: SeasonalSketch,
-    fitness_fn: Box<FitnessFn<Creature, SeasonalSketch, Config>>,
+    sketch: CountMinSketch,
+    fitness_fn: Box<FitnessFn<Creature, CountMinSketch, Config>>,
 }
 
-impl<C: 'static + Cpu<'static>> Evaluate<Creature, SeasonalSketch> for Evaluator<C> {
+impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch> for Evaluator<C> {
     fn evaluate(&mut self, creature: Creature) -> Creature {
         let (mut creature, profile) = self
             .hatchery
@@ -146,7 +184,7 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature, SeasonalSketch> for Evaluator
         batch
     }
 
-    fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, SeasonalSketch, Config>) -> Self {
+    fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, CountMinSketch, Config>) -> Self {
         let mut config = config.clone();
         config.roper.parse_register_pattern();
         let hatch_config = Arc::new(config.roper.clone());
@@ -193,7 +231,7 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature, SeasonalSketch> for Evaluator
             None,
         );
 
-        let sketch = SeasonalSketch::new(&config);
+        let sketch = CountMinSketch::new(&config);
         Self {
             config: Arc::new(config),
             hatchery,

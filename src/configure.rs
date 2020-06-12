@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DataConfig {
@@ -54,7 +55,7 @@ pub struct Config {
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
     pub num_epochs: usize,
-    pub fitness_weights: HashMap<String, String>,
+    pub fitness_weights: Arc<HashMap<String, String>>,
 }
 
 fn default_tournament_size() -> usize {

@@ -23,12 +23,13 @@ is_fitness_dynamic = true
 
 [fitness_weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "5 - min(5, x)" #"-1 * min(3, x)"
+gadgets_executed = "10 - min(10, x)" #"-1 * min(3, x)"
 register_error = "0"
 genetic_freq = "0" #"min(2, x * 50)"
-mem_ratio_written = "0" #"10 * (1.0 - x)"
-crash_count = "x"
-zeroes = "x"
+#mem_ratio_written = 
+#crash_count = "x"
+#zeroes = "x"
+code_frequency = "10*x" #x/2"
 
 [tournament]
 tournament_size = 7
@@ -62,7 +63,8 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-fitness_function = "register_conjunction" #"register_pattern"
+#fitness_function = "register_conjunction" #"register_pattern"
+fitness_function = "code_coverage"
 arch = "X86"
 mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
@@ -71,12 +73,12 @@ binary_path = "/bin/sh"
 #binary_path = "/tmp/ldconfig"
 num_workers = 41
 num_emulators = 31
-max_emu_steps = 0x1_000
+max_emu_steps = 0x100_000
 millisecond_timeout = 500
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
-output_registers = ["RDI"  ] # ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
   [roper.register_pattern] 
 #  RAX = "0x3b"                   # execve syscall number
 #  RDI = "&'/bin/sh"

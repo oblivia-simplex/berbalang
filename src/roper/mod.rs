@@ -18,7 +18,7 @@ use crate::observer::Observer;
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
 /// traits associated with `roper` mode.
 mod creature;
-use crate::util::count_min_sketch::SeasonalSketch;
+use crate::util::count_min_sketch::CountMinSketch;
 use creature::*;
 
 /// The `analysis` module contains the reporting function passed to the observation
@@ -37,10 +37,11 @@ crate::make_phenome_heap_friendly!(Creature);
 fn prepare<C: 'static + Cpu<'static>>(
     config: Config,
 ) -> (Observer<Creature>, evaluation::Evaluator<C>) {
-    let fitness_function: FitnessFn<Creature, SeasonalSketch, Config> =
+    let fitness_function: FitnessFn<Creature, CountMinSketch, Config> =
         match config.roper.fitness_function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
+            "code_coverage" => Box::new(evaluation::code_coverage_ff),
             s => unimplemented!("No such fitness function as {}", s),
         };
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn), CreatureDominanceOrd);

@@ -4,11 +4,14 @@ use crate::configure::Config;
 use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{SeasonalSketch, Sketch};
+use crate::util::count_min_sketch::{CountMinSketch, SeasonalSketch, Sketch};
 use crate::EPOCH_COUNTER;
 use std::sync::atomic::Ordering;
 
-pub struct Metropolis<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static> {
+// FIXME: this should be handled generically.
+type SketchType = CountMinSketch;
+
+pub struct Metropolis<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> {
     pub specimen: P,
     pub config: Config,
     pub iteration: usize,
@@ -17,7 +20,7 @@ pub struct Metropolis<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'sta
     pub best: Option<P>,
 }
 
-impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static> Metropolis<E, P> {
+impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> Metropolis<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self {
         let specimen = P::random(&config);
 
@@ -32,7 +35,7 @@ impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static> Metropolis<E
     }
 }
 
-impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome> Metropolis<E, P> {
+impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome> Metropolis<E, P> {
     pub fn evolve(self) -> Self {
         let Self {
             specimen,

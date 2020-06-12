@@ -9,12 +9,13 @@ use crate::evaluator::Evaluate;
 use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{SeasonalSketch, Sketch};
+use crate::util::count_min_sketch::{CountMinSketch, SeasonalSketch, Sketch};
 use rayon::prelude::*;
 
+type SketchType = CountMinSketch;
 // consider an island-pier structure
 
-pub struct Tournament<E: Evaluate<P, SeasonalSketch>, P: Phenome + 'static> {
+pub struct Tournament<E: Evaluate<P, SketchType>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>, //BinaryHeap<P>,
     pub config: Arc<Config>,
     pub best: Option<P>,
@@ -26,7 +27,7 @@ pub struct Tournament<E: Evaluate<P, SeasonalSketch>, P: Phenome + 'static> {
 // TODO factor TrivialGeography to its own module
 // maybe create a Population trait.
 
-impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static> Tournament<E, P> {
+impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self
     where
         Self: Sized,
@@ -53,7 +54,7 @@ impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static> Tournament<E
     }
 }
 
-impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome> Tournament<E, P> {
+impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
     pub fn evolve(self) -> Self {
         // destruct the Epoch
         let Self {

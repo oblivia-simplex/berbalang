@@ -12,7 +12,7 @@ use crate::configure::{Config, Problem};
 use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
-use crate::util::count_min_sketch::SeasonalSketch;
+use crate::util::count_min_sketch::CountMinSketch;
 use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
 
 pub type Fitness = Vec<f64>;
@@ -211,7 +211,7 @@ cached_key! {
 
 fn fitness_function(
     mut phenome: Genotype,
-    sketch: &mut SeasonalSketch,
+    sketch: &mut CountMinSketch,
     config: Arc<Config>,
 ) -> Genotype {
     if phenome.fitness.is_none() {
@@ -253,7 +253,7 @@ mod evaluation {
     use std::thread::{spawn, JoinHandle};
 
     use crate::evaluator::FitnessFn;
-    use crate::util::count_min_sketch::SeasonalSketch;
+    use crate::util::count_min_sketch::CountMinSketch;
 
     use super::*;
 
@@ -263,7 +263,7 @@ mod evaluation {
         rx: Receiver<Genotype>,
     }
 
-    impl Evaluate<Genotype, SeasonalSketch> for Evaluator<Genotype> {
+    impl Evaluate<Genotype, CountMinSketch> for Evaluator<Genotype> {
         fn evaluate(&mut self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
@@ -273,13 +273,13 @@ mod evaluation {
             inbound.map(|p| self.evaluate(p)).collect::<Vec<Genotype>>()
         }
 
-        fn spawn(config: &Config, fitness_fn: FitnessFn<Genotype, SeasonalSketch, Config>) -> Self {
+        fn spawn(config: &Config, fitness_fn: FitnessFn<Genotype, CountMinSketch, Config>) -> Self {
             let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let config = Arc::new(config.clone());
             let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
-                let sketch = Arc::new(Mutex::new(SeasonalSketch::new(&config)));
+                let sketch = Arc::new(Mutex::new(CountMinSketch::new(&config)));
                 for phenome in our_rx {
                     let sketch = sketch.clone();
                     let our_tx = our_tx.clone();

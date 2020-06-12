@@ -12,13 +12,11 @@ use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::increment_epoch_counter;
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{SeasonalSketch, Sketch};
+use crate::util::count_min_sketch::{CountMinSketch, SeasonalSketch, Sketch};
 
-pub struct Roulette<
-    E: Evaluate<P, SeasonalSketch>,
-    P: Phenome + Genome + 'static,
-    D: DominanceOrd<P>,
-> {
+type SketchType = CountMinSketch;
+
+pub struct Roulette<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> {
     pub population: Vec<P>,
     pub config: Arc<Config>,
     pub observer: Observer<P>,
@@ -27,7 +25,7 @@ pub struct Roulette<
     pub dominance_order: D,
 }
 
-impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static, D: DominanceOrd<P>>
+impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<P>>
     Roulette<E, P, D>
 {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, dominance_order: D) -> Self {
@@ -47,7 +45,7 @@ impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + 'static, D: Dominance
     }
 }
 
-impl<E: Evaluate<P, SeasonalSketch>, P: Phenome + Genome + Sized, D: DominanceOrd<P>>
+impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + Sized, D: DominanceOrd<P>>
     Roulette<E, P, D>
 {
     // pub fn new(config: Config) -> Self {

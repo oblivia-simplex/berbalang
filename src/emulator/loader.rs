@@ -73,9 +73,17 @@ impl MemoryImage {
     }
 
     pub fn size_of_writeable_memory(&self) -> usize {
+        self.size_of_memory_by_perm(unicorn::Protection::WRITE)
+    }
+
+    pub fn size_of_executable_memory(&self) -> usize {
+        self.size_of_memory_by_perm(Protection::EXEC)
+    }
+
+    pub fn size_of_memory_by_perm(&self, perm: Protection) -> usize {
         self.segs
             .iter()
-            .filter(|seg| seg.is_writeable())
+            .filter(|seg| seg.perm.intersects(perm))
             .map(Seg::aligned_size)
             .sum::<usize>()
     }

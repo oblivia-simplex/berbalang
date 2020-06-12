@@ -11,7 +11,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub type FitnessMap<'a> = HashMap<&'a str, f64>;
 
@@ -300,7 +300,7 @@ impl FitnessScore for ShuffleFit {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Weighted<'a> {
-    weights: HashMap<String, String>,
+    weights: Arc<HashMap<String, String>>,
     //   #[serde(skip)]
     //   pub weights: HashMap<String, fasteval::Instruction>,
     //#[serde(skip)]
@@ -372,7 +372,7 @@ fn compile_weight_map(
 }
 
 impl Weighted<'static> {
-    pub fn new(weights: HashMap<String, String>) -> Self {
+    pub fn new(weights: Arc<HashMap<String, String>>) -> Self {
         Self {
             //slab: Mutex::new(slab),
             weights,
@@ -380,6 +380,10 @@ impl Weighted<'static> {
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
         }
+    }
+
+    pub fn insert(&mut self, key: &'static str, val: f64) {
+        self.scores.insert(key, val);
     }
 
     pub fn scalar(&self) -> f64 {

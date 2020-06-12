@@ -11,6 +11,7 @@ use crate::util::count_min_sketch::Sketch;
 
 pub mod metropolis;
 pub mod pareto_roulette;
+pub mod pier;
 pub mod population;
 pub mod tournament;
 

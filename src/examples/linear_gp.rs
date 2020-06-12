@@ -14,7 +14,7 @@ use crate::fitness::Pareto;
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
-use crate::util::count_min_sketch::SeasonalSketch;
+use crate::util::count_min_sketch::CountMinSketch;
 
 pub type Fitness = Pareto<'static>;
 // try setting fitness to (usize, usize);
@@ -424,7 +424,7 @@ impl_dominance_ord_for_phenome!(Creature, Dom);
 fn report(window: &Window<Creature, Dom>, counter: usize, config: &Config) {
     let frame = &window.frame;
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-    let mut sketch = SeasonalSketch::new(config);
+    let mut sketch = CountMinSketch::new(config);
     for g in frame {
         g.record_genetic_frequency(&mut sketch);
     }
@@ -477,7 +477,7 @@ mod evaluation {
 
     use crate::evaluator::{Evaluate, FitnessFn};
     use crate::examples::linear_gp::machine::Machine;
-    use crate::util::count_min_sketch::SeasonalSketch;
+    use crate::util::count_min_sketch::CountMinSketch;
 
     use super::*;
 
@@ -530,7 +530,7 @@ mod evaluation {
 
     pub fn fitness_function<P: Phenome<Fitness = Fitness>>(
         mut creature: P,
-        _sketch: &mut SeasonalSketch,
+        _sketch: &mut CountMinSketch,
         config: Arc<Config>,
     ) -> P {
         #[allow(clippy::unnecessary_fold)]
@@ -557,7 +557,7 @@ mod evaluation {
         creature
     }
 
-    impl Evaluate<Creature, SeasonalSketch> for Evaluator {
+    impl Evaluate<Creature, CountMinSketch> for Evaluator {
         fn evaluate(&mut self, genome: Creature) -> Creature {
             self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
@@ -579,14 +579,14 @@ mod evaluation {
         //     }))
         // }
 
-        fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, SeasonalSketch, Config>) -> Self {
+        fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, CountMinSketch, Config>) -> Self {
             let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let config = Arc::new(config.clone());
 
             let handle = spawn(move || {
                 // TODO: parameterize sketch construction
-                let mut sketch = SeasonalSketch::new(&config);
+                let mut sketch = CountMinSketch::new(&config);
 
                 for (counter, mut phenome) in our_rx.iter().enumerate() {
                     if phenome.fitness().is_none() {

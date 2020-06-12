@@ -44,6 +44,7 @@ ideally, this is somethign you should be able to set in the config.toml
 - get it cloud ready
 - island distribution
 
+- Add support for *staged* objectives, or sub-tasks. There's a fair bit of GP lit on this, I think. Take a look. Look at what Malcom did with the soccer task, e.g.
 
 # Tomorrow:
 ## Graphing! We really need graphing. Top priority.
