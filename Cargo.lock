@@ -114,6 +114,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "sliding_windows",
+ "streaming-stats",
  "threadpool",
  "toml",
  "unicorn",
@@ -1207,6 +1208,15 @@ name = "smallvec"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7cb5678e1615754284ec264d9bb5b4c27d2018577fd90ac0ceb578591ed5ee4"
+
+[[package]]
+name = "streaming-stats"
+version = "0.1.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc32bf233385fb1ae0c4cf13a8dfd11efec71f6a9de95feac8c870788bc8b25"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "svg"

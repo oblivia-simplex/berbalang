@@ -9,6 +9,7 @@ pub enum Error {
     Parsing(String),
     Eval(fasteval::error::Error),
     MissingKey(String),
+    NoVacancy,
 }
 
 macro_rules! impl_error_from {

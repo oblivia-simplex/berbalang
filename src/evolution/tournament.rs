@@ -1,5 +1,4 @@
 use std::cmp::{Ordering, PartialOrd};
-use std::collections::BinaryHeap;
 use std::iter;
 use std::sync::Arc;
 
@@ -7,13 +6,15 @@ use rand::{thread_rng, Rng};
 
 use crate::configure::Config;
 use crate::evaluator::Evaluate;
+use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
+use rayon::prelude::*;
 
 // consider an island-pier structure
 
 pub struct Tournament<E: Evaluate<P>, P: Phenome + 'static> {
-    pub population: BinaryHeap<P>,
+    pub population: TrivialGeography<P>, //BinaryHeap<P>,
     pub config: Arc<Config>,
     pub best: Option<P>,
     pub iteration: usize,
@@ -21,15 +22,24 @@ pub struct Tournament<E: Evaluate<P>, P: Phenome + 'static> {
     pub evaluator: E,
 }
 
+// TODO factor TrivialGeography to its own module
+// maybe create a Population trait.
+
 impl<E: Evaluate<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self
     where
         Self: Sized,
     {
-        let population = iter::repeat(())
-            .map(|()| P::random(&config))
-            .take(config.population_size())
+        log::debug!("Initializing population");
+        let mut population: TrivialGeography<P> = (0..config.pop_size)
+            .into_par_iter()
+            .map(|i| {
+                log::debug!("creating phenome {}/{}", i, config.pop_size);
+                P::random(&config)
+            })
             .collect();
+        population.set_radius(config.tournament.geographic_radius);
+        log::debug!("population initialized");
 
         Self {
             population,
@@ -54,12 +64,13 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
             iteration,
         } = self;
 
-        let tournament_size = config.tournament.tournament_size;
         let mut rng = thread_rng();
-        let combatants: Vec<P> = iter::repeat(())
-            .take(tournament_size)
-            .filter_map(|()| population.pop())
-            .collect();
+        // let combatants: Vec<P> = iter::repeat(())
+        //     .take(tournament_size)
+        //     .filter_map(|()| population.pop())
+        //     .collect();
+        let combatants: Vec<P> =
+            population.choose_combatants(config.tournament.tournament_size, &mut rng);
 
         let mut combatants = evaluator
             .eval_pipeline(combatants.into_iter())
@@ -93,7 +104,7 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
         let bystanders = config.tournament.tournament_size - (config.num_offspring() + 2);
         for _ in 0..bystanders {
             if let Some(c) = combatants.pop() {
-                population.push(c);
+                population.insert(c).unwrap();
             }
         }
         // TODO implement breeder, similar to observer, etc?
@@ -109,10 +120,10 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
         //population.push(mother);
         //population.push(father);
         for other_guy in combatants.into_iter() {
-            population.push(other_guy)
+            population.insert(other_guy).unwrap()
         }
         for child in offspring.into_iter() {
-            population.push(child)
+            population.insert(child).unwrap()
         }
 
         // put the epoch back together

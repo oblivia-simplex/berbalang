@@ -20,7 +20,7 @@ use crate::fitness::Weighted;
 
 pub fn register_pattern_ff(
     mut creature: Creature,
-    sketch: &mut DecayingSketch,
+    _sketch: &mut DecayingSketch,
     params: Arc<Config>,
 ) -> Creature {
     // measure fitness

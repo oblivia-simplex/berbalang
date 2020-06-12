@@ -28,7 +28,7 @@ pub mod machine {
     use rand::{thread_rng, Rng};
     use serde::{Deserialize, Serialize};
 
-    use crate::configure::MachineConfig;
+    use crate::configure::LinearGpConfig;
     use crate::examples::linear_gp::MachineWord;
 
     #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
@@ -111,7 +111,7 @@ pub mod machine {
     }
 
     impl Inst {
-        pub fn random(params: &MachineConfig) -> Self {
+        pub fn random(params: &LinearGpConfig) -> Self {
             let num_registers = params.num_registers.unwrap();
             Self {
                 op: rand::random::<Op>(),
@@ -120,7 +120,7 @@ pub mod machine {
             }
         }
 
-        pub fn mutate(&mut self, params: &MachineConfig) {
+        pub fn mutate(&mut self, params: &LinearGpConfig) {
             let num_registers = params.num_registers.unwrap();
             let mut rng = thread_rng();
             let mutation = rng.gen::<u8>() % 4;
@@ -143,7 +143,7 @@ pub mod machine {
     }
 
     impl Machine {
-        pub(crate) fn new(params: &MachineConfig) -> Self {
+        pub(crate) fn new(params: &LinearGpConfig) -> Self {
             Self {
                 return_registers: params.return_registers.unwrap(),
                 registers: vec![0; params.num_registers.unwrap()],
@@ -256,7 +256,7 @@ fn random_chromosome(params: &Config) -> Genotype {
     let mut rng = thread_rng();
     let len = rng.gen_range(params.min_init_len, params.max_init_len) + 1;
     iter::repeat(())
-        .map(|()| machine::Inst::random(&params.machine))
+        .map(|()| machine::Inst::random(&params.linear_gp))
         .take(len)
         .collect()
 }
@@ -415,7 +415,7 @@ impl Genome for Creature {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
         //self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-        self.chromosome_mut()[i].mutate(&params.machine);
+        self.chromosome_mut()[i].mutate(&params.linear_gp);
     }
 }
 
@@ -509,7 +509,7 @@ mod evaluation {
                     // would be a good place to call the fitness function, too.
                     // TODO: is it worth creating a new machine per-thread?
                     // Probably not when it comes to unicorn, but for this, yeah.
-                    let mut machine = Machine::new(&params.machine);
+                    let mut machine = Machine::new(&params.linear_gp);
                     let return_regs = machine.exec(creature.chromosome(), &input);
                     let output = (0..return_regs.len())
                         .map(|i| return_regs[i])
@@ -671,15 +671,15 @@ fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evalu
     let input_registers = problems.as_ref().unwrap()[0].input.len();
 
     config.problems = problems;
-    if let Some(r) = config.machine.return_registers {
+    if let Some(r) = config.linear_gp.return_registers {
         return_registers = std::cmp::max(return_registers, r);
     }
     let mut num_registers = return_registers + input_registers + 2;
-    if let Some(r) = config.machine.num_registers {
+    if let Some(r) = config.linear_gp.num_registers {
         num_registers = std::cmp::max(num_registers, r);
     }
-    config.machine.return_registers = Some(return_registers);
-    config.machine.num_registers = Some(num_registers);
+    config.linear_gp.return_registers = Some(return_registers);
+    config.linear_gp.num_registers = Some(num_registers);
     log::info!("Config: {:#?}", config);
     let report_fn: ReportFn<_, _> = Box::new(report);
     let fitness_fn: FitnessFn<Creature, _, _> = Box::new(evaluation::fitness_function);

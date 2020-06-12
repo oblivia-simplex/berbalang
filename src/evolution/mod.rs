@@ -11,6 +11,7 @@ use crate::util::count_min_sketch::DecayingSketch;
 
 pub mod metropolis;
 pub mod pareto_roulette;
+pub mod population;
 pub mod tournament;
 
 pub trait Genome: Debug {

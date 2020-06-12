@@ -49,7 +49,7 @@ pub struct Config {
     #[serde(default = "Default::default")]
     pub roper: RoperConfig,
     #[serde(default = "Default::default")]
-    pub machine: MachineConfig,
+    pub linear_gp: LinearGpConfig,
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
     pub num_epochs: usize,
@@ -64,6 +64,7 @@ fn default_tournament_size() -> usize {
 pub struct TournamentConfig {
     #[serde(default = "default_tournament_size")]
     pub tournament_size: usize,
+    pub geographic_radius: usize,
 }
 
 fn default_weight_decay() -> f64 {
@@ -150,7 +151,7 @@ pub struct HelloConfig {
 }
 
 #[derive(Default, Clone, Debug, Deserialize)]
-pub struct MachineConfig {
+pub struct LinearGpConfig {
     pub max_steps: usize,
     // NOTE: these register values will be overridden if a data
     // file has been supplied, in order to accommodate that data

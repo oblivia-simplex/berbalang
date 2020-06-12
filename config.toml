@@ -22,15 +22,15 @@ is_fitness_dynamic = true
 
 [fitness_weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "100 - min(10, x)" #"-1 * min(3, x)"
+gadgets_executed = "50 - min(50, x)" #"-1 * min(3, x)"
 register_error = "x"
 genetic_freq = "x" #"min(2, x * 50)"
 mem_ratio_written = "10 * (1.0 - x)"
-crash_count = "x/3"
+crash_count = "x"
 zeroes = "0"
 
 [tournament]
-tournament_size = 16
+tournament_size = 8
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.

@@ -161,7 +161,7 @@ fn init_emu<C: Cpu<'static>>(
             .collect::<Result<Vec<_>, unicorn::Error>>()?;
     };
     emu.mem_regions()?.iter().for_each(|rgn| {
-        log::info!(
+        log::debug!(
             "Mapped region: 0x{:x} - 0x{:x} [{:?}]",
             rgn.begin,
             rgn.end,

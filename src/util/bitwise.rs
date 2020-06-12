@@ -52,10 +52,12 @@ pub fn try_word_as_string(w: u64, endian: Endian) -> Option<String> {
 }
 
 pub fn try_str_as_word(mut s: String, endian: Endian) -> Option<u64> {
-    if s.len() >= 8 {
+    if s.len() > 8 {
         return None;
     }
-    s.push('\x00');
+    while s.len() < 8 {
+        s.push('\x00')
+    }
     match endian {
         Endian::Little => Some(LittleEndian::read_u64(s.as_bytes())),
         Endian::Big => Some(BigEndian::read_u64(s.as_bytes())),
