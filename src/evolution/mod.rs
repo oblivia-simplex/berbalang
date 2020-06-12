@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::configure::{Config, Problem};
 use crate::fitness::FitnessScore;
-use crate::util::count_min_sketch::DecayingSketch;
+use crate::util::count_min_sketch::{DecayingSketch, Sketch};
 
 pub mod metropolis;
 pub mod pareto_roulette;
@@ -25,11 +25,11 @@ pub trait Genome: Debug {
         self.chromosome().len()
     }
 
-    fn random(params: &Config) -> Self
+    fn random(config: &Config) -> Self
     where
         Self: Sized;
 
-    fn crossover(parents: &[&Self], params: &Config) -> Self
+    fn crossover(parents: &[&Self], config: &Config) -> Self
     where
         Self: Sized;
 
@@ -76,16 +76,16 @@ pub trait Genome: Debug {
         (chromosome, parentage)
     }
 
-    fn mutate(&mut self, params: &Config);
+    fn mutate(&mut self, config: &Config);
 
-    fn mate(parents: &[&Self], params: &Config) -> Self
+    fn mate(parents: &[&Self], config: &Config) -> Self
     where
         Self: Sized,
     {
         let mut rng = thread_rng();
-        let mut child = Self::crossover(parents, params);
-        if rng.gen_range(0.0, 1.0) < params.mutation_rate() {
-            child.mutate(&params);
+        let mut child = Self::crossover(parents, config);
+        if rng.gen_range(0.0, 1.0) < config.mutation_rate() {
+            child.mutate(&config);
         }
         child
     }
@@ -99,13 +99,13 @@ pub trait Genome: Debug {
         )
     }
 
-    fn record_genetic_frequency(&self, sketch: &mut DecayingSketch) {
+    fn record_genetic_frequency<S: Sketch>(&self, sketch: &mut S) {
         for digram in self.digrams() {
             sketch.insert(digram)
         }
     }
 
-    fn query_genetic_frequency(&self, sketch: &DecayingSketch) -> f64 {
+    fn query_genetic_frequency<S: Sketch>(&self, sketch: &S) -> f64 {
         // The lower the score, the rarer the digrams composing the genome.
         // We divide by the length to avoid penalizing longer genomes.
         // let mut sum = 0_f64;

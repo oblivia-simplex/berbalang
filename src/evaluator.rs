@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use crate::configure::Config;
 use crate::evolution::Phenome;
+use crate::util::count_min_sketch::Sketch;
 
 pub type FitnessFn<Pheno, State, Conf> =
     Box<dyn Fn(Pheno, &mut State, Arc<Conf>) -> Pheno + Sync + Send + 'static>;
@@ -8,10 +10,7 @@ pub type FitnessFn<Pheno, State, Conf> =
 // TODO: Consider replicating design seen in observer
 // using a generic struct instead of a trait
 
-pub trait Evaluate<P: Phenome> {
-    type Params;
-    type State;
-
+pub trait Evaluate<P: Phenome, S: Sketch> {
     /// We're assuming that the Phenotype contains a binding to
     /// the resulting fitness score, and that this method sets
     /// that score before returning the phenotype.
@@ -23,5 +22,5 @@ pub trait Evaluate<P: Phenome> {
 
     fn eval_pipeline<I: 'static + Iterator<Item = P> + Send>(&mut self, inbound: I) -> Vec<P>;
 
-    fn spawn(params: &Self::Params, fitness_fn: FitnessFn<P, Self::State, Self::Params>) -> Self;
+    fn spawn(config: &Config, fitness_fn: FitnessFn<P, S, Config>) -> Self;
 }

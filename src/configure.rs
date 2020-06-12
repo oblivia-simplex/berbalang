@@ -31,6 +31,7 @@ pub struct Config {
     pub selection: Selection,
     pub crossover_period: f64,
     pub crossover_rate: f32,
+    pub season_length: usize,
     pub data: DataConfig,
     pub max_init_len: usize,
     pub max_length: usize,

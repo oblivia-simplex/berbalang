@@ -5,7 +5,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::MapFit;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
-use crate::util::count_min_sketch::{suggest_depth, suggest_width, DecayingSketch};
+use crate::util::count_min_sketch::{suggest_depth, suggest_width, CountMinSketch, DecayingSketch};
 
 use super::CreatureDominanceOrd;
 
@@ -35,6 +35,8 @@ pub struct StatRecord {
     pub best_scalar_fitness: f64,
     pub best_uniq_exec_count: f64,
     pub best_ratio_written: f64,
+
+    pub soup_len: f64,
     // NOTE duplication here. maybe define a struct that is used for both
     // average and best, and a func that derives it
 }
@@ -44,8 +46,7 @@ impl StatRecord {
         let frame = &window.frame;
         let best = window.best.as_ref().unwrap();
         let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-        let mut sketch =
-            DecayingSketch::new(suggest_depth(frame.len()), suggest_width(frame.len()), 0.0);
+        let mut sketch = CountMinSketch::new(&window.config);
         for g in frame.iter() {
             g.record_genetic_frequency(&mut sketch);
         }
@@ -90,6 +91,9 @@ impl StatRecord {
             .cloned()
             .unwrap_or_default();
 
+        let soup = window.soup();
+        let soup_len = soup.len() as f64;
+
         StatRecord {
             counter,
             avg_len,
@@ -112,6 +116,8 @@ impl StatRecord {
             best_len,
             best_uniq_exec_count,
             best_ratio_written,
+
+            soup_len,
         }
     }
 }
@@ -140,7 +146,7 @@ mod test {
 pub fn report_fn(
     window: &Window<Creature, super::CreatureDominanceOrd>,
     counter: usize,
-    params: &Config,
+    config: &Config,
 ) {
     let record = StatRecord::from_window(window, counter);
 
@@ -159,14 +165,14 @@ pub fn report_fn(
     if let Ok(stat) = procinfo::pid::statm_self() {
         log::debug!("Memory status: {:#x?}", stat);
     }
-    if halting_condition_reached(window, params) {
+    if halting_condition_reached(window, config) {
         window.stop_evolution();
     }
 }
 
 fn halting_condition_reached(
     _window: &Window<Creature, super::CreatureDominanceOrd>,
-    _params: &Config,
+    _config: &Config,
 ) -> bool {
     false
 }

@@ -27,8 +27,6 @@ ideally, this is somethign you should be able to set in the config.toml
   a rather shoddy attempt at doing this in GENLIN, though I didn't have much
   luck over there.  
   
-- implement "trivial geography" for tournament, following Spector's paper
-
 - periodize diversity scores. every n epochs, copy the sketch to an immutable structure that's used for queries. Seasons. 
 
 - TTL on genes. See appendix to thesis. how did this work?
@@ -38,6 +36,14 @@ ideally, this is somethign you should be able to set in the config.toml
     track addresses read from, and then later check intersection with addresses written to. abstract away from sequence. it's about building up useful material and control. 
 
 - track and plot soup size
+
+- PE files need support
+
+- trial harness for experimental runs
+- dockerize
+- get it cloud ready
+- island distribution
+
 
 # Tomorrow:
 ## Graphing! We really need graphing. Top priority.

@@ -14,7 +14,7 @@ use crate::fitness::Pareto;
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
-use crate::util::count_min_sketch::DecayingSketch;
+use crate::util::count_min_sketch::SeasonalSketch;
 
 pub type Fitness = Pareto<'static>;
 // try setting fitness to (usize, usize);
@@ -111,8 +111,8 @@ pub mod machine {
     }
 
     impl Inst {
-        pub fn random(params: &LinearGpConfig) -> Self {
-            let num_registers = params.num_registers.unwrap();
+        pub fn random(config: &LinearGpConfig) -> Self {
+            let num_registers = config.num_registers.unwrap();
             Self {
                 op: rand::random::<Op>(),
                 a: rand::random::<usize>() % num_registers,
@@ -120,8 +120,8 @@ pub mod machine {
             }
         }
 
-        pub fn mutate(&mut self, params: &LinearGpConfig) {
-            let num_registers = params.num_registers.unwrap();
+        pub fn mutate(&mut self, config: &LinearGpConfig) {
+            let num_registers = config.num_registers.unwrap();
             let mut rng = thread_rng();
             let mutation = rng.gen::<u8>() % 4;
 
@@ -143,12 +143,12 @@ pub mod machine {
     }
 
     impl Machine {
-        pub(crate) fn new(params: &LinearGpConfig) -> Self {
+        pub(crate) fn new(config: &LinearGpConfig) -> Self {
             Self {
-                return_registers: params.return_registers.unwrap(),
-                registers: vec![0; params.num_registers.unwrap()],
+                return_registers: config.return_registers.unwrap(),
+                registers: vec![0; config.num_registers.unwrap()],
                 pc: 0,
-                max_steps: params.max_steps,
+                max_steps: config.max_steps,
             }
         }
 
@@ -252,11 +252,11 @@ type Genotype = Vec<machine::Inst>;
 
 /// Produce a genotype with exactly `len` random instructions.
 /// Pass a randomly generated `len` to randomize the length.
-fn random_chromosome(params: &Config) -> Genotype {
+fn random_chromosome(config: &Config) -> Genotype {
     let mut rng = thread_rng();
-    let len = rng.gen_range(params.min_init_len, params.max_init_len) + 1;
+    let len = rng.gen_range(config.min_init_len, config.max_init_len) + 1;
     iter::repeat(())
-        .map(|()| machine::Inst::random(&params.linear_gp))
+        .map(|()| machine::Inst::random(&config.linear_gp))
         .take(len)
         .collect()
 }
@@ -367,9 +367,9 @@ impl Genome for Creature {
         &mut self.chromosome
     }
 
-    fn random(params: &Config) -> Self {
+    fn random(config: &Config) -> Self {
         let mut rng = thread_rng();
-        let chromosome = random_chromosome(params);
+        let chromosome = random_chromosome(config);
         Self {
             chromosome,
             tag: rng.gen::<u64>(),
@@ -379,14 +379,14 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(mates: &[&Self], params: &Config) -> Self {
-        let distribution = rand_distr::Exp::new(params.crossover_period)
+    fn crossover(mates: &[&Self], config: &Config) -> Self {
+        let distribution = rand_distr::Exp::new(config.crossover_period)
             .expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
         let mut rng = thread_rng();
         let (chromosome, chromosome_parentage, parent_names) =
                 // Check to see if we're performing a crossover or just cloning
-                if rng.gen_range(0.0, 1.0) < params.crossover_rate() {
+                if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
                     let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
                     let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
                     (c, p, names)
@@ -411,20 +411,20 @@ impl Genome for Creature {
         }
     }
 
-    fn mutate(&mut self, params: &Config) {
+    fn mutate(&mut self, config: &Config) {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
         //self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-        self.chromosome_mut()[i].mutate(&params.linear_gp);
+        self.chromosome_mut()[i].mutate(&config.linear_gp);
     }
 }
 
 impl_dominance_ord_for_phenome!(Creature, Dom);
 
-fn report(window: &Window<Creature, Dom>, counter: usize, _params: &Config) {
+fn report(window: &Window<Creature, Dom>, counter: usize, config: &Config) {
     let frame = &window.frame;
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-    let mut sketch = DecayingSketch::default();
+    let mut sketch = SeasonalSketch::new(config);
     for g in frame {
         g.record_genetic_frequency(&mut sketch);
     }
@@ -477,7 +477,7 @@ mod evaluation {
 
     use crate::evaluator::{Evaluate, FitnessFn};
     use crate::examples::linear_gp::machine::Machine;
-    use crate::util::count_min_sketch::DecayingSketch;
+    use crate::util::count_min_sketch::{suggest_depth, SeasonalSketch};
 
     use super::*;
 
@@ -490,8 +490,8 @@ mod evaluation {
     }
 
     // It's important that the problems in the pheno are returned sorted
-    pub fn execute(params: Arc<Config>, mut creature: Creature) -> Creature {
-        let problems = params.problems.as_ref().expect("No problems!");
+    pub fn execute(config: Arc<Config>, mut creature: Creature) -> Creature {
+        let problems = config.problems.as_ref().expect("No problems!");
 
         //#[cfg(debug_assertions)]
         //let iterator = problems.iter();
@@ -509,7 +509,7 @@ mod evaluation {
                     // would be a good place to call the fitness function, too.
                     // TODO: is it worth creating a new machine per-thread?
                     // Probably not when it comes to unicorn, but for this, yeah.
-                    let mut machine = Machine::new(&params.linear_gp);
+                    let mut machine = Machine::new(&config.linear_gp);
                     let return_regs = machine.exec(creature.chromosome(), &input);
                     let output = (0..return_regs.len())
                         .map(|i| return_regs[i])
@@ -530,8 +530,8 @@ mod evaluation {
 
     pub fn fitness_function<P: Phenome<Fitness = Fitness>>(
         mut creature: P,
-        _sketch: &mut DecayingSketch,
-        params: Arc<Config>,
+        _sketch: &mut SeasonalSketch,
+        config: Arc<Config>,
     ) -> P {
         #[allow(clippy::unnecessary_fold)]
         let fitness = creature
@@ -539,7 +539,7 @@ mod evaluation {
             .as_ref()
             .expect("Missing phenotype!")
             .iter()
-            .zip(params.problems.as_ref().expect("no problems!").iter())
+            .zip(config.problems.as_ref().expect("no problems!").iter())
             .filter_map(|(result, expected)| {
                 assert_eq!(result.tag, expected.tag);
                 // Simply counting errors.
@@ -557,10 +557,7 @@ mod evaluation {
         creature
     }
 
-    impl Evaluate<Creature> for Evaluator {
-        type Params = Config;
-        type State = DecayingSketch;
-
+    impl Evaluate<Creature, SeasonalSketch> for Evaluator {
         fn evaluate(&mut self, genome: Creature) -> Creature {
             self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
@@ -582,23 +579,20 @@ mod evaluation {
         //     }))
         // }
 
-        fn spawn(
-            params: &Self::Params,
-            fitness_fn: FitnessFn<Creature, Self::State, Self::Params>,
-        ) -> Self {
+        fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, SeasonalSketch, Config>) -> Self {
             let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
-            let params = Arc::new(params.clone());
+            let config = Arc::new(config.clone());
 
             let handle = spawn(move || {
                 // TODO: parameterize sketch construction
-                let mut sketch = DecayingSketch::default();
+                let mut sketch = SeasonalSketch::new(&config);
 
                 for (counter, mut phenome) in our_rx.iter().enumerate() {
                     if phenome.fitness().is_none() {
-                        phenome = execute(params.clone(), phenome);
+                        phenome = execute(config.clone(), phenome);
                     }
-                    phenome = (fitness_fn)(phenome, &mut sketch, params.clone());
+                    phenome = (fitness_fn)(phenome, &mut sketch, config.clone());
                     // register and measure frequency
                     // TODO: move to fitness function and refactor
                     // phenome
@@ -622,7 +616,7 @@ mod evaluation {
                     //     .as_ref()
                     //     .unwrap()
                     //     .iter()
-                    //     .zip(params.problems.as_ref().unwrap().iter())
+                    //     .zip(config.problems.as_ref().unwrap().iter())
                     // {
                     //     if answer.output == problem.output {
                     //         sketch.insert(&answer, counter).expect("shit");

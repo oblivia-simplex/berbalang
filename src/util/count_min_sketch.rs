@@ -1,7 +1,90 @@
 use crate::get_epoch_counter;
 //use std::collections::hash_map::DefaultHasher;
+use crate::configure::Config;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+pub trait Sketch: Send + Sync + Clone {
+    fn insert<T: Hash>(&mut self, thing: T);
+    fn query<T: Hash>(&self, thing: T) -> f64;
+    fn new(config: &Config) -> Self;
+}
+
+impl Sketch for DecayingSketch {
+    fn insert<T: Hash>(&mut self, thing: T) {
+        DecayingSketch::insert(self, thing)
+    }
+
+    fn query<T: Hash>(&self, thing: T) -> f64 {
+        DecayingSketch::query(self, thing)
+    }
+
+    fn new(config: &Config) -> Self {
+        DecayingSketch::new(config)
+    }
+}
+
+impl Sketch for CountMinSketch {
+    fn insert<T: Hash>(&mut self, thing: T) {
+        CountMinSketch::insert(self, thing)
+    }
+
+    fn query<T: Hash>(&self, thing: T) -> f64 {
+        CountMinSketch::query(self, thing)
+    }
+
+    fn new(config: &Config) -> Self {
+        CountMinSketch::new(config)
+    }
+}
+
+impl Sketch for SeasonalSketch {
+    fn insert<T: Hash>(&mut self, thing: T) {
+        SeasonalSketch::insert(self, thing)
+    }
+
+    fn query<T: Hash>(&self, thing: T) -> f64 {
+        SeasonalSketch::query(self, thing)
+    }
+
+    fn new(config: &Config) -> Self {
+        SeasonalSketch::new(config)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SeasonalSketch {
+    period: usize,
+    hot: CountMinSketch,
+    cold: CountMinSketch,
+}
+
+impl SeasonalSketch {
+    pub fn new(config: &Config) -> Self {
+        let period = config.season_length;
+        Self {
+            hot: CountMinSketch::new(config),
+            cold: CountMinSketch::new(config),
+            period,
+        }
+    }
+
+    fn turn_turn_turn(&mut self) {
+        std::mem::swap(&mut self.hot, &mut self.cold);
+        self.hot.flush()
+    }
+
+    pub fn insert<T: Hash>(&mut self, thing: T) {
+        if get_epoch_counter() % self.period == 0 {
+            self.turn_turn_turn()
+        }
+        self.hot.insert(thing)
+    }
+
+    pub fn query<T: Hash>(&self, thing: T) -> f64 {
+        self.cold.query(thing)
+    }
+}
 
 #[derive(Clone)]
 pub enum Error {
@@ -28,7 +111,7 @@ fn hash<T: Hash>(thing: &T, index: usize) -> usize {
     hasher.finish() as usize
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DecayingSketch {
     freq_table: Vec<Vec<f64>>,
     time_table: Vec<Vec<usize>>,
@@ -39,20 +122,14 @@ pub struct DecayingSketch {
     decay: bool,
 } // TODO decay the counter?
 
-impl Default for DecayingSketch {
-    fn default() -> Self {
-        let depth = 1 << 3;
-        let width = 1 << 10;
-        let half_life = 500_f64; // FIXME tweak
-        Self::new(depth, width, half_life)
-    }
-}
-
 impl DecayingSketch {
     /// Decay can be disabled by setting half_life to 0.0.
-    pub(crate) fn new(depth: usize, width: usize, half_life: f64) -> Self {
+    pub fn new(config: &Config) -> Self {
+        let depth = suggest_depth(config.pop_size);
+        let width = suggest_width(config.pop_size);
         let time_table = vec![vec![0_usize; width]; depth];
         let freq_table = vec![vec![0_f64; width]; depth];
+        let half_life = config.pop_size as f64; // TODO add config field for this
         Self {
             depth,
             width,
@@ -60,7 +137,7 @@ impl DecayingSketch {
             freq_table,
             time_table,
             counter: 0,
-            decay: half_life > std::f64::EPSILON,
+            decay: true,
         }
     }
 
@@ -129,6 +206,7 @@ impl DecayingSketch {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct CountMinSketch {
     table: Vec<Vec<usize>>,
     depth: usize,
@@ -150,7 +228,9 @@ impl Default for CountMinSketch {
 }
 
 impl CountMinSketch {
-    pub fn new(depth: usize, width: usize) -> Self {
+    pub fn new(config: &Config) -> Self {
+        let depth = suggest_depth(config.pop_size);
+        let width = suggest_width(config.pop_size);
         Self {
             table: vec![vec![0; width]; depth],
             depth,

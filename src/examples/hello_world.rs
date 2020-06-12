@@ -12,7 +12,7 @@ use crate::configure::{Config, Problem};
 use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
-use crate::util::count_min_sketch::DecayingSketch;
+use crate::util::count_min_sketch::SeasonalSketch;
 use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
 
 pub type Fitness = Vec<f64>;
@@ -96,9 +96,9 @@ impl Genome for Genotype {
         unimplemented!("rust makes treating strings as &[char] tricky")
     }
 
-    fn random(params: &Config) -> Self {
+    fn random(config: &Config) -> Self {
         let mut rng = thread_rng();
-        let len = rng.gen_range(1, params.max_init_len);
+        let len = rng.gen_range(1, config.max_init_len);
         let s: String = iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
             .take(len)
@@ -111,7 +111,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover(mates: &[&Self], _params: &Config) -> Self {
+    fn crossover(mates: &[&Self], _config: &Config) -> Self {
         let mut rng = thread_rng();
         let father = &mates[0];
         let mother = &mates[1];
@@ -128,7 +128,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn mutate(&mut self, _params: &Config) {
+    fn mutate(&mut self, _config: &Config) {
         let mut rng: ThreadRng = thread_rng();
         let mutation = rng.gen::<u8>() % 4;
         match mutation {
@@ -164,7 +164,7 @@ impl Genome for Genotype {
 
 impl_dominance_ord_for_phenome!(Genotype, Dom);
 
-fn report(window: &Window<Genotype, Dom>, counter: usize, _params: &Config) {
+fn report(window: &Window<Genotype, Dom>, counter: usize, _config: &Config) {
     let frame = &window.frame;
     let fitnesses: Vec<Fitness> = frame.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
@@ -211,11 +211,11 @@ cached_key! {
 
 fn fitness_function(
     mut phenome: Genotype,
-    sketch: &mut DecayingSketch,
-    params: Arc<Config>,
+    sketch: &mut SeasonalSketch,
+    config: Arc<Config>,
 ) -> Genotype {
     if phenome.fitness.is_none() {
-        phenome.set_fitness(ff_helper(&phenome.genes, &params.hello.target));
+        phenome.set_fitness(ff_helper(&phenome.genes, &config.hello.target));
         sketch.insert(&phenome.genes);
         let freq = sketch.query(&phenome.genes);
         phenome.fitness.as_mut().map(|f| f.push(freq));
@@ -253,7 +253,7 @@ mod evaluation {
     use std::thread::{spawn, JoinHandle};
 
     use crate::evaluator::FitnessFn;
-    use crate::util::count_min_sketch::DecayingSketch;
+    use crate::util::count_min_sketch::{suggest_depth, suggest_width, SeasonalSketch};
 
     use super::*;
 
@@ -263,10 +263,7 @@ mod evaluation {
         rx: Receiver<Genotype>,
     }
 
-    impl Evaluate<Genotype> for Evaluator<Genotype> {
-        type Params = Config;
-        type State = DecayingSketch;
-
+    impl Evaluate<Genotype, SeasonalSketch> for Evaluator<Genotype> {
         fn evaluate(&mut self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
@@ -276,24 +273,21 @@ mod evaluation {
             inbound.map(|p| self.evaluate(p)).collect::<Vec<Genotype>>()
         }
 
-        fn spawn(
-            params: &Self::Params,
-            fitness_fn: FitnessFn<Genotype, Self::State, Self::Params>,
-        ) -> Self {
+        fn spawn(config: &Config, fitness_fn: FitnessFn<Genotype, SeasonalSketch, Config>) -> Self {
             let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
-            let params = Arc::new(params.clone());
+            let config = Arc::new(config.clone());
             let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
-                let sketch = Arc::new(Mutex::new(DecayingSketch::default()));
+                let sketch = Arc::new(Mutex::new(SeasonalSketch::new(&config)));
                 for phenome in our_rx {
                     let sketch = sketch.clone();
                     let our_tx = our_tx.clone();
-                    let params = params.clone();
+                    let config = config.clone();
                     let fitness_fn = fitness_fn.clone();
                     rayon::spawn(move || {
                         let mut sketch = sketch.lock().unwrap();
-                        let phenome = fitness_fn(phenome, &mut sketch, params.clone());
+                        let phenome = fitness_fn(phenome, &mut sketch, config.clone());
 
                         our_tx.send(phenome).expect("Channel failure");
                     });

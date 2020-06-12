@@ -163,13 +163,13 @@ impl fmt::Debug for Creature {
 }
 
 /// load binary before calling this function
-pub fn init_soup(params: &mut RoperConfig) -> Result<(), Error> {
+pub fn init_soup(config: &mut RoperConfig) -> Result<(), Error> {
     let mut soup = Vec::new();
     //might as well take the constants from the register pattern
-    if let Some(pattern) = params.register_pattern() {
+    if let Some(pattern) = config.register_pattern() {
         pattern.0.values().for_each(|w| soup.push(w.val))
     }
-    if let Some(gadget_file) = params.gadget_file.as_ref() {
+    if let Some(gadget_file) = config.gadget_file.as_ref() {
         // parse the gadget file
         let reader = File::open(gadget_file).map(BufReader::new)?;
 
@@ -183,7 +183,7 @@ pub fn init_soup(params: &mut RoperConfig) -> Result<(), Error> {
                 soup.push(word)
             }
         }
-    } else if let Some(soup_size) = params.soup_size.as_ref() {
+    } else if let Some(soup_size) = config.soup_size.as_ref() {
         let memory = loader::get_static_memory_image();
         for addr in iter::repeat(())
             .take(*soup_size)
@@ -192,7 +192,7 @@ pub fn init_soup(params: &mut RoperConfig) -> Result<(), Error> {
             soup.push(addr)
         }
     }
-    params.soup = Some(soup);
+    config.soup = Some(soup);
     Ok(())
 }
 
@@ -207,10 +207,10 @@ impl Genome for Creature {
         &mut self.chromosome
     }
 
-    fn random(params: &Config) -> Self {
+    fn random(config: &Config) -> Self {
         let mut rng = rand::thread_rng();
-        let length = rng.gen_range(params.min_init_len, params.max_init_len);
-        let chromosome = params
+        let length = rng.gen_range(config.min_init_len, config.max_init_len);
+        let chromosome = config
             .roper
             .soup
             .as_ref()
@@ -237,21 +237,21 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(mates: &[&Self], params: &Config) -> Self
+    fn crossover(mates: &[&Self], config: &Config) -> Self
     where
         Self: Sized,
         // note code duplication between this and linear_gp TODO
     {
         // NOTE: this bitmask schema implements an implicit incest prohibition
         let min_mate_len = mates.iter().map(|p| p.len()).min().unwrap();
-        let lambda = min_mate_len as f64 / params.crossover_period;
+        let lambda = min_mate_len as f64 / config.crossover_period;
         let distribution =
             rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
         let mut rng = thread_rng();
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
-            if rng.gen_range(0.0, 1.0) < params.crossover_rate() {
+            if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
                 let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
                 let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
                 (c, p, names)
@@ -276,7 +276,7 @@ impl Genome for Creature {
         }
     }
 
-    fn mutate(&mut self, params: &Config) {
+    fn mutate(&mut self, config: &Config) {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.chromosome.len());
 
@@ -286,8 +286,8 @@ impl Genome for Creature {
                 let memory = loader::get_static_memory_image();
                 if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
                     if bytes.len() > 8 {
-                        let endian = endian(params.roper.arch, params.roper.mode);
-                        let word_size = word_size_in_bytes(params.roper.arch, params.roper.mode);
+                        let endian = endian(config.roper.arch, config.roper.mode);
+                        let word_size = word_size_in_bytes(config.roper.arch, config.roper.mode);
                         if let Some(word) = read_integer(bytes, endian, word_size) {
                             self.chromosome[i] = word;
                         }
@@ -297,11 +297,11 @@ impl Genome for Creature {
             1 => {
                 // Indirection mutation
                 let memory = loader::get_static_memory_image();
-                let word_size = word_size_in_bytes(params.roper.arch, params.roper.mode);
+                let word_size = word_size_in_bytes(config.roper.arch, config.roper.mode);
                 let mut bytes = vec![0; word_size];
                 let word = self.chromosome[i];
                 write_integer(
-                    endian(params.roper.arch, params.roper.mode),
+                    endian(config.roper.arch, config.roper.mode),
                     word_size,
                     word,
                     &mut bytes,

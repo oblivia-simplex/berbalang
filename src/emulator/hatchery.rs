@@ -41,7 +41,7 @@ pub type EmuPrepFn<C> = Box<
 pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
     emu_pool: Arc<Pool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
-    params: Arc<HatcheryParams>,
+    config: Arc<HatcheryParams>,
     memory: Arc<Option<Pin<Vec<Seg>>>>,
     tx: SyncSender<X>,
     rx: Receiver<(X, Profile)>,
@@ -56,7 +56,7 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
         let Self {
             emu_pool,
             thread_pool: _thread_pool,
-            params: _params,
+            config: _config,
             memory,
             tx: _tx,
             rx: _rx,
@@ -122,10 +122,10 @@ impl From<RecvError> for Error {
 
 // TODO: Here is where you'll do the ELF loading.
 fn init_emu<C: Cpu<'static>>(
-    params: &HatcheryParams,
+    config: &HatcheryParams,
     memory: &Option<Pin<Vec<Seg>>>,
 ) -> Result<C, Error> {
-    let mut emu = C::new(params.mode)?;
+    let mut emu = C::new(config.mode)?;
     if let Some(segments) = memory {
         //notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
         let mut results = Vec::new();
@@ -203,52 +203,52 @@ type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
 
 impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery<C, X> {
     pub fn new(
-        params: Arc<HatcheryParams>,
+        config: Arc<HatcheryParams>,
         inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: Option<EmuPrepFn<C>>,
     ) -> Self {
         let disassembler = Arc::new(
-            Disassembler::new(params.arch, params.mode).expect("Failed to build disassembler"),
+            Disassembler::new(config.arch, config.mode).expect("Failed to build disassembler"),
         );
-        let (tx, our_rx): InboundChannel<X> = sync_channel(params.num_workers);
-        let (our_tx, rx): OutboundChannel<X> = sync_channel(params.num_workers);
+        let (tx, our_rx): InboundChannel<X> = sync_channel(config.num_workers);
+        let (our_tx, rx): OutboundChannel<X> = sync_channel(config.num_workers);
 
         let static_memory = loader::get_static_memory_image();
 
         let memory = Arc::new(Some(Pin::new(
             loader::load_from_path(
-                &params.binary_path,
-                params.emulator_stack_size,
-                params.arch,
-                params.mode,
+                &config.binary_path,
+                config.emulator_stack_size,
+                config.arch,
+                config.mode,
             )
             .expect("Failed to load binary from path"),
         )));
 
-        let emu_pool = Arc::new(Pool::new(params.num_workers, || {
-            init_emu(&params, &memory).expect("failed to initialize emulator")
+        let emu_pool = Arc::new(Pool::new(config.num_workers, || {
+            init_emu(&config, &memory).expect("failed to initialize emulator")
         }));
-        let thread_pool = Arc::new(Mutex::new(ThreadPool::new(params.num_workers)));
+        let thread_pool = Arc::new(Mutex::new(ThreadPool::new(config.num_workers)));
 
         let emu_prep_fn = Arc::new(emu_prep_fn.unwrap_or_else(|| Box::new(hooking::emu_prep_fn)));
-        let wait_limit = params.wait_limit;
-        let mode = params.mode;
-        let millisecond_timeout = params.millisecond_timeout.unwrap_or(0);
-        let max_emu_steps = params.max_emu_steps.unwrap_or(0);
-        let word_size = crate::util::architecture::word_size_in_bytes(params.arch, params.mode);
-        let endian = crate::util::architecture::endian(params.arch, params.mode);
+        let wait_limit = config.wait_limit;
+        let mode = config.mode;
+        let millisecond_timeout = config.millisecond_timeout.unwrap_or(0);
+        let max_emu_steps = config.max_emu_steps.unwrap_or(0);
+        let word_size = crate::util::architecture::word_size_in_bytes(config.arch, config.mode);
+        let endian = crate::util::architecture::endian(config.arch, config.mode);
 
         let e_pool = emu_pool.clone();
         let t_pool = thread_pool.clone();
-        let parameters = params.clone();
+        let parameters = config.clone();
         let mem = memory.clone();
         let disas = disassembler.clone();
         let handle = spawn(move || {
             for payload in our_rx.iter() {
                 let emu_prep_fn = emu_prep_fn.clone();
-                let params = parameters.clone();
+                let config = parameters.clone();
                 let our_tx = our_tx.clone();
                 let output_registers = output_registers.clone();
                 let thread_pool = t_pool.lock().expect("Failed to unlock thread_pool mutex");
@@ -265,7 +265,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         // Save the register context
                         let context: Context = (*emu).context_save().expect("Failed to save context");
 
-                        if params.record_basic_blocks {
+                        if config.record_basic_blocks {
                             let _hook = hooking::install_basic_block_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
                                 .expect("Failed to install basic_block_hook");
                         }
@@ -280,8 +280,8 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                                 .expect("Failed to install tracer hook");
                         }
 
-                        let _hook = hooking::install_syscall_hook(&mut (*emu), params.arch, params.mode);
-                        if params.record_memory_writes {
+                        let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
+                        if config.record_memory_writes {
                             let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler)
                                 .expect("Failed to install mem_write_hook");
                         }
@@ -289,7 +289,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         // This function will generally be used to load the payload and install
                         // callbacks, which should be able to write to the Profiler instance.
                         let code = payload.pack(word_size, endian);
-                        let start_addr = emu_prep_fn(&mut emu, &params, &code, &profiler)
+                        let start_addr = emu_prep_fn(&mut emu, &config, &code, &profiler)
                             .expect("Failure in the emulator preparation function.");
                         // load the inputs
                         // TODO refactor into separate method
@@ -364,7 +364,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
         Self {
             emu_pool,
             thread_pool,
-            params,
+            config,
             memory,
             tx,
             rx,
@@ -517,7 +517,7 @@ pub mod hooking {
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        _params: &HatcheryParams,
+        _config: &HatcheryParams,
         code: &[u8],
         _profiler: &Profiler<C>,
     ) -> Result<u64, Error> {
@@ -687,7 +687,7 @@ mod test {
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
             emu: &mut C,
-            _params: &HatcheryParams,
+            _config: &HatcheryParams,
             code: &[u8],
             _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
@@ -710,7 +710,7 @@ mod test {
     }
 
     #[test]
-    fn test_params() {
+    fn test_config() {
         let config = r#"
             num_workers = 8
             wait_limit = 150
@@ -722,9 +722,9 @@ mod test {
             binary_path = "/bin/sh"
         "#;
 
-        let params: HatcheryParams = toml::from_str(config).unwrap();
+        let config: HatcheryParams = toml::from_str(config).unwrap();
         assert_eq!(
-            params,
+            config,
             HatcheryParams {
                 gadget_file: None,
                 num_workers: 8,
@@ -748,7 +748,7 @@ mod test {
     // FIXME - currently broken for want for full Pack impl for Vec<u8> #[test]
     fn test_hatchery() {
         env_logger::init();
-        let params = HatcheryParams {
+        let config = HatcheryParams {
             gadget_file: None,
             num_workers: 500,
             num_emulators: 510,
@@ -787,7 +787,7 @@ mod test {
             inputs.push(hashmap! { RCX => rand::random(), RAX => rand::random() });
         }
         let hatchery: Hatchery<CpuX86<'_>, Code> =
-            Hatchery::new(Arc::new(params), Arc::new(inputs), output_registers, None);
+            Hatchery::new(Arc::new(config), Arc::new(inputs), output_registers, None);
 
         let results = hatchery.execute_batch(code_iterator);
         for (_code, profile) in results.expect("boo") {

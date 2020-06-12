@@ -17,20 +17,25 @@ num_parents = 2
 target_fitness = 0
 max_length = 100
 num_epochs = 0 # = infinite
+season_length = 100 # tweak
 # add this:
 is_fitness_dynamic = true
 
 [fitness_weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "50 - min(50, x)" #"-1 * min(3, x)"
-register_error = "x"
-genetic_freq = "x" #"min(2, x * 50)"
-mem_ratio_written = "10 * (1.0 - x)"
+gadgets_executed = "5 - min(5, x)" #"-1 * min(3, x)"
+register_error = "0"
+genetic_freq = "0" #"min(2, x * 50)"
+mem_ratio_written = "0" #"10 * (1.0 - x)"
 crash_count = "x"
-zeroes = "0"
+zeroes = "x"
 
 [tournament]
-tournament_size = 8
+tournament_size = 7
+# todo: plot diversity and fitness wrt radius changes.
+# maybe experiment with dynamic radius adjustments
+# as a response to loss of diversity
+geographic_radius = 15
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
@@ -57,7 +62,7 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-fitness_function = "register_pattern"
+fitness_function = "register_conjunction" #"register_pattern"
 arch = "X86"
 mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
@@ -71,9 +76,8 @@ millisecond_timeout = 500
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
-output_registers = ["RAX", "RBX", "RCX" ] # ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+output_registers = ["RDI"  ] # ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
   [roper.register_pattern] 
-  RAX = "0x3b"                   # execve syscall number
-  RDI = "&'/bin/sh"
+#  RAX = "0x3b"                   # execve syscall number
+#  RDI = "&'/bin/sh"
 #  RSI = "&&0"                  # an empty argv array
-#  RDI = "&&0"                  # an empty env array

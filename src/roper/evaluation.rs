@@ -12,27 +12,35 @@ use crate::{
     evaluator::Evaluate,
     evolution::{Genome, Phenome},
     util,
-    util::count_min_sketch::DecayingSketch,
+    util::count_min_sketch::SeasonalSketch,
 };
 
 use super::Creature;
 use crate::fitness::Weighted;
 
+pub fn address_coverage_ff(
+    mut creature: Creature,
+    sketch: &mut SeasonalSketch,
+    config: Arc<Config>,
+) -> Creature {
+    creature
+}
+
 pub fn register_pattern_ff(
     mut creature: Creature,
-    _sketch: &mut DecayingSketch,
-    params: Arc<Config>,
+    _sketch: &mut SeasonalSketch,
+    config: Arc<Config>,
 ) -> Creature {
     // measure fitness
     // for now, let's just handle the register pattern task
     if let Some(ref profile) = creature.profile {
         //sketch.insert(&profile.registers);
         //let reg_freq = sketch.query(&profile.registers);
-        if let Some(pattern) = params.roper.register_pattern() {
+        if let Some(pattern) = config.roper.register_pattern() {
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let register_error = pattern.distance_from_register_state(&profile.registers[0]);
-            let mut weighted_fitness = Weighted::new(params.fitness_weights.clone());
+            let mut weighted_fitness = Weighted::new(config.fitness_weights.clone());
             weighted_fitness
                 .scores
                 .insert("register_error", register_error);
@@ -68,8 +76,8 @@ pub fn register_pattern_ff(
 
 pub fn register_conjunction_ff(
     mut creature: Creature,
-    _sketch: &mut DecayingSketch,
-    params: Arc<Config>,
+    _sketch: &mut SeasonalSketch,
+    config: Arc<Config>,
 ) -> Creature {
     if let Some(ref profile) = creature.profile {
         if let Some(registers) = profile.registers.last() {
@@ -78,7 +86,7 @@ pub fn register_conjunction_ff(
                 .values()
                 .fold(0xffff_ffff_ffff_ffff, |a, b| a & b[0]);
             let score = conj.count_zeros() as f64;
-            let mut weighted_fitness = Weighted::new(params.fitness_weights.clone());
+            let mut weighted_fitness = Weighted::new(config.fitness_weights.clone());
             weighted_fitness.scores.insert("zeroes", score);
             weighted_fitness
                 .scores
@@ -95,16 +103,13 @@ pub fn register_conjunction_ff(
 }
 
 pub struct Evaluator<C: 'static + Cpu<'static>> {
-    params: Arc<Config>,
+    config: Arc<Config>,
     hatchery: Hatchery<C, Creature>,
-    sketch: DecayingSketch,
-    fitness_fn: Box<FitnessFn<Creature, DecayingSketch, Config>>,
+    sketch: SeasonalSketch,
+    fitness_fn: Box<FitnessFn<Creature, SeasonalSketch, Config>>,
 }
 
-impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
-    type Params = Config;
-    type State = DecayingSketch;
-
+impl<C: 'static + Cpu<'static>> Evaluate<Creature, SeasonalSketch> for Evaluator<C> {
     fn evaluate(&mut self, creature: Creature) -> Creature {
         let (mut creature, profile) = self
             .hatchery
@@ -113,7 +118,7 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
 
         creature.profile = Some(profile);
         creature.tag = rand::random::<u64>(); // TODO: rethink this tag thing
-        (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
+        (self.fitness_fn)(creature, &mut self.sketch, self.config.clone())
     }
 
     fn eval_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
@@ -133,7 +138,7 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
                 creature
             })
             .chain(old_meat)
-            .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.params.clone()))
+            .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
             .collect::<Vec<_>>();
         batch
             .iter_mut()
@@ -141,13 +146,10 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         batch
     }
 
-    fn spawn(
-        params: &Self::Params,
-        fitness_fn: FitnessFn<Creature, Self::State, Self::Params>,
-    ) -> Self {
-        let mut params = params.clone();
-        params.roper.parse_register_pattern();
-        let hatch_params = Arc::new(params.roper.clone());
+    fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, SeasonalSketch, Config>) -> Self {
+        let mut config = config.clone();
+        config.roper.parse_register_pattern();
+        let hatch_config = Arc::new(config.roper.clone());
         // fn random_register_state<C: 'static + Cpu<'static>>(
         //     registers: &[Register<C>],
         // ) -> HashMap<Register<C>, u64> {
@@ -158,9 +160,9 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
         //     }
         //     map
         // }
-        let register_pattern = params.roper.register_pattern();
+        let register_pattern = config.roper.register_pattern();
         let output_registers: Vec<Register<C>> = {
-            let mut out_reg: Vec<Register<C>> = params
+            let mut out_reg: Vec<Register<C>> = config
                 .roper
                 .output_registers
                 .iter()
@@ -185,19 +187,15 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
             &output_registers,
         )];
         let hatchery: Hatchery<C, Creature> = Hatchery::new(
-            hatch_params,
+            hatch_config,
             Arc::new(inputs),
             Arc::new(output_registers),
             None,
         );
 
-        let sketch = DecayingSketch::new(
-            count_min_sketch::suggest_depth(params.pop_size),
-            count_min_sketch::suggest_width(params.pop_size),
-            params.pop_size as f64 * 2.0,
-        );
+        let sketch = SeasonalSketch::new(&config);
         Self {
-            params: Arc::new(params),
+            config: Arc::new(config),
             hatchery,
             sketch,
             fitness_fn: Box::new(fitness_fn),

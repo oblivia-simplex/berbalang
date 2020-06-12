@@ -18,13 +18,13 @@ use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 // a hack to make the imports more meaningful
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
-use crate::util::count_min_sketch::DecayingSketch;
+use crate::util::count_min_sketch::{CountMinSketch, DecayingSketch};
 use rand::thread_rng;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
-fn stat_writer(params: &Config) -> csv::Writer<fs::File> {
-    let s = format!("{}/statistics.tsv", params.data_directory());
+fn stat_writer(config: &Config) -> csv::Writer<fs::File> {
+    let s = format!("{}/statistics.tsv", config.data_directory());
     let path = std::path::Path::new(&s);
     let add_headers = !path.exists();
     let file = fs::OpenOptions::new()
@@ -52,12 +52,12 @@ pub type ReportFn<T, D> = Box<dyn Fn(&Window<T, D>, usize, &Config) -> () + Sync
 pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
     window: &Window<P, D>,
     counter: usize,
-    _params: &Config,
+    config: &Config,
 ) {
     let frame = &window.frame;
     log::info!("default report function");
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-    let mut sketch = DecayingSketch::default();
+    let mut sketch = CountMinSketch::new(config);
     for g in frame {
         g.record_genetic_frequency(&mut sketch);
     }
@@ -80,7 +80,7 @@ pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
 
 pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     pub frame: Vec<O>,
-    pub params: Arc<Config>,
+    pub config: Arc<Config>,
     counter: usize,
     report_every: usize,
     i: usize,
@@ -97,18 +97,18 @@ pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
 impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
     fn new(
         report_fn: ReportFn<O, D>,
-        params: Arc<Config>,
+        config: Arc<Config>,
         dominance_order: D,
         stop_signal_tx: Sender<bool>,
     ) -> Self {
-        let window_size = params.observer.window_size;
-        let report_every = params.observer.report_every;
+        let window_size = config.observer.window_size;
+        let report_every = config.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
         assert!(report_every > 0, "report_every must be > 0");
-        let stat_writer = Arc::new(Mutex::new(stat_writer(&params)));
+        let stat_writer = Arc::new(Mutex::new(stat_writer(&config)));
         Self {
             frame: Vec::with_capacity(window_size),
-            params,
+            config,
             counter: 0,
             i: 0,
             window_size,
@@ -155,11 +155,11 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
 
         // Perform various periodic tasks
         self.counter += 1;
-        if self.counter % self.params.observer.dump_every == 0 {
+        if self.counter % self.config.observer.dump_every == 0 {
             self.dump_soup();
             self.dump_population();
         }
-        if self.counter % self.params.pop_size == 0 {
+        if self.counter % self.config.pop_size == 0 {
             // UNCOMMENT FOR PARETO FIXME // self.update_archive();
             self.update_best();
         }
@@ -167,7 +167,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.report();
         }
 
-        if self.params.num_epochs != 0 && self.params.num_epochs <= crate::get_epoch_counter() {
+        if self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter() {
             self.stop_evolution();
         }
     }
@@ -208,13 +208,13 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         let front = non_dominated_sort(&arena, &self.dominance_order);
         let sample = front
             .current_front_indices()
-            .choose_multiple(&mut thread_rng(), self.params.pop_size);
+            .choose_multiple(&mut thread_rng(), self.config.pop_size);
 
         self.archive = sample.map(|i| arena[*i].clone()).collect::<Vec<O>>();
     }
 
     fn report(&self) {
-        (self.report_fn)(&self, self.counter, &self.params);
+        (self.report_fn)(&self, self.counter, &self.config);
     }
 
     pub fn log_record<S: Serialize>(&self, record: S) {
@@ -232,13 +232,13 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
     }
 
     pub fn dump_population(&self) {
-        if !self.params.observer.dump_population {
+        if !self.config.observer.dump_population {
             log::debug!("Not dumping population");
             return;
         }
         let path = format!(
             "{}/population/population_{}.json.gz",
-            self.params.data_directory(),
+            self.config.data_directory(),
             self.counter,
         );
         if let Ok(mut population_file) = fs::File::create(&path)
@@ -255,21 +255,24 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         };
     }
 
-    pub fn dump_soup(&self) {
-        if !self.params.observer.dump_soup {
-            log::debug!("Not dumping soup");
-            return;
-        }
-        let mut soup = self
-            .frame
+    pub fn soup(&self) -> HashSet<<O as Genome>::Allele> {
+        self.frame
             .iter()
             .map(|g| g.chromosome())
             .flatten()
             .cloned()
-            .collect::<HashSet<_>>();
+            .collect::<HashSet<_>>()
+    }
+
+    pub fn dump_soup(&self) {
+        if !self.config.observer.dump_soup {
+            log::debug!("Not dumping soup");
+            return;
+        }
+        let mut soup = self.soup();
         let path = format!(
             "{}/soup/soup_{}.json",
-            self.params.data_directory(),
+            self.config.data_directory(),
             self.counter,
         );
         if let Ok(mut soup_file) =
@@ -290,17 +293,17 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
     }
 
     pub fn spawn<D: 'static + DominanceOrd<O> + Send>(
-        params: &Config,
+        config: &Config,
         report_fn: ReportFn<O, D>,
         dominance_order: D,
     ) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
         let (window_tx, stop_signal_rx): (Sender<bool>, Receiver<bool>) = channel();
 
-        let params = Arc::new(params.clone());
+        let config = Arc::new(config.clone());
         let handle: JoinHandle<()> = spawn(move || {
             let mut window: Window<O, D> =
-                Window::new(report_fn, params.clone(), dominance_order, window_tx);
+                Window::new(report_fn, config.clone(), dominance_order, window_tx);
             for observable in rx {
                 window.insert(observable);
             }
