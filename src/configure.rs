@@ -160,6 +160,7 @@ pub struct MachineConfig {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
+    pub fitness_function: String,
     pub gadget_file: Option<String>,
     #[serde(default)]
     pub output_registers: Vec<String>,
@@ -214,6 +215,7 @@ const fn default_stack_size() -> usize {
 impl Default for RoperConfig {
     fn default() -> Self {
         Self {
+            fitness_function: "register_pattern".to_string(),
             gadget_file: None,
             output_registers: vec![],
             register_pattern: None,

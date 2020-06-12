@@ -18,7 +18,7 @@ use crate::{
 use super::Creature;
 use crate::fitness::Weighted;
 
-pub fn register_pattern_fitness_ff(
+pub fn register_pattern_ff(
     mut creature: Creature,
     sketch: &mut DecayingSketch,
     params: Arc<Config>,
@@ -53,10 +53,10 @@ pub fn register_pattern_fitness_ff(
                 .insert("gadgets_executed", gadgets_executed as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
-            let gen_freq = creature.query_genetic_frequency(sketch);
+            //let gen_freq = creature.query_genetic_frequency(sketch);
             //creature.record_genetic_frequency(sketch);
 
-            weighted_fitness.scores.insert("genetic_freq", gen_freq);
+            //weighted_fitness.scores.insert("genetic_freq", gen_freq);
 
             creature.set_fitness(weighted_fitness);
         } else {

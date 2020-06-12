@@ -9,7 +9,7 @@ use crate::{
     evolution::{tournament::Tournament, Phenome},
 };
 // the runner
-use crate::evaluator::Evaluate;
+use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::fitness::Weighted;
@@ -18,6 +18,7 @@ use crate::observer::Observer;
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
 /// traits associated with `roper` mode.
 mod creature;
+use crate::util::count_min_sketch::DecayingSketch;
 use creature::*;
 
 /// The `analysis` module contains the reporting function passed to the observation
@@ -36,9 +37,14 @@ crate::make_phenome_heap_friendly!(Creature);
 fn prepare<C: 'static + Cpu<'static>>(
     config: Config,
 ) -> (Observer<Creature>, evaluation::Evaluator<C>) {
+    let fitness_function: FitnessFn<Creature, DecayingSketch, Config> =
+        match config.roper.fitness_function.as_str() {
+            "register_pattern" => Box::new(evaluation::register_pattern_ff),
+            "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
+            s => unimplemented!("No such fitness function as {}", s),
+        };
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn), CreatureDominanceOrd);
-    let evaluator =
-        evaluation::Evaluator::spawn(&config, Box::new(evaluation::register_conjunction_ff)); // ::register_pattern_fitness_fn));
+    let evaluator = evaluation::Evaluator::spawn(&config, fitness_function);
     (observer, evaluator)
 }
 

@@ -57,6 +57,7 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
+fitness_function = "register_pattern"
 arch = "X86"
 mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
@@ -72,7 +73,7 @@ record_basic_blocks = true
 record_memory_writes = true
 output_registers = ["RAX", "RBX", "RCX" ] # ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
   [roper.register_pattern] 
-  RAX = "59"                   # execve syscall number
+  RAX = "0x3b"                   # execve syscall number
   RDI = "&'/bin/sh"
 #  RSI = "&&0"                  # an empty argv array
 #  RDI = "&&0"                  # an empty env array
