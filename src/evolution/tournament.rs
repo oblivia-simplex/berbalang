@@ -9,7 +9,7 @@ use crate::evaluator::Evaluate;
 use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{DecayingSketch, SeasonalSketch, Sketch};
+use crate::util::count_min_sketch::{SeasonalSketch, Sketch};
 use rayon::prelude::*;
 
 // consider an island-pier structure

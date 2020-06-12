@@ -477,7 +477,7 @@ mod evaluation {
 
     use crate::evaluator::{Evaluate, FitnessFn};
     use crate::examples::linear_gp::machine::Machine;
-    use crate::util::count_min_sketch::{suggest_depth, SeasonalSketch};
+    use crate::util::count_min_sketch::SeasonalSketch;
 
     use super::*;
 

@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::configure::{Config, Problem};
 use crate::fitness::FitnessScore;
-use crate::util::count_min_sketch::{DecayingSketch, Sketch};
+use crate::util::count_min_sketch::Sketch;
 
 pub mod metropolis;
 pub mod pareto_roulette;

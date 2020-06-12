@@ -253,7 +253,7 @@ mod evaluation {
     use std::thread::{spawn, JoinHandle};
 
     use crate::evaluator::FitnessFn;
-    use crate::util::count_min_sketch::{suggest_depth, suggest_width, SeasonalSketch};
+    use crate::util::count_min_sketch::SeasonalSketch;
 
     use super::*;
 
