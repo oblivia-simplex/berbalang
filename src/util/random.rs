@@ -5,7 +5,6 @@ use std::hash::{Hash, Hasher};
 
 pub fn hash_seed_rng<H: Hash>(thing: &H) -> impl Rng {
     let seed = hash_seed(thing);
-    // put the epoch back together
     let rng = StdRng::from_seed(seed);
     rng
 }
