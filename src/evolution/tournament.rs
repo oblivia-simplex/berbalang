@@ -142,8 +142,11 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
             population.insert(child).unwrap()
         }
 
-        // put the epoch back together
-        crate::increment_epoch_counter();
+        // A generation should be considered to have elapsed once
+        // `pop_size` offspring have been spawned.
+        if iteration % (config.pop_size / config.num_offspring) == 0 {
+            crate::increment_epoch_counter();
+        }
         Self {
             population,
             config,

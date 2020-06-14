@@ -28,7 +28,9 @@ season_length = 100 # tweak
 priority = "register_error"
 function = "register_conjunction"
 target = 0
-dynamic = true
+dynamic = true # TODO: use this to decide whether to re-evaluate fitness
+# as distinct, sometimes, from execution.
+#
 ###
 # The variables available to use here are:
 # x := the unweighted fitness score
