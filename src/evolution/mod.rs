@@ -1,21 +1,22 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng};
+use rand::rngs::StdRng;
+use rand::Rng;
 use serde::Serialize;
 
 use crate::configure::{Config, Problem};
 use crate::fitness::FitnessScore;
 use crate::util::count_min_sketch::Sketch;
+use crate::util::random::hash_seed_rng;
 
 pub mod metropolis;
 pub mod pareto_roulette;
 pub mod population;
 pub mod tournament;
 
-pub trait Genome: Debug {
-    type Allele: Clone + Copy + Debug + PartialEq + Eq + Hash + Serialize;
+pub trait Genome: Debug + Hash {
+    type Allele: Clone + Copy + Debug + PartialEq + Eq + Hash + Serialize + Sized;
 
     fn chromosome(&self) -> &[Self::Allele];
 
@@ -25,24 +26,24 @@ pub trait Genome: Debug {
         self.chromosome().len()
     }
 
-    fn random(config: &Config) -> Self
+    fn random<H: Hash>(config: &Config, salt: H) -> Self
     where
         Self: Sized;
 
-    fn crossover(parents: &[&Self], config: &Config) -> Self
+    fn crossover(parents: &Vec<&Self>, config: &Config) -> Self
     where
         Self: Sized;
 
     fn crossover_by_distribution<D: rand_distr::Distribution<f64>>(
         distribution: &D,
-        parents: &[&[Self::Allele]],
+        parents: &Vec<&[Self::Allele]>,
     ) -> (Vec<Self::Allele>, Vec<usize>) {
         let mut chromosome = Vec::new();
         let mut parentage = Vec::new();
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(parents);
         let mut ptrs = vec![0_usize; parents.len()];
-        let switch = |rng: &mut ThreadRng| rng.gen_range(0, parents.len());
-        let sample = |rng: &mut ThreadRng| distribution.sample(rng).round() as usize + 1;
+        let switch = |rng: &mut StdRng| rng.gen_range(0, parents.len());
+        let sample = |rng: &mut StdRng| distribution.sample(rng).round() as usize + 1;
 
         loop {
             let src = switch(&mut rng);
@@ -78,11 +79,11 @@ pub trait Genome: Debug {
 
     fn mutate(&mut self, config: &Config);
 
-    fn mate(parents: &[&Self], config: &Config) -> Self
+    fn mate(parents: &Vec<&Self>, config: &Config) -> Self
     where
         Self: Sized,
     {
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(parents);
         let mut child = Self::crossover(parents, config);
         if rng.gen_range(0.0, 1.0) < config.mutation_rate() {
             child.mutate(&config);
@@ -129,7 +130,7 @@ pub trait Genome: Debug {
     }
 }
 
-pub trait Phenome: Clone + Debug + Send + Ord + Serialize {
+pub trait Phenome: Clone + Debug + Send + Ord + Serialize + Hash {
     type Fitness: FitnessScore;
     // TODO: generalize fitness. should be able to use vecs, etc.
 

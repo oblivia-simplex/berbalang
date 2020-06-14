@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::Hash;
 use std::sync::Once;
 
 use capstone::Instructions;
@@ -7,12 +8,13 @@ use goblin::{
     Object,
 };
 use rand::distributions::{Distribution, WeightedIndex};
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
 use crate::disassembler::Disassembler;
 use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
+use crate::util::random::hash_seed_rng;
 
 pub const PAGE_BITS: u64 = 12;
 pub const PAGE_SIZE: u64 = 1 << PAGE_BITS;
@@ -139,8 +141,8 @@ impl MemoryImage {
         })
     }
 
-    pub fn random_address(&self, permissions: Option<Protection>) -> u64 {
-        let mut rng = thread_rng();
+    pub fn random_address<H: Hash>(&self, permissions: Option<Protection>, seed: H) -> u64 {
+        let mut rng = hash_seed_rng(&seed);
         let segments = self
             .segments()
             .iter()
@@ -179,8 +181,8 @@ impl MemoryImage {
         }
     }
 
-    pub fn seek_from_random_address(&self, sequence: &[u8]) -> Option<u64> {
-        self.seek(self.random_address(None), sequence, None)
+    pub fn seek_from_random_address<H: Hash>(&self, sequence: &[u8], seed: H) -> Option<u64> {
+        self.seek(self.random_address(None, seed), sequence, None)
     }
 
     pub fn segments(&self) -> &Vec<Seg> {

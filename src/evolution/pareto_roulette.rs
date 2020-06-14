@@ -2,7 +2,6 @@ use std::iter;
 use std::sync::Arc;
 
 use rand::distributions::WeightedIndex;
-use rand::thread_rng;
 use rand_distr::Distribution;
 
 use non_dominated_sort::{non_dominated_sort, DominanceOrd};
@@ -12,7 +11,8 @@ use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::increment_epoch_counter;
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{CountMinSketch, SeasonalSketch, Sketch};
+use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::random::hash_seed_rng;
 
 type SketchType = CountMinSketch;
 
@@ -29,9 +29,8 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<
     Roulette<E, P, D>
 {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, dominance_order: D) -> Self {
-        let population = iter::repeat(())
-            .map(|()| P::random(&config))
-            .take(config.population_size())
+        let population = (0..config.pop_size)
+            .map(|i| P::random(&config, i))
             .collect();
 
         Self {
@@ -63,6 +62,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + Sized, D: DominanceOrd<P>
             dominance_order,
         } = self;
 
+        let mut rng = hash_seed_rng(&population);
         // measure and assign fitness scores to entire population
         let mut population = evaluator.eval_pipeline(population.into_iter());
         // we're going to need to clone the population to send to the observer, anyway
@@ -117,7 +117,6 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + Sized, D: DominanceOrd<P>
             }
         }
 
-        let mut rng = thread_rng();
         // let all_parents = parent_indices
         //     .into_iter()
         //     .map(|i| &cloned_population[i])

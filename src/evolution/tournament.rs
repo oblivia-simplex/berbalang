@@ -2,7 +2,8 @@ use std::cmp::{Ordering, PartialOrd};
 use std::iter;
 use std::sync::Arc;
 
-use rand::{thread_rng, Rng};
+use rand::Rng;
+use rayon::prelude::*;
 
 use crate::configure::Config;
 use crate::evaluator::Evaluate;
@@ -10,14 +11,15 @@ use crate::evolution::population::pier::Pier;
 use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{CountMinSketch, SeasonalSketch, Sketch};
-use rayon::prelude::*;
+use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::random::hash_seed_rng;
 
 type SketchType = CountMinSketch;
 // consider an island-pier structure
 
 pub struct Tournament<E: Evaluate<P, SketchType>, P: Phenome + 'static> {
-    pub population: TrivialGeography<P>, //BinaryHeap<P>,
+    pub population: TrivialGeography<P>,
+    //BinaryHeap<P>,
     pub config: Arc<Config>,
     pub best: Option<P>,
     pub iteration: usize,
@@ -39,7 +41,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P>
             .into_par_iter()
             .map(|i| {
                 log::debug!("creating phenome {}/{}", i, config.pop_size);
-                P::random(&config)
+                P::random(&config, i)
             })
             .collect();
         population.set_radius(config.tournament.geographic_radius);
@@ -62,7 +64,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
         // destruct the Epoch
         let Self {
             mut population,
-            mut best,
+            best,
             observer,
             mut evaluator,
             config,
@@ -70,7 +72,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
             pier,
         } = self;
 
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(&population);
 
         let combatants: Vec<P> =
             population.choose_combatants(config.tournament.tournament_size, &mut rng);

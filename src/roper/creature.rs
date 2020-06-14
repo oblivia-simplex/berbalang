@@ -1,7 +1,8 @@
+use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
-use std::iter;
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use rand::seq::IteratorRandom;
@@ -9,7 +10,7 @@ use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
-use crate::configure::{Config, Problem, RoperConfig};
+use crate::configure::{Config, Problem};
 use crate::emulator::loader;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
@@ -18,6 +19,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::HasScalar;
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
+use crate::util::random::hash_seed_rng;
 use crate::util::{
     self,
     architecture::{endian, word_size_in_bytes, Endian},
@@ -36,6 +38,12 @@ pub struct Creature {
     #[serde(borrow)]
     pub fitness: Option<Fitness<'static>>,
     pub front: Option<usize>,
+}
+
+impl Hash for Creature {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tag.hash(state)
+    }
 }
 
 impl Creature {
@@ -163,13 +171,13 @@ impl fmt::Debug for Creature {
 }
 
 /// load binary before calling this function
-pub fn init_soup(config: &mut RoperConfig) -> Result<(), Error> {
+pub fn init_soup(config: &mut Config) -> Result<(), Error> {
     let mut soup = Vec::new();
     //might as well take the constants from the register pattern
-    if let Some(pattern) = config.register_pattern() {
+    if let Some(pattern) = config.roper.register_pattern() {
         pattern.0.values().for_each(|w| soup.push(w.val))
     }
-    if let Some(gadget_file) = config.gadget_file.as_ref() {
+    if let Some(gadget_file) = config.roper.gadget_file.as_ref() {
         // parse the gadget file
         let reader = File::open(gadget_file).map(BufReader::new)?;
 
@@ -183,16 +191,19 @@ pub fn init_soup(config: &mut RoperConfig) -> Result<(), Error> {
                 soup.push(word)
             }
         }
-    } else if let Some(soup_size) = config.soup_size.as_ref() {
+    } else if let Some(soup_size) = config.roper.soup_size.as_ref() {
         let memory = loader::get_static_memory_image();
-        for addr in iter::repeat(())
-            .take(*soup_size)
-            .map(|()| memory.random_address(Some(Protection::EXEC)))
-        {
+        for addr in (0..(*soup_size)).map(|i| {
+            let mut hasher = DefaultHasher::new();
+            i.hash(&mut hasher);
+            config.random_seed.hash(&mut hasher);
+            let seed = hasher.finish();
+            memory.random_address(Some(Protection::EXEC), seed)
+        }) {
             soup.push(addr)
         }
     }
-    config.soup = Some(soup);
+    config.roper.soup = Some(soup);
     Ok(())
 }
 
@@ -207,8 +218,12 @@ impl Genome for Creature {
         &mut self.chromosome
     }
 
-    fn random(config: &Config) -> Self {
-        let mut rng = rand::thread_rng();
+    fn random<H: Hash>(config: &Config, salt: H) -> Self {
+        let mut hasher = DefaultHasher::new();
+        salt.hash(&mut hasher);
+        config.random_seed.hash(&mut hasher);
+        let seed = hasher.finish();
+        let mut rng = hash_seed_rng(&seed);
         let length = rng.gen_range(config.min_init_len, config.max_init_len);
         let chromosome = config
             .roper
@@ -237,7 +252,7 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(mates: &[&Self], config: &Config) -> Self
+    fn crossover(mates: &Vec<&Self>, config: &Config) -> Self
     where
         Self: Sized,
         // note code duplication between this and linear_gp TODO
@@ -248,7 +263,7 @@ impl Genome for Creature {
         let distribution =
             rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(mates);
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
             if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
@@ -306,7 +321,7 @@ impl Genome for Creature {
                     word,
                     &mut bytes,
                 );
-                if let Some(address) = memory.seek_from_random_address(&bytes) {
+                if let Some(address) = memory.seek_from_random_address(&bytes, &self) {
                     self.chromosome[i] = address;
                 }
             }
@@ -324,7 +339,7 @@ impl Genome for Creature {
                 }
             }
             5 => {
-                self.chromosome[i] = loader::get_static_memory_image().random_address(None);
+                self.chromosome[i] = loader::get_static_memory_image().random_address(None, &self);
             }
             // 5 => {
             //     self.crossover_mask ^= 1 << rng.gen_range(0, 64);

@@ -1,9 +1,11 @@
+use std::sync::mpsc::{channel, Receiver, SendError, Sender};
+use std::thread::spawn;
+
+use crossbeam_deque::{self as deque, Steal, Worker};
+
 // for island shit
 use crate::configure::Config;
 use crate::evolution::Phenome;
-use crossbeam_deque::{self as deque, Steal, Stealer, Worker};
-use std::sync::mpsc::{channel, Receiver, SendError, Sender};
-use std::thread::{spawn, JoinHandle};
 
 #[derive(Clone)]
 pub struct Pier<P: Phenome> {
@@ -13,7 +15,7 @@ pub struct Pier<P: Phenome> {
 }
 
 impl<P: Phenome + 'static> Pier<P> {
-    pub fn spawn(config: &Config) -> Self {
+    pub fn spawn(_config: &Config) -> Self {
         let (tx, rx): (Sender<P>, Receiver<P>) = channel();
         let ship: Worker<P> = Worker::new_fifo();
         let dock = ship.stealer();

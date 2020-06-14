@@ -1,11 +1,13 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
+use hashbrown::HashSet;
 use unicorn::Cpu;
 
+use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::evaluator::FitnessFn;
-use crate::util::count_min_sketch;
+use crate::fitness::Weighted;
 use crate::{
     configure::Config,
     emulator::hatchery::Hatchery,
@@ -16,9 +18,6 @@ use crate::{
 };
 
 use super::Creature;
-use crate::emulator::loader::get_static_memory_image;
-use crate::fitness::Weighted;
-use hashbrown::HashSet;
 
 pub fn code_coverage_ff(
     mut creature: Creature,

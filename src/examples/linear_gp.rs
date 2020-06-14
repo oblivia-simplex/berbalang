@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::{fmt, iter};
 
 use rand::{thread_rng, Rng};
@@ -11,11 +13,12 @@ use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
-use crate::fitness::{Pareto, Weighted};
+use crate::fitness::Weighted;
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
 use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::random::{hash_seed, hash_seed_rng};
 
 pub type Fitness<'a> = Weighted<'a>;
 // try setting fitness to (usize, usize);
@@ -26,11 +29,12 @@ pub mod machine {
     use std::hash::Hash;
 
     use rand::distributions::{Distribution, Standard};
-    use rand::{thread_rng, Rng};
+    use rand::Rng;
     use serde::{Deserialize, Serialize};
 
     use crate::configure::LinearGpConfig;
     use crate::examples::linear_gp::MachineWord;
+    use crate::util::random::hash_seed_rng;
 
     #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
     pub enum Op {
@@ -121,9 +125,9 @@ pub mod machine {
             }
         }
 
-        pub fn mutate(&mut self, config: &LinearGpConfig) {
+        pub fn mutate<H: Hash>(&mut self, config: &LinearGpConfig, seed: H) {
             let num_registers = config.num_registers.unwrap();
-            let mut rng = thread_rng();
+            let mut rng = hash_seed_rng(&seed);
             let mutation = rng.gen::<u8>() % 4;
 
             match mutation {
@@ -278,6 +282,12 @@ pub struct Creature {
     generation: usize,
 }
 
+impl Hash for Creature {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tag.hash(state)
+    }
+}
+
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}, generation: {}", self.name, self.generation)?;
@@ -368,8 +378,12 @@ impl Genome for Creature {
         &mut self.chromosome
     }
 
-    fn random(config: &Config) -> Self {
-        let mut rng = thread_rng();
+    fn random<H: Hash>(config: &Config, salt: H) -> Self {
+        let mut hasher = DefaultHasher::new();
+        salt.hash(&mut hasher);
+        config.random_seed.hash(&mut hasher);
+        let seed = hasher.finish();
+        let mut rng = hash_seed_rng(&seed);
         let chromosome = random_chromosome(config);
         Self {
             chromosome,
@@ -380,17 +394,17 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(mates: &[&Self], config: &Config) -> Self {
+    fn crossover(mates: &Vec<&Self>, config: &Config) -> Self {
         let distribution = rand_distr::Exp::new(config.crossover_period)
             .expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
         let mut rng = thread_rng();
         let (chromosome, chromosome_parentage, parent_names) =
-                // Check to see if we're performing a crossover or just cloning
-                if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
-                    let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
-                    let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
-                    (c, p, names)
+            // Check to see if we're performing a crossover or just cloning
+            if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
+                let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
+                let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
+                (c, p, names)
                 } else {
                     let parent = parental_chromosomes[rng.gen_range(0, 2)];
                     let chromosome = parent.to_vec();
@@ -416,7 +430,8 @@ impl Genome for Creature {
         let mut rng = thread_rng();
         let i = rng.gen_range(0, self.len());
         //self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-        self.chromosome_mut()[i].mutate(&config.linear_gp);
+        let seed = hash_seed(&self);
+        self.chromosome_mut()[i].mutate(&config.linear_gp, &seed);
     }
 }
 

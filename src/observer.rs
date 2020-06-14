@@ -18,8 +18,8 @@ use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 // a hack to make the imports more meaningful
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
-use crate::util::count_min_sketch::{CountMinSketch, DecayingSketch};
-use rand::thread_rng;
+use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::random::hash_seed_rng;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
@@ -208,7 +208,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         let front = non_dominated_sort(&arena, &self.dominance_order);
         let sample = front
             .current_front_indices()
-            .choose_multiple(&mut thread_rng(), self.config.pop_size);
+            .choose_multiple(&mut hash_seed_rng(&arena), self.config.pop_size);
 
         self.archive = sample.map(|i| arena[*i].clone()).collect::<Vec<O>>();
     }

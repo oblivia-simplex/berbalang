@@ -1,9 +1,12 @@
-use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-pub fn hash_seed_rng<H: Hash>(thing: &H) -> impl Rng {
+use rand::prelude::StdRng;
+use rand::SeedableRng;
+
+/// Takes a hashable value and returns a PRNG seeded with that
+/// value's hash.
+pub fn hash_seed_rng<H: Hash>(thing: &H) -> StdRng {
     let seed = hash_seed(thing);
     let rng = StdRng::from_seed(seed);
     rng

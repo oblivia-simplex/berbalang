@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 
 use unicorn::Cpu;
 
+use creature::*;
+
 use crate::configure::{Config, Selection};
 /// This is where the ROP-evolution-specific code lives.
 use crate::{
@@ -12,19 +14,17 @@ use crate::{
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
+use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
-
-/// The `creature` module contains the implementation of the `Genome` and `Phenome`
-/// traits associated with `roper` mode.
-mod creature;
-use crate::evolution::population::pier::Pier;
 use crate::util::count_min_sketch::CountMinSketch;
-use creature::*;
 
 /// The `analysis` module contains the reporting function passed to the observation
 /// window. Population saving, soup dumping, statistical assessment, etc., happens there.
 mod analysis;
+/// The `creature` module contains the implementation of the `Genome` and `Phenome`
+/// traits associated with `roper` mode.
+mod creature;
 
 /// The `evaluation` module contains the various fitness functions, and the construction
 /// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness
@@ -60,7 +60,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
         config.roper.mode,
     )
     .expect("Failed to load binary image");
-    init_soup(&mut config.roper).expect("Failed to initialize the soup");
+    init_soup(&mut config).expect("Failed to initialize the soup");
 
     let (observer, evaluator) = prepare(config.clone());
 

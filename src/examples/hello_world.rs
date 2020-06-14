@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::iter;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
 use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::random::hash_seed_rng;
 use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
 
 pub type Fitness = Vec<f64>;
@@ -25,6 +28,12 @@ pub struct Genotype {
     tag: u64,
     // used for sorting in heap
     generation: usize,
+}
+
+impl Hash for Genotype {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tag.hash(state)
+    }
 }
 
 impl PartialEq for Genotype {
@@ -97,8 +106,12 @@ impl Genome for Genotype {
         unimplemented!("rust makes treating strings as &[char] tricky")
     }
 
-    fn random(config: &Config) -> Self {
-        let mut rng = thread_rng();
+    fn random<H: Hash>(config: &Config, salt: H) -> Self {
+        let mut hasher = DefaultHasher::new();
+        salt.hash(&mut hasher);
+        config.random_seed.hash(&mut hasher);
+        let seed = hasher.finish();
+        let mut rng = hash_seed_rng(&seed);
         let len = rng.gen_range(1, config.max_init_len);
         let s: String = iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
@@ -112,7 +125,7 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover(mates: &[&Self], _config: &Config) -> Self {
+    fn crossover(mates: &Vec<&Self>, _config: &Config) -> Self {
         let mut rng = thread_rng();
         let father = &mates[0];
         let mother = &mates[1];

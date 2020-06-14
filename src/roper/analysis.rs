@@ -5,7 +5,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::MapFit;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
-use crate::util::count_min_sketch::{suggest_depth, suggest_width, CountMinSketch, DecayingSketch};
+use crate::util::count_min_sketch::CountMinSketch;
 
 use super::CreatureDominanceOrd;
 

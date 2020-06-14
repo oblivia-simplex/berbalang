@@ -1,18 +1,18 @@
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
+use std::fmt;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::ops::Index;
+use std::sync::{Arc, Mutex};
 
-use crate::get_epoch_counter;
-use fasteval::{Compiler, Slab};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::BTreeMap;
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+
+use crate::get_epoch_counter;
 
 pub type FitnessMap<'a> = HashMap<&'a str, f64>;
 

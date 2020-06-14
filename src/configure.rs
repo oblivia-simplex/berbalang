@@ -1,12 +1,14 @@
-use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
-use crate::error::Error;
-use chrono::prelude::*;
-use hashbrown::HashMap;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
+
+use chrono::prelude::*;
+use hashbrown::HashMap;
+use serde::{Deserialize, Serialize};
+
+use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
+use crate::error::Error;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct DataConfig {
@@ -24,6 +26,10 @@ impl Default for Job {
     fn default() -> Self {
         Self::Roper
     }
+}
+
+fn default_random_seed() -> u64 {
+    rand::random::<u64>()
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -55,6 +61,8 @@ pub struct Config {
     pub hello: HelloConfig,
     pub num_epochs: usize,
     pub fitness: FitnessConfig,
+    #[serde(default = "default_random_seed")]
+    pub random_seed: u64,
 }
 
 fn default_tournament_size() -> usize {
@@ -259,10 +267,6 @@ impl Config {
 
     pub fn crossover_rate(&self) -> f32 {
         self.crossover_rate
-    }
-
-    pub fn population_size(&self) -> usize {
-        self.pop_size
     }
 
     pub fn num_offspring(&self) -> usize {

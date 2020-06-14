@@ -26,7 +26,7 @@ season_length = 100 # tweak
 
 [fitness]
 priority = "register_error"
-function = "register_conjunction"
+function = "register_pattern"
 target = 0
 dynamic = true # TODO: use this to decide whether to re-evaluate fitness
 # as distinct, sometimes, from execution.
@@ -40,13 +40,13 @@ dynamic = true # TODO: use this to decide whether to re-evaluate fitness
 ##
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "(50 - min(50, x)) / (1+(E / 100))" #"-1 * min(3, x)"
-register_error = "0"
+gadgets_executed = "(5 - min(5, x)) / ((1+E)/ 100)" #"-1 * min(3, x)"
+register_error = "x"
 #mem_ratio_written = "0"
-crash_count = "0"
+crash_count = "x"
 code_frequency = "0"
 #genetic_freq = "0" #"min(2, x * 50)"
-#mem_ratio_written = 
+#mem_ratio_written ="x" 
 #crash_count = "x"
 zeroes = "x"
 #code_frequency = "10*x" #x/2"
@@ -103,5 +103,5 @@ record_memory_writes = true
 output_registers = ["RAX", "RDI", "RSI" ]
   [roper.register_pattern] 
 #  RAX = "0x3b"                   # execve syscall number
-#  RDI = "&'/bin/sh"
+  RDI = "&'/bin/sh"
 #  RSI = "&&0"                  # an empty argv array

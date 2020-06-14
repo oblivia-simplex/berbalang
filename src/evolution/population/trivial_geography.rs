@@ -1,15 +1,18 @@
-use crate::error::Error;
+use std::hash::Hash;
+use std::iter::FromIterator;
+
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use rayon::prelude::{FromParallelIterator, IntoParallelIterator, ParallelIterator};
-use std::iter::FromIterator;
-use std::ops::Range;
+
+use crate::error::Error;
 
 /// For a description and justification of the "trivial geography" algorithm,
 /// see Lee Spector & Jon Klein, "Trivial Geography in Genetic Programming"
 /// in _Genetic Programming Theory and Practice III_ (ed. Tina Yu, Rick Riolo,
 /// Bill Worzel), Springer: 2006.
-pub struct TrivialGeography<P> {
+#[derive(Hash)]
+pub struct TrivialGeography<P: Hash> {
     radius: usize,
     deme: Vec<Option<P>>,
     vacancies: Vec<usize>,
@@ -25,7 +28,7 @@ pub struct TrivialGeography<P> {
 //     }
 // }
 
-impl<P> TrivialGeography<P> {
+impl<P: Hash> TrivialGeography<P> {
     pub fn set_radius(&mut self, radius: usize) {
         if self.len() == 0 {
             panic!("Generate the population before setting the radius");
@@ -91,6 +94,7 @@ impl<P> TrivialGeography<P> {
         self.choose_with_range(&range, n, rng)
     }
 
+    #[allow(dead_code)]
     pub fn choose_combatants_and_spectators<R: Rng>(
         &mut self,
         n_com: usize,
@@ -115,7 +119,7 @@ impl<P> TrivialGeography<P> {
     }
 }
 
-impl<P> FromIterator<P> for TrivialGeography<P> {
+impl<P: Hash> FromIterator<P> for TrivialGeography<P> {
     fn from_iter<I: IntoIterator<Item = P>>(iter: I) -> Self {
         let deme = iter
             .into_iter()
@@ -129,7 +133,7 @@ impl<P> FromIterator<P> for TrivialGeography<P> {
     }
 }
 
-impl<P: Send> FromParallelIterator<P> for TrivialGeography<P> {
+impl<P: Hash + Send> FromParallelIterator<P> for TrivialGeography<P> {
     fn from_par_iter<I>(par_iter: I) -> Self
     where
         I: IntoParallelIterator<Item = P>,
@@ -149,9 +153,10 @@ impl<P: Send> FromParallelIterator<P> for TrivialGeography<P> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
+
+    use super::*;
 
     #[test]
     fn test_choose_multiple() {

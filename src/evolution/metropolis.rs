@@ -1,15 +1,14 @@
-use rand::{thread_rng, Rng};
+use std::sync::atomic::Ordering;
+
+use rand::Rng;
 
 use crate::configure::Config;
 use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::util::count_min_sketch::{CountMinSketch, SeasonalSketch, Sketch};
+use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::random::hash_seed_rng;
 use crate::EPOCH_COUNTER;
-use std::sync::atomic::Ordering;
-
-// FIXME: this should be handled generically.
-type SketchType = CountMinSketch;
 
 pub struct Metropolis<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> {
     pub specimen: P,
@@ -22,7 +21,7 @@ pub struct Metropolis<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'sta
 
 impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> Metropolis<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self {
-        let specimen = P::random(&config);
+        let specimen = P::random(&config, 1);
 
         Self {
             specimen,
@@ -53,10 +52,10 @@ impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome> Metropolis<E, P> {
         } else {
             specimen
         };
-        let variation = Genome::mate(&[&specimen, &specimen], &config);
+        let variation = Genome::mate(&vec![&specimen, &specimen], &config);
         let variation = evaluator.evaluate(variation);
 
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(&specimen);
         let vari_fit = variation.scalar_fitness().unwrap();
         let spec_fit = specimen.scalar_fitness().unwrap();
         let delta = if (vari_fit - spec_fit).abs() < std::f64::EPSILON {
