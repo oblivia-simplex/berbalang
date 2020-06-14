@@ -3,6 +3,7 @@
 ##############################
 
 job = "Roper"
+#job = "LinearGp"
 #selection = "Roulette"
 selection = "Tournament" # currently inefficient
 #selection = "Metropolis"
@@ -11,32 +12,50 @@ crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
 min_init_len = 10
-pop_size = 2048
+# bigger populations seem like the way to go. 
+# TODO: experiment with shrinking populations:
+# large initial populations, with permadeath
+# and a minimal limit set.
+pop_size = 0x1000
 num_offspring = 2
 num_parents = 2
-target_fitness = 0
 max_length = 100
 num_epochs = 0 # = infinite
 season_length = 100 # tweak
 # add this:
-is_fitness_dynamic = true
 
-[fitness_weights]
+[fitness]
+priority = "register_error"
+function = "register_conjunction"
+target = 0
+dynamic = true
+###
+# The variables available to use here are:
+# x := the unweighted fitness score
+# E := the current epoch.
+# You can use these to deprioritize weights as
+# time goes on.
+##
+[fitness.weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "10 - min(10, x)" #"-1 * min(3, x)"
+gadgets_executed = "(50 - min(50, x)) / (1+(E / 100))" #"-1 * min(3, x)"
 register_error = "0"
-genetic_freq = "0" #"min(2, x * 50)"
+#mem_ratio_written = "0"
+crash_count = "0"
+code_frequency = "0"
+#genetic_freq = "0" #"min(2, x * 50)"
 #mem_ratio_written = 
 #crash_count = "x"
-#zeroes = "x"
-code_frequency = "10*x" #x/2"
+zeroes = "x"
+#code_frequency = "10*x" #x/2"
 
 [tournament]
 tournament_size = 7
 # todo: plot diversity and fitness wrt radius changes.
 # maybe experiment with dynamic radius adjustments
 # as a response to loss of diversity
-geographic_radius = 15
+geographic_radius = 20
+migration_rate = 0.0001
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
@@ -46,7 +65,7 @@ weight_decay = 0.8
 target = "Mares eat oats and does eat oats and little lambs eat ivy."
 
 
-[machine]
+[linear_gp]
 max_steps = 0x1000
 
 [observer]
@@ -55,7 +74,7 @@ dump_soup = true
 data_directory = "~/logs"
 window_size  = 3000
 report_every = 3000
-dump_every = 10000
+dump_every = 1000000
 
 [data]
 path = "./data/iris.tsv"
@@ -63,8 +82,8 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-#fitness_function = "register_conjunction" #"register_pattern"
-fitness_function = "code_coverage"
+#fitness_function = "register_pattern"
+#fitness_function = "code_coverage"
 arch = "X86"
 mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
@@ -78,7 +97,8 @@ millisecond_timeout = 500
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
-output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+#output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+output_registers = ["RAX", "RDI", "RSI" ]
   [roper.register_pattern] 
 #  RAX = "0x3b"                   # execve syscall number
 #  RDI = "&'/bin/sh"

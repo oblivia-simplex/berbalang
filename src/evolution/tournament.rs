@@ -6,6 +6,7 @@ use rand::{thread_rng, Rng};
 
 use crate::configure::Config;
 use crate::evaluator::Evaluate;
+use crate::evolution::population::pier::Pier;
 use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
@@ -22,13 +23,14 @@ pub struct Tournament<E: Evaluate<P, SketchType>, P: Phenome + 'static> {
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
+    pub pier: Pier<P>,
 }
 
 // TODO factor TrivialGeography to its own module
 // maybe create a Population trait.
 
 impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> {
-    pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self
+    pub fn new(config: Config, observer: Observer<P>, evaluator: E, pier: Pier<P>) -> Self
     where
         Self: Sized,
     {
@@ -50,6 +52,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P>
             iteration: 0,
             observer,
             evaluator,
+            pier,
         }
     }
 }
@@ -64,13 +67,11 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
             mut evaluator,
             config,
             iteration,
+            pier,
         } = self;
 
         let mut rng = thread_rng();
-        // let combatants: Vec<P> = iter::repeat(())
-        //     .take(tournament_size)
-        //     .filter_map(|()| population.pop())
-        //     .collect();
+
         let combatants: Vec<P> =
             population.choose_combatants(config.tournament.tournament_size, &mut rng);
 
@@ -92,10 +93,9 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
                 .partial_cmp(&b.fitness())
                 .unwrap_or(Ordering::Equal)
         });
-        // the best are now at the beginning of the vec
 
-        //log::debug!("combatants' fitnesses: {:?}", combatants.iter().map(|c| c.fitness()).collect::<Vec<_>>());
-        best = Self::update_best(best, &combatants[0]);
+        // the best are now at the beginning of the vec
+        let best = Self::update_best(best, &combatants[0]);
 
         // kill one off for every offspring to be produced
         for _ in 0..config.num_offspring() {
@@ -109,19 +109,33 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
                 population.insert(c).unwrap();
             }
         }
-        // TODO implement breeder, similar to observer, etc?
-        //let mother = combatants.pop().unwrap();
-        //let father = combatants.pop().unwrap();
-        let parents = combatants.iter().collect::<Vec<&P>>();
+
+        let mut survivors = combatants; //combatants.into_iter().collect::<Vec<P>>();
+                                        // there should be some small chance that the parents migrate
+        if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+            log::info!("Attempting migration...");
+            if let Some(immigrant) = pier.disembark() {
+                log::info!("Found immigrant on pier");
+                let emigrant = survivors.pop().unwrap();
+                if let Err(_emigrant) = pier.embark(emigrant) {
+                    log::error!("emigration failure, do something!");
+                }
+                survivors.push(immigrant);
+            }
+        }
+
+        let parents = survivors
+            .iter()
+            .take(config.num_parents)
+            .collect::<Vec<&P>>();
+
         let offspring: Vec<P> = iter::repeat(())
             .take(config.num_offspring)
             .map(|()| Genome::mate(&parents, &config))
             .collect::<Vec<_>>();
 
         // return everyone to the population
-        //population.push(mother);
-        //population.push(father);
-        for other_guy in combatants.into_iter() {
+        for other_guy in survivors.into_iter() {
             population.insert(other_guy).unwrap()
         }
         for child in offspring.into_iter() {
@@ -133,24 +147,25 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
         Self {
             population,
             config,
-            best,
+            best: Some(best),
             iteration: iteration + 1,
             observer,
             evaluator,
+            pier,
         }
     }
 
-    pub fn update_best(best: Option<P>, champ: &P) -> Option<P> {
+    pub fn update_best(best: Option<P>, champ: &P) -> P {
         match best {
             Some(ref best) if champ.scalar_fitness() < best.scalar_fitness() => {
                 log::info!("new champ with fitness {:?}:\n{:?}", champ.fitness(), champ);
-                Some(champ.clone())
+                champ.clone()
             }
             None => {
                 log::info!("new champ with fitness {:?}\n{:?}", champ.fitness(), champ);
-                Some(champ.clone())
+                champ.clone()
             }
-            _ => best,
+            best => best.unwrap(),
         }
     }
 

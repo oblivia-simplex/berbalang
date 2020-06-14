@@ -171,8 +171,18 @@ pub fn report_fn(
 }
 
 fn halting_condition_reached(
-    _window: &Window<Creature, super::CreatureDominanceOrd>,
-    _config: &Config,
+    window: &Window<Creature, super::CreatureDominanceOrd>,
+    config: &Config,
 ) -> bool {
-    false
+    // This is how you check for an unweighted fitness value.
+    // This shows the advantage of having Weighted fitness as
+    // as distinct type, which returns its scalar value through
+    // a method -- the components are easily retrievable in their
+    // raw state.
+    window
+        .best
+        .as_ref()
+        .and_then(|b| b.fitness.as_ref())
+        .and_then(|f| f.get("register_error"))
+        == Some(config.fitness.target)
 }

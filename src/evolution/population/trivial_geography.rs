@@ -3,6 +3,7 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 use rayon::prelude::{FromParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::iter::FromIterator;
+use std::ops::Range;
 
 /// For a description and justification of the "trivial geography" algorithm,
 /// see Lee Spector & Jon Klein, "Trivial Geography in Genetic Programming"
@@ -68,14 +69,7 @@ impl<P> TrivialGeography<P> {
         range
     }
 
-    pub fn choose_combatants<R: Rng>(&mut self, n: usize, rng: &mut R) -> Vec<P> {
-        debug_assert!(
-            n < self.radius,
-            "don't try to take more creatures than the radius allows"
-        );
-
-        let range = self.get_range(rng);
-
+    fn choose_with_range<R: Rng>(&mut self, range: &Vec<usize>, n: usize, rng: &mut R) -> Vec<P> {
         range
             .choose_multiple(rng, n)
             .filter_map(|i| {
@@ -85,6 +79,39 @@ impl<P> TrivialGeography<P> {
                 c
             })
             .collect()
+    }
+
+    pub fn choose_combatants<R: Rng>(&mut self, n: usize, rng: &mut R) -> Vec<P> {
+        debug_assert!(
+            n < self.radius,
+            "don't try to take more creatures than the radius allows"
+        );
+
+        let range = self.get_range(rng);
+        self.choose_with_range(&range, n, rng)
+    }
+
+    pub fn choose_combatants_and_spectators<R: Rng>(
+        &mut self,
+        n_com: usize,
+        n_spec: usize,
+        rng: &mut R,
+    ) -> (Vec<P>, Vec<P>) {
+        debug_assert!(
+            n_com < self.radius && n_spec < self.radius,
+            "don't try to take more creatures than the radius allows"
+        );
+
+        let range = self.get_range(rng);
+        let len = self.len();
+        let mirror = range
+            .iter()
+            .map(|n| (*n + len / 2) % len)
+            .collect::<Vec<usize>>();
+
+        let combatants = self.choose_with_range(&range, n_com, rng);
+        let spectators = self.choose_with_range(&mirror, n_spec, rng);
+        (combatants, spectators)
     }
 }
 

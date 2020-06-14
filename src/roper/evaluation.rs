@@ -50,7 +50,7 @@ pub fn code_coverage_ff(
         let code_size = get_static_memory_image().size_of_executable_memory();
         let code_coverage = 1.0 - num_addr_visit / code_size as f64;
 
-        let mut fitness = Weighted::new(config.fitness_weights.clone());
+        let mut fitness = Weighted::new(config.fitness.weights.clone());
         fitness.insert("code_coverage", code_coverage);
         fitness.insert("code_frequency", avg_freq);
 
@@ -82,13 +82,13 @@ pub fn register_pattern_ff(
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let register_error = pattern.distance_from_register_state(&profile.registers[0]);
-            let mut weighted_fitness = Weighted::new(config.fitness_weights.clone());
+            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
             weighted_fitness
                 .scores
                 .insert("register_error", register_error);
             // FIXME broken // fitness_vector.push(reg_freq);
 
-            let mem_ratio_written = profile.mem_ratio_written();
+            let mem_ratio_written = 1.0 - profile.mem_ratio_written();
             weighted_fitness.insert("mem_ratio_written", mem_ratio_written);
 
             // how many times did it crash?
@@ -124,7 +124,7 @@ pub fn register_conjunction_ff(
                 .values()
                 .fold(0xffff_ffff_ffff_ffff, |a, b| a & b[0]);
             let score = conj.count_zeros() as f64;
-            let mut weighted_fitness = Weighted::new(config.fitness_weights.clone());
+            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
             weighted_fitness.scores.insert("zeroes", score);
             weighted_fitness
                 .scores

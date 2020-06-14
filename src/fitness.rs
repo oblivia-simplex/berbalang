@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Index;
 
+use crate::get_epoch_counter;
 use fasteval::{Compiler, Slab};
 use hashbrown::HashMap;
 use itertools::Itertools;
@@ -316,18 +317,18 @@ impl PartialEq for Weighted<'_> {
     }
 }
 
-fn compile_weight_expression(
-    expr: &str,
-    slab: &mut fasteval::Slab,
-    parser: &fasteval::Parser,
-) -> fasteval::Instruction {
-    // See the `parse` documentation to understand why we use `from` like this:
-    parser
-        .parse(expr, &mut slab.ps)
-        .expect("Failed to parse expression")
-        .from(&slab.ps)
-        .compile(&slab.ps, &mut slab.cs)
-}
+// fn compile_weight_expression(
+//     expr: &str,
+//     slab: &mut fasteval::Slab,
+//     parser: &fasteval::Parser,
+// ) -> fasteval::Instruction {
+//     // See the `parse` documentation to understand why we use `from` like this:
+//     parser
+//         .parse(expr, &mut slab.ps)
+//         .expect("Failed to parse expression")
+//         .from(&slab.ps)
+//         .compile(&slab.ps, &mut slab.cs)
+// }
 
 impl Clone for Weighted<'_> {
     fn clone(&self) -> Self {
@@ -352,24 +353,31 @@ impl Clone for Weighted<'_> {
 //     Ok(res)
 // }
 
-fn apply_weighting(weighting: &str, score: f64) -> f64 {
+fn apply_weighting(weighting: &str, score: f64) -> (bool, f64) {
     let mut ns = BTreeMap::new();
+    let mut should_cache = true;
     ns.insert("x", score);
-    fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression")
+    if weighting.contains('E') {
+        should_cache = false;
+        ns.insert("E", get_epoch_counter() as f64);
+    }
+    let score =
+        fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression");
+    (should_cache, score)
 }
 
-fn compile_weight_map(
-    weights: &HashMap<String, String>,
-    mut slab: &mut Slab,
-) -> HashMap<String, fasteval::Instruction> {
-    let parser = fasteval::Parser::new();
-    let mut weight_map = HashMap::new();
-    for (attr, weight) in weights.iter() {
-        let compiled = compile_weight_expression(weight, &mut slab, &parser);
-        weight_map.insert(attr.clone(), compiled);
-    }
-    weight_map
-}
+// fn compile_weight_map(
+//     weights: &HashMap<String, String>,
+//     mut slab: &mut Slab,
+// ) -> HashMap<String, fasteval::Instruction> {
+//     let parser = fasteval::Parser::new();
+//     let mut weight_map = HashMap::new();
+//     for (attr, weight) in weights.iter() {
+//         let compiled = compile_weight_expression(weight, &mut slab, &parser);
+//         weight_map.insert(attr.clone(), compiled);
+//     }
+//     weight_map
+// }
 
 impl Weighted<'static> {
     pub fn new(weights: Arc<HashMap<String, String>>) -> Self {
@@ -391,6 +399,7 @@ impl Weighted<'static> {
         if let Some(val) = *cache {
             return val;
         }
+        let mut should_cache = true;
         let val = self
             .scores
             .iter()
@@ -398,14 +407,18 @@ impl Weighted<'static> {
             // FIXME wasteful allocations here.
             .map(|(k, score)| {
                 if let Some(weight) = self.weights.get(&(*k).to_string()) {
-                    apply_weighting(weight, *score)
+                    let (cache, score) = apply_weighting(weight, *score);
+                    should_cache &= cache;
+                    score
                 } else {
                     // if no weight is provided, just return the score as-is
                     *score
                 }
             })
             .sum::<f64>();
-        *cache = Some(val);
+        if should_cache {
+            *cache = Some(val);
+        }
         val
     }
 }

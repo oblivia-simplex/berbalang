@@ -43,7 +43,6 @@ pub struct Config {
     pub observer: ObserverConfig,
     pub pop_size: usize,
     pub problems: Option<Vec<Problem>>,
-    pub target_fitness: usize,
     #[serde(default)]
     pub roulette: RouletteConfig,
     #[serde(default)]
@@ -55,7 +54,7 @@ pub struct Config {
     #[serde(default = "Default::default")]
     pub hello: HelloConfig,
     pub num_epochs: usize,
-    pub fitness_weights: Arc<HashMap<String, String>>,
+    pub fitness: FitnessConfig,
 }
 
 fn default_tournament_size() -> usize {
@@ -63,10 +62,20 @@ fn default_tournament_size() -> usize {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
+pub struct FitnessConfig {
+    pub target: f64,
+    pub dynamic: bool,
+    pub priority: String,
+    pub function: String,
+    pub weights: Arc<HashMap<String, String>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct TournamentConfig {
     #[serde(default = "default_tournament_size")]
     pub tournament_size: usize,
     pub geographic_radius: usize,
+    pub migration_rate: f64,
 }
 
 fn default_weight_decay() -> f64 {
@@ -163,7 +172,6 @@ pub struct LinearGpConfig {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
-    pub fitness_function: String,
     pub gadget_file: Option<String>,
     #[serde(default)]
     pub output_registers: Vec<String>,
@@ -218,7 +226,6 @@ const fn default_stack_size() -> usize {
 impl Default for RoperConfig {
     fn default() -> Self {
         Self {
-            fitness_function: "register_pattern".to_string(),
             gadget_file: None,
             output_registers: vec![],
             register_pattern: None,

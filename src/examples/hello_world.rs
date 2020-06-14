@@ -9,6 +9,7 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::configure::{Config, Problem};
+use crate::evolution::population::pier::Pier;
 use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
@@ -224,13 +225,15 @@ fn fitness_function(
 }
 
 pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness = config.target_fitness as f64;
+    let target_fitness = config.fitness.target as f64;
     let report_fn = Box::new(report);
     let fitness_fn = Box::new(fitness_function);
     let observer = Observer::spawn(&config, report_fn, Dom);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-    let mut world =
-        Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(config, observer, evaluator);
+    let pier = Pier::spawn(&config);
+    let mut world = Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(
+        config, observer, evaluator, pier,
+    );
 
     loop {
         world = world.evolve();

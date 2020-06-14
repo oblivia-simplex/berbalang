@@ -1,14 +1,14 @@
 // for island shit
 use crate::configure::Config;
 use crate::evolution::Phenome;
-use crossbeam_deque::{self as deque, Stealer, Worker};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use crossbeam_deque::{self as deque, Steal, Stealer, Worker};
+use std::sync::mpsc::{channel, Receiver, SendError, Sender};
 use std::thread::{spawn, JoinHandle};
 
 #[derive(Clone)]
 pub struct Pier<P: Phenome> {
     dock: deque::Stealer<P>,
-    pub inbound: Sender<P>,
+    inbound: Sender<P>,
     //handle: JoinHandle<()>,
 }
 
@@ -18,7 +18,7 @@ impl<P: Phenome + 'static> Pier<P> {
         let ship: Worker<P> = Worker::new_fifo();
         let dock = ship.stealer();
 
-        let handle = spawn(move || {
+        let _handle = spawn(move || {
             for incoming in rx.into_iter() {
                 log::info!("incoming");
                 ship.push(incoming)
@@ -32,8 +32,12 @@ impl<P: Phenome + 'static> Pier<P> {
         }
     }
 
-    pub fn steal(&self) -> Option<P> {
-        if let Steal::Data(p) = self.dock.steal() {
+    pub fn embark(&self, traveller: P) -> Result<(), SendError<P>> {
+        self.inbound.send(traveller)
+    }
+
+    pub fn disembark(&self) -> Option<P> {
+        if let Steal::Success(p) = self.dock.steal() {
             Some(p)
         } else {
             None

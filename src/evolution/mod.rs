@@ -11,7 +11,6 @@ use crate::util::count_min_sketch::Sketch;
 
 pub mod metropolis;
 pub mod pareto_roulette;
-pub mod pier;
 pub mod population;
 pub mod tournament;
 
@@ -92,6 +91,10 @@ pub trait Genome: Debug {
     }
 
     fn digrams(&self) -> Box<dyn Iterator<Item = (Self::Allele, Self::Allele)> + '_> {
+        if self.chromosome().len() == 1 {
+            // FIXME: i don't like this edge case.
+            return Box::new(self.chromosome().iter().map(|x| (x.clone(), x.clone())));
+        }
         Box::new(
             self.chromosome()
                 .iter()
@@ -115,7 +118,7 @@ pub trait Genome: Debug {
         // };
         // Ok(sum)
         let d = self.len();
-        let d = if d <= 1 { 1.0 } else { d as f64 - 1.0 };
+        let d = if d <= 1 { 1.0 } else { d as f64 };
         self.digrams()
             .map(|digram| sketch.query(digram))
             .collect::<Vec<_>>()

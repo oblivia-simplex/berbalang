@@ -18,6 +18,7 @@ use crate::observer::Observer;
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
 /// traits associated with `roper` mode.
 mod creature;
+use crate::evolution::population::pier::Pier;
 use crate::util::count_min_sketch::CountMinSketch;
 use creature::*;
 
@@ -38,7 +39,7 @@ fn prepare<C: 'static + Cpu<'static>>(
     config: Config,
 ) -> (Observer<Creature>, evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<Creature, CountMinSketch, Config> =
-        match config.roper.fitness_function.as_str() {
+        match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
             "code_coverage" => Box::new(evaluation::code_coverage_ff),
@@ -65,8 +66,10 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
 
     match config.selection {
         Selection::Tournament => {
-            let mut world =
-                Tournament::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
+            let pier = Pier::spawn(&config);
+            let mut world = Tournament::<evaluation::Evaluator<C>, Creature>::new(
+                config, observer, evaluator, pier,
+            );
             let mut counter = 0;
             while world.observer.keep_going() {
                 world = world.evolve();

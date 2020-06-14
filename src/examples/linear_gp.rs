@@ -9,14 +9,15 @@ use crate::configure::{Config, Problem, Selection};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
+use crate::evolution::population::pier::Pier;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
-use crate::fitness::Pareto;
+use crate::fitness::{Pareto, Weighted};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
 use crate::util::count_min_sketch::CountMinSketch;
 
-pub type Fitness = Pareto<'static>;
+pub type Fitness<'a> = Weighted<'a>;
 // try setting fitness to (usize, usize);
 pub type MachineWord = i32;
 
@@ -269,7 +270,7 @@ pub struct Creature {
     chromosome_parentage: Vec<usize>,
     answers: Option<Answer>,
     #[serde(borrow)]
-    pub fitness: Option<Pareto<'static>>,
+    pub fitness: Option<Fitness<'static>>,
     tag: u64,
     //crossover_mask: u64,
     name: String,
@@ -293,22 +294,22 @@ impl Debug for Creature {
                 inst
             )?;
         }
-        writeln!(f)
+        writeln!(f, "Fitness: {:#?}", self.fitness)
     }
 }
 
 impl Phenome for Creature {
-    type Fitness = Fitness;
+    type Fitness = Fitness<'static>;
 
-    fn fitness(&self) -> Option<&Fitness> {
+    fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
     }
 
     fn scalar_fitness(&self) -> Option<f64> {
-        self.fitness.as_ref().map(|v| v[0])
+        self.fitness.as_ref().map(Fitness::scalar)
     }
 
-    fn set_fitness(&mut self, f: Fitness) {
+    fn set_fitness(&mut self, f: Self::Fitness) {
         self.fitness = Some(f)
     }
 
@@ -433,18 +434,20 @@ fn report(window: &Window<Creature, Dom>, counter: usize, config: &Config) {
         .map(|g| g.query_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
-    // let avg_fit = frame
-    //     .iter()
-    //     .filter_map(|g| g.fitness.as_ref().map(|f| f.0[&0]))
-    //     .sum::<f64>()
-    //     / frame.len() as f64;
+    let avg_fit = frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
     log::info!(
         "[{}] Average length: {}, average genetic frequency: {}; average fitness: {}",
         counter,
         avg_len,
         avg_freq,
-        "NEEDS FIXING", //avg_fit,
+        avg_fit,
     );
+    let soup = window.soup();
+    log::info!("soup size: {}", soup.len());
+    // TODO export tsv stats here too. generalize a bit.
+    if let Some(ref best) = window.best {
+        log::info!("Best: {:?}", best);
+    }
 }
 
 fn parse_data(path: &str) -> Option<Vec<Problem>> {
@@ -528,13 +531,13 @@ mod evaluation {
         creature
     }
 
-    pub fn fitness_function<P: Phenome<Fitness = Fitness>>(
+    pub fn fitness_function<P: Phenome<Fitness = Fitness<'static>>>(
         mut creature: P,
         _sketch: &mut CountMinSketch,
         config: Arc<Config>,
     ) -> P {
         #[allow(clippy::unnecessary_fold)]
-        let fitness = creature
+        let score = creature
             .problems()
             .as_ref()
             .expect("Missing phenotype!")
@@ -551,9 +554,11 @@ mod evaluation {
                 }
             })
             .fold(0, |a, b| a + b);
+        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        fitness.insert("error_rate", score as f64);
         // TODO: refactor types
         //creature.set_fitness((fitness, 0.0, 0.0, len));
-        creature.set_fitness(vec![fitness as f64].into());
+        creature.set_fitness(fitness);
         creature
     }
 
@@ -595,12 +600,12 @@ mod evaluation {
                     phenome = (fitness_fn)(phenome, &mut sketch, config.clone());
                     // register and measure frequency
                     // TODO: move to fitness function and refactor
-                    // phenome
-                    //     .record_genetic_frequency(&mut sketch, counter)
-                    //     .expect("Failed to record phenomic frequency");
-                    // let _genomic_frequency = phenome
-                    //     .measure_genetic_frequency(&sketch)
-                    //     .expect("Failed to measure genetic diversity. Check timestamps.");
+                    phenome.record_genetic_frequency(&mut sketch);
+                    let genetic_frequency = phenome.query_genetic_frequency(&sketch);
+                    phenome
+                        .fitness
+                        .as_mut()
+                        .map(|fit| fit.insert("genetic_freq", genetic_frequency));
                     // sketch
                     //     .insert(phenome.problems(), counter)
                     //     .expect("Failed to update phenomic diversity");
@@ -691,8 +696,10 @@ pub fn run(config: Config) -> Option<Creature> {
 
     match selection {
         Selection::Tournament => {
-            let mut world =
-                Tournament::<evaluation::Evaluator, Creature>::new(config, observer, evaluator);
+            let pier = Pier::spawn(&config);
+            let mut world = Tournament::<evaluation::Evaluator, Creature>::new(
+                config, observer, evaluator, pier,
+            );
             loop {
                 world = world.evolve();
             }
