@@ -107,7 +107,7 @@ dependencies = [
  "radix_trie",
  "rand",
  "rand_distr",
- "rand_isaac",
+ "rand_xoshiro",
  "rayon",
  "rust-ini",
  "seahash",
@@ -991,15 +991,6 @@ name = "rand_hc"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca3129af7b92a17112d59ad498c6f81eaf463253766b90396d39ea7a39d6613c"
-dependencies = [
- "rand_core",
-]
-
-[[package]]
-name = "rand_isaac"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8df6b0b3dc9991a10b2d91a86d1129314502169a1bf6afa67328945e02498b76"
 dependencies = [
  "rand_core",
 ]

@@ -64,6 +64,7 @@ pub struct Profiler<C: Cpu<'static>> {
     pub computation_time: Duration,
     pub registers: HashMap<Register<C>, u64>,
     registers_to_read: Vec<Register<C>>,
+    pub input: HashMap<Register<C>, u64>,
 }
 
 impl<C: Cpu<'static>> Profiler<C> {
@@ -93,6 +94,18 @@ impl Profile {
         let mut gadgets_executed = HashSet::new();
         let mut writeable_memory_regions = Vec::new();
         let mut all_addresses_written_to = HashSet::new();
+
+        // Commented this out. It didn't seem to work, so no need to spend the time.
+        // Sort to remove any unpredictability introduced by parallelism
+        // profilers.sort_by_key(|p| {
+        //     let mut kvs = p
+        //         .input
+        //         .iter()
+        //         .map(|(k, v)| (format!("{:?}", k), *v))
+        //         .collect::<Vec<(String, u64)>>();
+        //     kvs.sort();
+        //     kvs
+        // });
 
         for Profiler {
             block_log,
@@ -196,9 +209,10 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
 }
 
 impl<C: Cpu<'static>> Profiler<C> {
-    pub fn new(output_registers: &[Register<C>]) -> Self {
+    pub fn new(output_registers: &[Register<C>], input: &HashMap<Register<C>, u64>) -> Self {
         Self {
             registers_to_read: output_registers.to_vec(),
+            input: input.clone(),
             ..Default::default()
         }
     }
@@ -231,6 +245,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
     fn default() -> Self {
         Self {
             //write_log: Arc::new(RwLock::new(Vec::default())),
+            input: HashMap::default(),
             registers: HashMap::default(),
             cpu_error: None,
             registers_to_read: Vec::new(),

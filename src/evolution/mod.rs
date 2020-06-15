@@ -1,15 +1,15 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use rand::rngs::StdRng;
 use rand::Rng;
 use serde::Serialize;
 
-use crate::configure::{Config, Problem};
+use crate::configure::{Config, IOProblem};
 use crate::fitness::FitnessScore;
 use crate::util::count_min_sketch::Sketch;
-use crate::util::random::hash_seed_rng;
+use crate::util::random::{hash_seed_rng, Prng};
 
+pub mod lexicase;
 pub mod metropolis;
 pub mod pareto_roulette;
 pub mod population;
@@ -42,8 +42,8 @@ pub trait Genome: Debug + Hash {
         let mut parentage = Vec::new();
         let mut rng = hash_seed_rng(parents);
         let mut ptrs = vec![0_usize; parents.len()];
-        let switch = |rng: &mut StdRng| rng.gen_range(0, parents.len());
-        let sample = |rng: &mut StdRng| distribution.sample(rng).round() as usize + 1;
+        let switch = |rng: &mut Prng| rng.gen_range(0, parents.len());
+        let sample = |rng: &mut Prng| distribution.sample(rng).round() as usize + 1;
 
         loop {
             let src = switch(&mut rng);
@@ -132,6 +132,7 @@ pub trait Genome: Debug + Hash {
 
 pub trait Phenome: Clone + Debug + Send + Ord + Serialize + Hash {
     type Fitness: FitnessScore;
+    type Problem: Hash;
     // TODO: generalize fitness. should be able to use vecs, etc.
 
     /// This method is intended for reporting, not measuring, fitness.
@@ -145,17 +146,18 @@ pub trait Phenome: Clone + Debug + Send + Ord + Serialize + Hash {
 
     fn set_tag(&mut self, tag: u64);
 
-    fn problems(&self) -> Option<&Vec<Problem>>;
+    fn answers(&self) -> Option<&Vec<Self::Problem>>;
 
-    fn store_answers(&mut self, results: Vec<Problem>);
+    fn store_answers(&mut self, results: Vec<Self::Problem>);
 
     /// Return the rank of the Pareto front in which the phenotype most
-    /// recently appeared. Unused when not performing Pareto selection.
-    fn front(&self) -> Option<usize> {
+    /// recently appeared. Unused when not performing Pareto selection. fn front(&self) -> Option<usize> {
         unimplemented!("implement as needed")
     }
 
     fn set_front(&mut self, _rank: usize) {
         unimplemented!("implement as needed")
     }
+
+    fn is_goal_reached(&self, config: &Config) -> bool;
 }

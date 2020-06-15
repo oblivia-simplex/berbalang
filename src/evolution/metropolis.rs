@@ -10,7 +10,9 @@ use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 use crate::EPOCH_COUNTER;
 
-pub struct Metropolis<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> {
+type Case = (); // TODO
+
+pub struct Metropolis<E: Evaluate<P, CountMinSketch, Case>, P: Phenome + Genome + 'static> {
     pub specimen: P,
     pub config: Config,
     pub iteration: usize,
@@ -19,7 +21,7 @@ pub struct Metropolis<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'sta
     pub best: Option<P>,
 }
 
-impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> Metropolis<E, P> {
+impl<E: Evaluate<P, CountMinSketch, Case>, P: Phenome + Genome + 'static> Metropolis<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self {
         let specimen = P::random(&config, 1);
 
@@ -32,9 +34,7 @@ impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome + 'static> Metropolis<E
             best: None,
         }
     }
-}
 
-impl<E: Evaluate<P, CountMinSketch>, P: Phenome + Genome> Metropolis<E, P> {
     pub fn evolve(self) -> Self {
         let Self {
             specimen,

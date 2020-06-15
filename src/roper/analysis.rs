@@ -146,7 +146,7 @@ mod test {
 pub fn report_fn(
     window: &Window<Creature, super::CreatureDominanceOrd>,
     counter: usize,
-    config: &Config,
+    _config: &Config,
 ) {
     let record = StatRecord::from_window(window, counter);
 
@@ -165,24 +165,4 @@ pub fn report_fn(
     if let Ok(stat) = procinfo::pid::statm_self() {
         log::debug!("Memory status: {:#x?}", stat);
     }
-    if halting_condition_reached(window, config) {
-        window.stop_evolution();
-    }
-}
-
-fn halting_condition_reached(
-    window: &Window<Creature, super::CreatureDominanceOrd>,
-    config: &Config,
-) -> bool {
-    // This is how you check for an unweighted fitness value.
-    // This shows the advantage of having Weighted fitness as
-    // as distinct type, which returns its scalar value through
-    // a method -- the components are easily retrievable in their
-    // raw state.
-    window
-        .best
-        .as_ref()
-        .and_then(|b| b.fitness.as_ref())
-        .and_then(|f| f.get("register_error"))
-        == Some(config.fitness.target)
 }

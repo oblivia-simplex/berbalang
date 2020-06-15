@@ -122,6 +122,27 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         }
     }
 
+    pub fn is_halting_condition_reached(&self) {
+        // This is how you check for an unweighted fitness value.
+        // This shows the advantage of having Weighted fitness as
+        // as distinct type, which returns its scalar value through
+        // a method -- the components are easily retrievable in their
+        // raw state.
+
+        let epoch_limit_reached =
+            self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter();
+        if epoch_limit_reached {
+            log::error!("epoch limit reached");
+            self.stop_evolution();
+        }
+
+        if let Some(ref best) = self.best {
+            if best.is_goal_reached(&self.config) {
+                self.stop_evolution()
+            }
+        }
+    }
+
     pub fn stop_evolution(&self) {
         if let Err(e) = self.stop_signal_tx.send(true) {
             log::debug!(
@@ -167,9 +188,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.report();
         }
 
-        if self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter() {
-            self.stop_evolution();
-        }
+        self.is_halting_condition_reached();
     }
 
     fn update_best(&mut self) {

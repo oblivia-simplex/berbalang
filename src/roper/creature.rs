@@ -1,4 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
@@ -6,17 +5,17 @@ use std::io::{BufRead, BufReader};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use rand::seq::IteratorRandom;
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
-use crate::configure::{Config, Problem};
+use crate::configure::{Config, IOProblem};
 use crate::emulator::loader;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::HasScalar;
+use crate::fitness::{HasScalar, MapFit};
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
 use crate::util::random::hash_seed_rng;
@@ -194,7 +193,7 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
     } else if let Some(soup_size) = config.roper.soup_size.as_ref() {
         let memory = loader::get_static_memory_image();
         for addr in (0..(*soup_size)).map(|i| {
-            let mut hasher = DefaultHasher::new();
+            let mut hasher = fnv::FnvHasher::default();
             i.hash(&mut hasher);
             config.random_seed.hash(&mut hasher);
             let seed = hasher.finish();
@@ -219,7 +218,7 @@ impl Genome for Creature {
     }
 
     fn random<H: Hash>(config: &Config, salt: H) -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = fnv::FnvHasher::default();
         salt.hash(&mut hasher);
         config.random_seed.hash(&mut hasher);
         let seed = hasher.finish();
@@ -235,7 +234,7 @@ impl Genome for Creature {
             .into_iter()
             .copied()
             .collect::<Vec<u64>>();
-        let name = util::name::random(4);
+        let name = util::name::random(4, &salt);
         //let crossover_mask = rng.gen::<u64>();
         let tag = rng.gen::<u64>();
         Self {
@@ -278,13 +277,14 @@ impl Genome for Creature {
                 (chromosome, parentage, vec![mates[0].name.clone()])
             };
         let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
+        let name = util::name::random(4, &chromosome);
         Self {
             chromosome,
             chromosome_parentage,
             tag: rand::random::<u64>(),
-            name: util::name::random(4),
             parents: parent_names,
             generation,
+            name,
             profile: None,
             fitness: None,
             front: None,
@@ -292,7 +292,7 @@ impl Genome for Creature {
     }
 
     fn mutate(&mut self, config: &Config) {
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(&self);
         let i = rng.gen_range(0, self.chromosome.len());
 
         match rng.gen_range(0, 6) {
@@ -351,6 +351,7 @@ impl Genome for Creature {
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
+    type Problem = (); // TODO
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -372,11 +373,11 @@ impl Phenome for Creature {
         self.tag = tag
     }
 
-    fn problems(&self) -> Option<&Vec<Problem>> {
+    fn answers(&self) -> Option<&Vec<Self::Problem>> {
         unimplemented!()
     }
 
-    fn store_answers(&mut self, _results: Vec<Problem>) {
+    fn store_answers(&mut self, _results: Vec<Self::Problem>) {
         unimplemented!()
     }
 
@@ -386,5 +387,16 @@ impl Phenome for Creature {
 
     fn set_front(&mut self, rank: usize) {
         self.front = Some(rank)
+    }
+
+    fn is_goal_reached(&self, config: &Config) -> bool {
+        let priority = config.fitness.priority.clone();
+        (self
+            .fitness()
+            .as_ref()
+            .and_then(|f| f.get(&priority))
+            .unwrap_or(std::f64::MAX)
+            - config.fitness.target)
+            <= std::f64::EPSILON
     }
 }

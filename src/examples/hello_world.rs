@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::iter;
 use std::iter::Iterator;
@@ -10,7 +9,7 @@ use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, Problem};
+use crate::configure::{Config, IOProblem};
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
@@ -59,6 +58,7 @@ impl Ord for Genotype {
 // because this is a GA we identify genome and phenome
 impl Phenome for Genotype {
     type Fitness = Fitness;
+    type Problem = ();
 
     fn fitness(&self) -> Option<&Fitness> {
         self.fitness.as_ref()
@@ -80,12 +80,17 @@ impl Phenome for Genotype {
         self.tag = tag
     }
 
-    fn problems(&self) -> Option<&Vec<Problem>> {
+    fn answers(&self) -> Option<&Vec<Self::Problem>> {
         unimplemented!("n/a")
     }
 
-    fn store_answers(&mut self, _results: Vec<Problem>) {
+    fn store_answers(&mut self, _results: Vec<Self::Problem>) {
         unimplemented!("n/a") // CODE SMELL FIXME!
+    }
+
+    fn is_goal_reached(&self, config: &Config) -> bool {
+        (self.scalar_fitness().unwrap_or(std::f64::MAX) - config.fitness.target)
+            <= std::f64::EPSILON
     }
 }
 
@@ -107,7 +112,7 @@ impl Genome for Genotype {
     }
 
     fn random<H: Hash>(config: &Config, salt: H) -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = fnv::FnvHasher::default();
         salt.hash(&mut hasher);
         config.random_seed.hash(&mut hasher);
         let seed = hasher.finish();
@@ -126,7 +131,7 @@ impl Genome for Genotype {
     }
 
     fn crossover(mates: &Vec<&Self>, _config: &Config) -> Self {
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(mates);
         let father = &mates[0];
         let mother = &mates[1];
         let split_m: usize = rng.gen::<usize>() % mother.len();
@@ -143,7 +148,7 @@ impl Genome for Genotype {
     }
 
     fn mutate(&mut self, _config: &Config) {
-        let mut rng: ThreadRng = thread_rng();
+        let mut rng = hash_seed_rng(&self);
         let mutation = rng.gen::<u8>() % 4;
         match mutation {
             // replace some character with random character
@@ -279,7 +284,7 @@ mod evaluation {
         rx: Receiver<Genotype>,
     }
 
-    impl Evaluate<Genotype, CountMinSketch> for Evaluator<Genotype> {
+    impl Evaluate<Genotype, CountMinSketch, ()> for Evaluator<Genotype> {
         fn evaluate(&mut self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")

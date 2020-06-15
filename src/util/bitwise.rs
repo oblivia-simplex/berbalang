@@ -1,8 +1,13 @@
-use crate::util::architecture::Endian;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
+
+use crate::util::architecture::Endian;
 
 pub fn bit(n: u64, bit: usize) -> bool {
     (n >> (bit as u64 % 64)) & 1 == 1
+}
+
+pub fn nybble(n: u64, index: usize) -> u8 {
+    ((n >> (4 * index as u64)) & 0x0F) as u8
 }
 
 /// We can measure the similarity between two words as the number of bit-flips

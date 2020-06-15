@@ -6,6 +6,7 @@ use rand::Rng;
 use rayon::prelude::{FromParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::error::Error;
+use crate::util::random::hash_seed;
 
 /// For a description and justification of the "trivial geography" algorithm,
 /// see Lee Spector & Jon Klein, "Trivial Geography in Genetic Programming"
@@ -138,11 +139,14 @@ impl<P: Hash + Send> FromParallelIterator<P> for TrivialGeography<P> {
     where
         I: IntoParallelIterator<Item = P>,
     {
-        let deme = par_iter
+        let mut deme = par_iter
             .into_par_iter()
             .map(Option::Some)
             .collect::<Vec<Option<P>>>();
 
+        // I sort the deme here to eliminate the indeterminism introdued by parallel
+        // iteration.
+        deme.sort_by_key(|p| p.as_ref().map(hash_seed));
         Self {
             radius: deme.len(),
             deme: deme,
@@ -156,13 +160,15 @@ mod test {
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
 
+    use crate::util::random::hash_seed_rng;
+
     use super::*;
 
     #[test]
     fn test_choose_multiple() {
         for i in 0..100_000 {
             let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-            let mut rng = thread_rng();
+            let mut rng = hash_seed_rng(&i);
             let mut choices: Vec<usize> = numbers.choose_multiple(&mut rng, 8).copied().collect();
             let count = choices.len();
             assert_eq!(count, 8);
@@ -181,7 +187,7 @@ mod test {
                 deme: (0..size).map(Option::Some).collect::<Vec<Option<usize>>>(),
                 vacancies: vec![],
             };
-            let mut rng = thread_rng();
+            let mut rng = hash_seed_rng(&radius);
 
             let mut counts = vec![0; size];
 
@@ -210,7 +216,7 @@ mod test {
             deme: (0..2048).map(Option::Some).collect::<Vec<Option<usize>>>(),
             vacancies: vec![],
         };
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(&0xdeadbeef);
         for i in 0..100_000 {
             let mut range: Vec<usize> = geo.get_range(&mut rng);
 

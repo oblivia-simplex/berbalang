@@ -1,0 +1,6 @@
+[book]
+authors = ["lucca"]
+language = "en"
+multilingual = false
+src = "src"
+title = "The Evolutionary Exploration of Emergent Execution"

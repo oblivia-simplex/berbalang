@@ -146,7 +146,9 @@ pub struct Evaluator<C: 'static + Cpu<'static>> {
     fitness_fn: Box<FitnessFn<Creature, CountMinSketch, Config>>,
 }
 
-impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch> for Evaluator<C> {
+type Problem = (); // TODO
+
+impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch, Problem> for Evaluator<C> {
     fn evaluate(&mut self, creature: Creature) -> Creature {
         let (mut creature, profile) = self
             .hatchery
@@ -220,8 +222,9 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch> for Evaluator
                 //out_reg
             }
         };
-        let inputs = vec![util::architecture::random_register_state::<C>(
+        let inputs = vec![util::architecture::random_register_state::<u64, C>(
             &output_registers,
+            config.random_seed,
         )];
         let hatchery: Hatchery<C, Creature> = Hatchery::new(
             hatch_config,

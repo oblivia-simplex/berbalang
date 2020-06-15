@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Debug;
@@ -79,7 +78,7 @@ pub trait MapFit {
         self.inner_mut().insert(name, thing);
     }
 
-    fn get(&self, name: &'static str) -> Option<f64> {
+    fn get(&self, name: &str) -> Option<f64> {
         (self.inner().get(name)).cloned()
     }
 
@@ -235,7 +234,7 @@ impl ShuffleFit {
 
     pub fn epoch_key(&self) -> &'static str {
         let epoch = crate::get_epoch_counter();
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = fnv::FnvHasher::default();
         epoch.hash(&mut hasher);
         let h = hasher.finish() as usize;
         let keys = self.0.keys().collect::<Vec<_>>();

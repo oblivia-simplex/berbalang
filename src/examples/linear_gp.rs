@@ -1,19 +1,18 @@
 use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::{fmt, iter};
 
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, Problem, Selection};
+use crate::configure::{Config, IOProblem, Selection};
 use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
-use crate::fitness::Weighted;
+use crate::fitness::{MapFit, Weighted};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::util;
@@ -256,17 +255,13 @@ pub mod machine {
 type Genotype = Vec<machine::Inst>;
 
 /// Produce a genotype with exactly `len` random instructions.
-/// Pass a randomly generated `len` to randomize the length.
-fn random_chromosome(config: &Config) -> Genotype {
-    let mut rng = thread_rng();
+/// Pass a randomly generated `len` to randomize the length. fn random_chromosome<H: Hash>(config: &Config, seed: H) -> Genotype {
+    let mut rng = hash_seed_rng(&seed);
     let len = rng.gen_range(config.min_init_len, config.max_init_len) + 1;
-    iter::repeat(())
-        .map(|()| machine::Inst::random(&config.linear_gp))
-        .take(len)
-        .collect()
+    iter::repeat(()).map(|()| machine::Inst::random(&config.linear_gp)).take(len).collect()
 }
 
-pub type Answer = Vec<Problem>;
+pub type Answer = Vec<IOProblem>;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Creature {
@@ -310,6 +305,7 @@ impl Debug for Creature {
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
+    type Problem = IOProblem;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -331,12 +327,21 @@ impl Phenome for Creature {
         self.tag = tag
     }
 
-    fn problems(&self) -> Option<&Vec<Problem>> {
+    fn answers(&self) -> Option<&Vec<Self::Problem>> {
         self.answers.as_ref()
     }
 
-    fn store_answers(&mut self, answers: Vec<Problem>) {
+    fn store_answers(&mut self, answers: Vec<Self::Problem>) {
         self.answers = Some(answers);
+    }
+
+    fn is_goal_reached<'a>(&'a self, config: &'a Config) -> bool {
+        if let Some(ref fitness) = self.fitness() {
+            if let Some(score) = fitness.get(&config.fitness.priority) {
+                return (score - std::f64::MAX) <= std::f64::EPSILON;
+            }
+        }
+        false
     }
 }
 
@@ -379,17 +384,17 @@ impl Genome for Creature {
     }
 
     fn random<H: Hash>(config: &Config, salt: H) -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = fnv::FnvHasher::default();
         salt.hash(&mut hasher);
         config.random_seed.hash(&mut hasher);
         let seed = hasher.finish();
         let mut rng = hash_seed_rng(&seed);
-        let chromosome = random_chromosome(config);
+        let chromosome = random_chromosome(config, &seed);
         Self {
             chromosome,
             tag: rng.gen::<u64>(),
             //crossover_mask: rng.gen::<u64>(),
-            name: crate::util::name::random(4),
+            name: crate::util::name::random(4, &seed),
             ..Default::default()
         }
     }
@@ -398,21 +403,22 @@ impl Genome for Creature {
         let distribution = rand_distr::Exp::new(config.crossover_period)
             .expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(mates);
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
             if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
                 let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
                 let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
                 (c, p, names)
-                } else {
-                    let parent = parental_chromosomes[rng.gen_range(0, 2)];
-                    let chromosome = parent.to_vec();
-                    let parentage =
+            } else {
+                let parent = parental_chromosomes[rng.gen_range(0, 2)];
+                let chromosome = parent.to_vec();
+                let parentage =
                         chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
                     (chromosome, parentage, vec![mates[0].name.clone()])
                 };
         let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
+        let name = util::name::random(4, &chromosome);
         Self {
             chromosome,
             chromosome_parentage,
@@ -420,14 +426,14 @@ impl Genome for Creature {
             fitness: None,
             tag: rand::random::<u64>(),
             //crossover_mask: 0,
-            name: util::name::random(4),
+            name,
             parents: parent_names,
             generation,
         }
     }
 
     fn mutate(&mut self, config: &Config) {
-        let mut rng = thread_rng();
+        let mut rng = hash_seed_rng(&self);
         let i = rng.gen_range(0, self.len());
         //self.crossover_mask ^= 1 << rng.gen_range(0, 64);
         let seed = hash_seed(&self);
@@ -465,17 +471,16 @@ fn report(window: &Window<Creature, Dom>, counter: usize, config: &Config) {
     }
 }
 
-fn parse_data(path: &str) -> Option<Vec<Problem>> {
+fn parse_data(path: &str) -> Option<Vec<IOProblem>> {
     if let Ok(mut reader) = csv::ReaderBuilder::new().delimiter(b'\t').from_path(path) {
         let mut problems = Vec::new();
         let mut tag = 0;
         for row in reader.records() {
             if let Ok(row) = row {
-                let mut vals: Vec<MachineWord> =
-                    row.deserialize(None).expect("Error parsing row in data");
+                let mut vals: Vec<MachineWord> = row.deserialize(None).expect("Error parsing row in data");
                 let output = vals.pop().expect("Missing output field");
                 let input = vals;
-                problems.push(Problem { input, output, tag });
+                problems.push(IOProblem { input, output, tag });
                 tag += 1;
             }
         }
@@ -518,7 +523,7 @@ mod evaluation {
 
         let mut results = iterator
             .map(
-                |Problem {
+                |IOProblem {
                      input,
                      output: _expected,
                      tag,
@@ -529,38 +534,29 @@ mod evaluation {
                     // Probably not when it comes to unicorn, but for this, yeah.
                     let mut machine = Machine::new(&config.linear_gp);
                     let return_regs = machine.exec(creature.chromosome(), &input);
-                    let output = (0..return_regs.len())
-                        .map(|i| return_regs[i])
-                        .fold(0, i32::max);
+                    let output = (0..return_regs.len()).map(|i| return_regs[i]).fold(0, i32::max);
 
-                    Problem {
+                    IOProblem {
                         input: input.clone(),
                         output,
                         tag: *tag,
                     }
                 },
-            )
-            .collect::<Vec<Problem>>();
+            ).collect::<Vec<IOProblem>>();
+        // Sort by tag to avoid any non-seeded randomness
         results.sort_by_key(|p| p.tag);
         creature.store_answers(results);
         creature
     }
 
-    pub fn fitness_function<P: Phenome<Fitness = Fitness<'static>>>(
-        mut creature: P,
+    pub fn fitness_function(
+        mut creature: Creature,
         _sketch: &mut CountMinSketch,
         config: Arc<Config>,
-    ) -> P {
-        #[allow(clippy::unnecessary_fold)]
-        let score = creature
-            .problems()
-            .as_ref()
-            .expect("Missing phenotype!")
-            .iter()
-            .zip(config.problems.as_ref().expect("no problems!").iter())
-            .filter_map(|(result, expected)| {
-                assert_eq!(result.tag, expected.tag);
-                // Simply counting errors.
+    ) -> Creature {
+        #[allow(clippy::unnecessary_fold)] let score = creature.answers().as_ref().expect("Missing phenotype!").iter().zip(config.problems.as_ref().expect("no problems!").iter()).filter_map(|(result, expected)| {
+            assert_eq!(result.tag, expected.tag);
+            // Simply counting errors.
                 // TODO: consider trying distance metrics
                 if result.output == expected.output {
                     None
@@ -577,13 +573,13 @@ mod evaluation {
         creature
     }
 
-    impl Evaluate<Creature, CountMinSketch> for Evaluator {
+    impl Evaluate<Creature, CountMinSketch, ()> for Evaluator {
         fn evaluate(&mut self, genome: Creature) -> Creature {
             self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn eval_pipeline<I: Iterator<Item = Creature> + Send>(
+        fn eval_pipeline<I: Iterator<Item=Creature> + Send>(
             &mut self,
             inbound: I,
         ) -> Vec<Creature> {
@@ -704,7 +700,7 @@ fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evalu
 
 crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
 
-pub fn run(config: Config) -> Option<Creature> {
+pub fn run(config: Config) {
     //let target_fitness = config.target_fitness;
     let selection = config.selection;
     let (config, observer, evaluator) = prepare(config);
@@ -715,7 +711,7 @@ pub fn run(config: Config) -> Option<Creature> {
             let mut world = Tournament::<evaluation::Evaluator, Creature>::new(
                 config, observer, evaluator, pier,
             );
-            loop {
+            while world.observer.keep_going() {
                 world = world.evolve();
             }
         }
@@ -726,14 +722,14 @@ pub fn run(config: Config) -> Option<Creature> {
                 evaluator,
                 CreatureDominanceOrd,
             );
-            loop {
+            while world.observer.keep_going() {
                 world = world.evolve();
             }
         }
         Selection::Metropolis => {
             let mut world =
                 Metropolis::<evaluation::Evaluator, Creature>::new(config, observer, evaluator);
-            loop {
+            while world.observer.keep_going() {
                 world = world.evolve();
             }
         }

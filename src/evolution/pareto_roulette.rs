@@ -16,7 +16,13 @@ use crate::util::random::hash_seed_rng;
 
 type SketchType = CountMinSketch;
 
-pub struct Roulette<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> {
+type Case = (); // TODO
+
+pub struct Roulette<
+    E: Evaluate<P, SketchType, Case>,
+    P: Phenome + Genome + 'static,
+    D: DominanceOrd<P>,
+> {
     pub population: Vec<P>,
     pub config: Arc<Config>,
     pub observer: Observer<P>,
@@ -25,7 +31,7 @@ pub struct Roulette<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D
     pub dominance_order: D,
 }
 
-impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<P>>
+impl<E: Evaluate<P, SketchType, Case>, P: Phenome + Genome + 'static, D: DominanceOrd<P>>
     Roulette<E, P, D>
 {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, dominance_order: D) -> Self {
@@ -42,16 +48,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<
             dominance_order,
         }
     }
-}
 
-impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + Sized, D: DominanceOrd<P>>
-    Roulette<E, P, D>
-{
-    // pub fn new(config: Config) -> Self {
-    //     Self {
-    //         population
-    //     }
-    // }
     pub fn evolve(self) -> Self {
         let Self {
             population,

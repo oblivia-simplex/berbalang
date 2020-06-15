@@ -2,6 +2,7 @@
 # Documentation forthcoming! #
 ##############################
 
+random_seed = 0xdeadbeef
 job = "Roper"
 #job = "LinearGp"
 #selection = "Roulette"
@@ -20,7 +21,7 @@ pop_size = 0x1000
 num_offspring = 2
 num_parents = 2
 max_length = 100
-num_epochs = 0 # = infinite
+num_epochs = 200 # = infinite
 season_length = 100 # tweak
 # add this:
 
@@ -28,6 +29,7 @@ season_length = 100 # tweak
 priority = "register_error"
 function = "register_pattern"
 target = 0
+eval_by_case = false
 dynamic = true # TODO: use this to decide whether to re-evaluate fitness
 # as distinct, sometimes, from execution.
 #
@@ -87,10 +89,10 @@ path = "./data/iris.tsv"
 #fitness_function = "register_pattern"
 #fitness_function = "code_coverage"
 arch = "X86"
-mode = "MODE_64"
+mode = "MODE_32"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "/bin/sh"
+binary_path = "./binaries/X86/MODE_32/tshark"
 #binary_path = "/tmp/ldconfig"
 num_workers = 41
 num_emulators = 31
@@ -100,8 +102,11 @@ emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
-output_registers = ["RAX", "RDI", "RSI" ]
+output_registers = ["EAX", "EDI", "ESI" , "EIP", "EBP", "ESP"]
   [roper.register_pattern] 
 #  RAX = "0x3b"                   # execve syscall number
-  RDI = "&'/bin/sh"
+  EAX = "0x0b"
+  EBX = "&'/bin/sh"
+  ECX = "&0"
+  EDX = "0"
 #  RSI = "&&0"                  # an empty argv array

@@ -15,9 +15,10 @@ use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 
 type SketchType = CountMinSketch;
-// consider an island-pier structure
+type Case = (); // TODO
+                // consider an island-pier structure
 
-pub struct Tournament<E: Evaluate<P, SketchType>, P: Phenome + 'static> {
+pub struct Tournament<E: Evaluate<P, SketchType, Case>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>,
     //BinaryHeap<P>,
     pub config: Arc<Config>,
@@ -31,7 +32,7 @@ pub struct Tournament<E: Evaluate<P, SketchType>, P: Phenome + 'static> {
 // TODO factor TrivialGeography to its own module
 // maybe create a Population trait.
 
-impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> {
+impl<E: Evaluate<P, SketchType, Case>, P: Phenome + Genome + 'static> Tournament<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, pier: Pier<P>) -> Self
     where
         Self: Sized,
@@ -57,9 +58,7 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P>
             pier,
         }
     }
-}
 
-impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
     pub fn evolve(self) -> Self {
         // destruct the Epoch
         let Self {
@@ -114,15 +113,21 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
 
         let mut survivors = combatants; //combatants.into_iter().collect::<Vec<P>>();
                                         // there should be some small chance that the parents migrate
-        if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
-            log::info!("Attempting migration...");
-            if let Some(immigrant) = pier.disembark() {
-                log::info!("Found immigrant on pier");
-                let emigrant = survivors.pop().unwrap();
-                if let Err(_emigrant) = pier.embark(emigrant) {
-                    log::error!("emigration failure, do something!");
+
+        // A generation should be considered to have elapsed once
+        // `pop_size` offspring have been spawned.
+        if iteration % (config.pop_size / config.num_offspring) == 0 {
+            crate::increment_epoch_counter();
+            if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+                log::info!("Attempting migration...");
+                if let Some(immigrant) = pier.disembark() {
+                    log::info!("Found immigrant on pier");
+                    let emigrant = survivors.pop().unwrap();
+                    if let Err(_emigrant) = pier.embark(emigrant) {
+                        log::error!("emigration failure, do something!");
+                    }
+                    survivors.push(immigrant);
                 }
-                survivors.push(immigrant);
             }
         }
 
@@ -144,11 +149,6 @@ impl<E: Evaluate<P, SketchType>, P: Phenome + Genome> Tournament<E, P> {
             population.insert(child).unwrap()
         }
 
-        // A generation should be considered to have elapsed once
-        // `pop_size` offspring have been spawned.
-        if iteration % (config.pop_size / config.num_offspring) == 0 {
-            crate::increment_epoch_counter();
-        }
         Self {
             population,
             config,

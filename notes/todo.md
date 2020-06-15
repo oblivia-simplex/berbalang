@@ -39,6 +39,9 @@ ideally, this is somethign you should be able to set in the config.toml
 
 - PE files need support
 
+- new task: write a given string somewhere in memory
+- 2nd stage: point to it with a register
+
 - trial harness for experimental runs
 - dockerize
 - get it cloud ready

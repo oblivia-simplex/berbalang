@@ -10,6 +10,8 @@ pub enum Error {
     Eval(fasteval::error::Error),
     MissingKey(String),
     NoVacancy,
+    Misc(String),
+    Unicorn(unicorn::Error),
 }
 
 macro_rules! impl_error_from {
@@ -41,6 +43,12 @@ impl From<std::sync::mpsc::RecvError> for Error {
 impl From<serde_json::error::Error> for Error {
     fn from(e: serde_json::error::Error) -> Self {
         Self::Parsing(e.to_string())
+    }
+}
+
+impl From<unicorn::Error> for Error {
+    fn from(e: unicorn::Error) -> Error {
+        Error::Unicorn(e)
     }
 }
 

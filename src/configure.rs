@@ -48,7 +48,7 @@ pub struct Config {
     pub num_parents: usize,
     pub observer: ObserverConfig,
     pub pop_size: usize,
-    pub problems: Option<Vec<Problem>>,
+    pub problems: Option<Vec<IOProblem>>,
     #[serde(default)]
     pub roulette: RouletteConfig,
     #[serde(default)]
@@ -72,6 +72,7 @@ fn default_tournament_size() -> usize {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct FitnessConfig {
     pub target: f64,
+    pub eval_by_case: bool,
     pub dynamic: bool,
     pub priority: String,
     pub function: String,
@@ -97,7 +98,10 @@ pub struct RouletteConfig {
 }
 
 fn random_population_name() -> String {
-    crate::util::name::random(2)
+    // we're letting this random value be unseeded for now, since
+    // the name impacts nothing and we don't want to clobber same-seeded runs
+    let seed = rand::random::<u64>();
+    crate::util::name::random(2, seed)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -275,7 +279,7 @@ impl Config {
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash, Serialize)]
-pub struct Problem {
+pub struct IOProblem {
     pub input: Vec<i32>,
     // TODO make this more generic
     pub output: i32,
@@ -283,13 +287,13 @@ pub struct Problem {
     pub tag: u64,
 }
 
-impl PartialOrd for Problem {
+impl PartialOrd for IOProblem {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.tag.partial_cmp(&other.tag)
     }
 }
 
-impl Ord for Problem {
+impl Ord for IOProblem {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tag.cmp(&other.tag)
     }

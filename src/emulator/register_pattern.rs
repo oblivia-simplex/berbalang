@@ -1,12 +1,13 @@
 use std::convert::TryFrom;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use byteorder::{ByteOrder, LittleEndian};
+use hashbrown::HashMap;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
-
-use hashbrown::HashMap;
 
 use crate::emulator::loader;
 use crate::emulator::loader::{get_static_memory_image, Seg};
@@ -14,8 +15,7 @@ use crate::error::Error;
 use crate::util;
 use crate::util::architecture::Endian;
 use crate::util::bitwise;
-use itertools::Itertools;
-use std::fmt;
+use crate::util::bitwise::nybble;
 
 pub type Register<C> = <C as Cpu<'static>>::Reg;
 
@@ -215,6 +215,10 @@ impl RegisterPattern {
         }
         map
     }
+
+    pub fn features(&self) -> Vec<RegisterFeature> {
+        RegisterFeature::decompose_reg_pattern(self)
+    }
 }
 
 impl From<&RegisterPattern> for Vec<u8> {
@@ -228,6 +232,53 @@ impl From<&RegisterPattern> for Vec<u8> {
             offset += WORD_SIZE;
         }
         buf
+    }
+}
+
+#[derive(Clone, Debug, Hash)]
+pub struct RegisterFeature {
+    register: String,
+    index: usize,
+    deref: usize,
+    nybble: u8,
+}
+
+impl RegisterFeature {
+    fn decompose_reg_val(register: &str, reg_val: &RegisterValue, reg_feats: &mut Vec<Self>) {
+        let word_size = get_static_memory_image().word_size;
+
+        for i in 0..(word_size * 2) {
+            let nybble = nybble(reg_val.val, i);
+            let deref = reg_val.deref;
+            reg_feats.push(Self {
+                register: register.to_string(),
+                index: i,
+                deref,
+                nybble,
+            })
+        }
+    }
+
+    pub fn decompose_reg_pattern(reg_pat: &RegisterPattern) -> Vec<Self> {
+        let mut reg_feats = Vec::new();
+        for (register, reg_val) in reg_pat.0.iter() {
+            Self::decompose_reg_val(register, reg_val, &mut reg_feats);
+        }
+        reg_feats
+    }
+
+    pub fn check_state(&self, state: &RegisterState) -> bool {
+        if let Some(deref_chain) = state.0.get(&self.register) {
+            if self.deref >= deref_chain.len() {
+                false
+            } else {
+                let val = deref_chain[self.deref];
+                let nyb = nybble(val, self.index);
+                nyb == self.nybble
+            }
+        } else {
+            false
+        }
     }
 }
 
@@ -359,9 +410,8 @@ impl fmt::Debug for RegisterState {
 mod test {
     use serde_derive::Deserialize;
 
-    use crate::hashmap;
-
     use crate::emulator::register_pattern::{RegisterPattern, RegisterValue};
+    use crate::hashmap;
 
     use super::*;
 
