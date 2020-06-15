@@ -255,10 +255,15 @@ pub mod machine {
 type Genotype = Vec<machine::Inst>;
 
 /// Produce a genotype with exactly `len` random instructions.
-/// Pass a randomly generated `len` to randomize the length. fn random_chromosome<H: Hash>(config: &Config, seed: H) -> Genotype {
+/// Pass a randomly generated `len` to randomize the length.
+///
+fn random_chromosome<H: Hash>(config: &Config, seed: H) -> Genotype {
     let mut rng = hash_seed_rng(&seed);
     let len = rng.gen_range(config.min_init_len, config.max_init_len) + 1;
-    iter::repeat(()).map(|()| machine::Inst::random(&config.linear_gp)).take(len).collect()
+    iter::repeat(())
+        .map(|()| machine::Inst::random(&config.linear_gp))
+        .take(len)
+        .collect()
 }
 
 pub type Answer = Vec<IOProblem>;
@@ -477,7 +482,8 @@ fn parse_data(path: &str) -> Option<Vec<IOProblem>> {
         let mut tag = 0;
         for row in reader.records() {
             if let Ok(row) = row {
-                let mut vals: Vec<MachineWord> = row.deserialize(None).expect("Error parsing row in data");
+                let mut vals: Vec<MachineWord> =
+                    row.deserialize(None).expect("Error parsing row in data");
                 let output = vals.pop().expect("Missing output field");
                 let input = vals;
                 problems.push(IOProblem { input, output, tag });
@@ -534,7 +540,9 @@ mod evaluation {
                     // Probably not when it comes to unicorn, but for this, yeah.
                     let mut machine = Machine::new(&config.linear_gp);
                     let return_regs = machine.exec(creature.chromosome(), &input);
-                    let output = (0..return_regs.len()).map(|i| return_regs[i]).fold(0, i32::max);
+                    let output = (0..return_regs.len())
+                        .map(|i| return_regs[i])
+                        .fold(0, i32::max);
 
                     IOProblem {
                         input: input.clone(),
@@ -542,7 +550,8 @@ mod evaluation {
                         tag: *tag,
                     }
                 },
-            ).collect::<Vec<IOProblem>>();
+            )
+            .collect::<Vec<IOProblem>>();
         // Sort by tag to avoid any non-seeded randomness
         results.sort_by_key(|p| p.tag);
         creature.store_answers(results);
@@ -554,9 +563,16 @@ mod evaluation {
         _sketch: &mut CountMinSketch,
         config: Arc<Config>,
     ) -> Creature {
-        #[allow(clippy::unnecessary_fold)] let score = creature.answers().as_ref().expect("Missing phenotype!").iter().zip(config.problems.as_ref().expect("no problems!").iter()).filter_map(|(result, expected)| {
-            assert_eq!(result.tag, expected.tag);
-            // Simply counting errors.
+        #[allow(clippy::unnecessary_fold)]
+        let score = creature
+            .answers()
+            .as_ref()
+            .expect("Missing phenotype!")
+            .iter()
+            .zip(config.problems.as_ref().expect("no problems!").iter())
+            .filter_map(|(result, expected)| {
+                assert_eq!(result.tag, expected.tag);
+                // Simply counting errors.
                 // TODO: consider trying distance metrics
                 if result.output == expected.output {
                     None
@@ -579,7 +595,7 @@ mod evaluation {
             self.rx.recv().expect("rx failure")
         }
 
-        fn eval_pipeline<I: Iterator<Item=Creature> + Send>(
+        fn eval_pipeline<I: Iterator<Item = Creature> + Send>(
             &mut self,
             inbound: I,
         ) -> Vec<Creature> {

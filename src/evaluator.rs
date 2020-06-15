@@ -17,7 +17,10 @@ pub trait Evaluate<P: Phenome, S: Sketch, Q> {
     ///
     /// NOTE: nothing guarantees that the returned phenotype is
     /// the same one that was passed in. Keep this in mind. This
-    /// is to allow the use of asynchronous evaluation pipelines. fn evaluate(&mut self, ob: P) -> P;
+    /// is to allow the use of asynchronous evaluation pipelines.
+    ///
+
+    fn evaluate(&mut self, ob: P) -> P;
 
     fn eval_with_problem(&mut self, ob: P, problem: Q) -> P {
         unimplemented!("todo")
