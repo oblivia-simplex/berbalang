@@ -2,11 +2,12 @@
 # Documentation forthcoming! #
 ##############################
 
-random_seed = 0xdeadbeef
+#random_seed = 0xdeadbeef
 job = "Roper"
 #job = "LinearGp"
 #selection = "Roulette"
-selection = "Tournament" # currently inefficient
+#selection = "Tournament" # currently inefficient
+selection = "Lexicase"
 #selection = "Metropolis"
 mut_rate = 0.05
 crossover_period = 2
@@ -21,7 +22,7 @@ pop_size = 0x1000
 num_offspring = 2
 num_parents = 2
 max_length = 100
-num_epochs = 200 # = infinite
+num_epochs = 100 # = infinite
 season_length = 100 # tweak
 # add this:
 
@@ -81,9 +82,12 @@ report_every = 3000
 dump_every = 1000000
 
 [data]
-path = "./data/iris.tsv"
+#path = "./data/iris.tsv"
+# FIXME: something fishy is happening with square! too many registers, and
+# it appears that the machine is not
+# running!
 #path = "./data/square.tsv"
-#path = "./data/agaricus-lepiota.tsv"
+path = "./data/agaricus-lepiota.tsv"
 
 [roper]
 #fitness_function = "register_pattern"

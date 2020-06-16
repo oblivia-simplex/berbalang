@@ -304,6 +304,7 @@ pub enum Selection {
     Tournament,
     Roulette,
     Metropolis,
+    Lexicase,
 }
 
 impl Default for Selection {

@@ -3,16 +3,14 @@ use std::sync::atomic::Ordering;
 use rand::Rng;
 
 use crate::configure::Config;
-use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
+use crate::ontogenesis::Develop;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 use crate::EPOCH_COUNTER;
 
-type Case = (); // TODO
-
-pub struct Metropolis<E: Evaluate<P, CountMinSketch, Case>, P: Phenome + Genome + 'static> {
+pub struct Metropolis<E: Develop<P, CountMinSketch>, P: Phenome + Genome + 'static> {
     pub specimen: P,
     pub config: Config,
     pub iteration: usize,
@@ -21,7 +19,7 @@ pub struct Metropolis<E: Evaluate<P, CountMinSketch, Case>, P: Phenome + Genome 
     pub best: Option<P>,
 }
 
-impl<E: Evaluate<P, CountMinSketch, Case>, P: Phenome + Genome + 'static> Metropolis<E, P> {
+impl<E: Develop<P, CountMinSketch>, P: Phenome + Genome + 'static> Metropolis<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self {
         let specimen = P::random(&config, 1);
 
@@ -48,12 +46,12 @@ impl<E: Evaluate<P, CountMinSketch, Case>, P: Phenome + Genome + 'static> Metrop
         EPOCH_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let mut specimen = if specimen.fitness().is_none() {
-            evaluator.evaluate(specimen)
+            evaluator.develop(specimen)
         } else {
             specimen
         };
         let variation = Genome::mate(&vec![&specimen, &specimen], &config);
-        let variation = evaluator.evaluate(variation);
+        let variation = evaluator.develop(variation);
 
         let mut rng = hash_seed_rng(&specimen);
         let vari_fit = variation.scalar_fitness().unwrap();

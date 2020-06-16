@@ -161,4 +161,12 @@ pub trait Phenome: Clone + Debug + Send + Ord + Serialize + Hash {
     }
 
     fn is_goal_reached(&self, config: &Config) -> bool;
+
+    fn fails(&self, _problem: &Self::Problem) -> bool {
+        unimplemented!("implement as needed (for lexicase, e.g.)");
+    }
+
+    fn mature(&self) -> bool {
+        unimplemented!("implement as needed")
+    }
 }

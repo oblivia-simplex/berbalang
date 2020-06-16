@@ -44,6 +44,7 @@ pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
     stop_signal_rx: Receiver<bool>,
+    stop_flag: bool,
 }
 
 pub type ReportFn<T, D> = Box<dyn Fn(&Window<T, D>, usize, &Config) -> () + Sync + Send + 'static>;
@@ -332,10 +333,18 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
             handle,
             tx,
             stop_signal_rx,
+            stop_flag: false,
         }
     }
 
+    pub fn stop_evolution(&mut self) {
+        self.stop_flag = true
+    }
+
     pub fn keep_going(&self) -> bool {
+        if self.stop_flag == true {
+            return false;
+        }
         if let Ok(true) = self.stop_signal_rx.try_recv() {
             log::info!("Target condition reached. Halting the evolution...");
             false

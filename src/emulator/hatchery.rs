@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,7 @@ use crate::emulator::loader::Seg;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::{Profile, Profiler};
 use crate::emulator::register_pattern::Register;
+use crate::error::Error;
 
 //use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -86,37 +88,6 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
                     });
             }
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    Unicorn(unicorn::Error),
-    Channel(String),
-    Loader(loader::Error),
-}
-
-impl From<loader::Error> for Error {
-    fn from(e: loader::Error) -> Error {
-        Error::Loader(e)
-    }
-}
-
-impl From<unicorn::Error> for Error {
-    fn from(e: unicorn::Error) -> Error {
-        Error::Unicorn(e)
-    }
-}
-
-impl<T> From<SendError<T>> for Error {
-    fn from(e: SendError<T>) -> Error {
-        Error::Channel(format!("SendError: {:?}", e))
-    }
-}
-
-impl From<RecvError> for Error {
-    fn from(e: RecvError) -> Error {
-        Error::Channel(format!("RecvError: {:?}", e))
     }
 }
 
@@ -201,7 +172,7 @@ fn wait_for_emu<C: Cpu<'static>>(
 type InboundChannel<T> = (SyncSender<T>, Receiver<T>);
 type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
 
-impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery<C, X> {
+impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
     pub fn new(
         config: Arc<HatcheryParams>,
         inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
@@ -430,7 +401,7 @@ pub mod hooking {
     use unicorn::{CodeHookType, MemHookType, MemType, Protection};
 
     use crate::emulator::profiler::Block;
-    use crate::util::architecture::{endian, word_size_in_bytes, Endian};
+    use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
 
     use super::*;
 
@@ -517,13 +488,14 @@ pub mod hooking {
         // now "pop" the stack into the program counter
         let word_size = word_size_in_bytes(emu.arch(), emu.mode());
         let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
-        let address = match endian(emu.arch(), emu.mode()) {
-            Endian::Big => BigEndian::read_u64(&a_bytes),
-            Endian::Little => LittleEndian::read_u64(&a_bytes),
-        };
-        emu.write_stack_pointer(sp + word_size as u64)?;
+        let endian = endian(emu.arch(), emu.mode());
+        if let Some(address) = read_integer(&a_bytes, endian, word_size) {
+            emu.write_stack_pointer(sp + word_size as u64)?;
 
-        Ok(address)
+            Ok(address)
+        } else {
+            Err(Error::Misc("Failed to initialize stack pointer".into()))
+        }
     }
 
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
@@ -671,6 +643,8 @@ mod test {
     mod example {
         use byteorder::{BigEndian, LittleEndian};
 
+        use crate::util::architecture::read_integer;
+
         use super::*;
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
@@ -687,13 +661,13 @@ mod test {
             // now "pop" the stack into the program counter
             let word_size = word_size_in_bytes(emu.arch(), emu.mode());
             let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
-            let address = match endian(emu.arch(), emu.mode()) {
-                Endian::Big => BigEndian::read_u64(&a_bytes),
-                Endian::Little => LittleEndian::read_u64(&a_bytes),
-            };
-            emu.write_stack_pointer(sp + word_size as u64)?;
-
-            Ok(address)
+            let endian = endian(emu.arch(), emu.mode());
+            if let Some(address) = read_integer(&a_bytes, endian, word_size) {
+                emu.write_stack_pointer(sp + word_size as u64)?;
+                Ok(address)
+            } else {
+                Err(Error::Misc("Failed to initialize stack pointer".into()))
+            }
         }
     }
 

@@ -1,13 +1,13 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::option_map_unit_fn))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_range_loop))]
 
+use std::sync::atomic;
 use std::sync::atomic::AtomicUsize;
 
 use configure::Config;
 
 use crate::configure::Job;
 use crate::examples::{hello_world, linear_gp};
-use std::sync::atomic;
 
 mod configure;
 #[allow(dead_code)] // FIXME
@@ -15,7 +15,6 @@ mod disassembler;
 #[allow(dead_code)] // FIXME
 mod emulator;
 mod error;
-mod evaluator;
 mod evolution;
 mod examples;
 #[allow(dead_code)] // FIXME
@@ -23,6 +22,7 @@ mod fitness;
 mod logger;
 mod macros;
 mod observer;
+mod ontogenesis;
 mod roper;
 #[allow(dead_code)] // FIXME
 mod util;

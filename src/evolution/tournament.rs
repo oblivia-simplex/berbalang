@@ -6,19 +6,18 @@ use rand::Rng;
 use rayon::prelude::*;
 
 use crate::configure::Config;
-use crate::evaluator::Evaluate;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
+use crate::ontogenesis::Develop;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 
 type SketchType = CountMinSketch;
-type Case = (); // TODO
-                // consider an island-pier structure
+// consider an island-pier structure
 
-pub struct Tournament<E: Evaluate<P, SketchType, Case>, P: Phenome + 'static> {
+pub struct Tournament<E: Develop<P, SketchType>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>,
     //BinaryHeap<P>,
     pub config: Arc<Config>,
@@ -32,7 +31,7 @@ pub struct Tournament<E: Evaluate<P, SketchType, Case>, P: Phenome + 'static> {
 // TODO factor TrivialGeography to its own module
 // maybe create a Population trait.
 
-impl<E: Evaluate<P, SketchType, Case>, P: Phenome + Genome + 'static> Tournament<E, P> {
+impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, pier: Pier<P>) -> Self
     where
         Self: Sized,
@@ -77,12 +76,9 @@ impl<E: Evaluate<P, SketchType, Case>, P: Phenome + Genome + 'static> Tournament
             population.choose_combatants(config.tournament.tournament_size, &mut rng);
 
         let mut combatants = evaluator
-            .eval_pipeline(combatants.into_iter())
+            .development_pipeline(combatants.into_iter())
             .into_iter()
-            .map(|mut e| {
-                e.set_tag(rng.gen::<u64>());
-                e
-            })
+            .map(|p| evaluator.apply_fitness_function(p))
             .map(|e| {
                 observer.observe(e.clone());
                 e

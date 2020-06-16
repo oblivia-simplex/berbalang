@@ -7,7 +7,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::configure::{Config, IOProblem, Selection};
-use crate::evaluator::{Evaluate, FitnessFn};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
@@ -15,6 +14,7 @@ use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::{MapFit, Weighted};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
+use crate::ontogenesis::{Develop, FitnessFn};
 use crate::util;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::{hash_seed, hash_seed_rng};
@@ -504,8 +504,8 @@ mod evaluation {
     //#[cfg(not(debug_assertions))]
     use rayon::prelude::*;
 
-    use crate::evaluator::{Evaluate, FitnessFn};
     use crate::examples::linear_gp::machine::Machine;
+    use crate::ontogenesis::{Develop, FitnessFn};
     use crate::util::count_min_sketch::CountMinSketch;
 
     use super::*;
@@ -516,6 +516,9 @@ mod evaluation {
         pub handle: JoinHandle<()>,
         tx: Sender<Creature>,
         rx: Receiver<Creature>,
+        sketch: CountMinSketch,
+        fitness_fn: FitnessFn<Creature, CountMinSketch, Config>,
+        config: Arc<Config>,
     }
 
     // It's important that the problems in the pheno are returned sorted
@@ -589,93 +592,61 @@ mod evaluation {
         creature
     }
 
-    impl Evaluate<Creature, CountMinSketch, ()> for Evaluator {
-        fn evaluate(&mut self, genome: Creature) -> Creature {
+    impl Develop<Creature, CountMinSketch> for Evaluator {
+        fn develop(&self, genome: Creature) -> Creature {
             self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn eval_pipeline<I: Iterator<Item = Creature> + Send>(
-            &mut self,
+        fn development_pipeline<I: Iterator<Item = Creature> + Send>(
+            &self,
             inbound: I,
         ) -> Vec<Creature> {
-            inbound.map(|c| self.evaluate(c)).collect::<Vec<Creature>>()
+            inbound.map(|c| self.develop(c)).collect::<Vec<Creature>>()
         }
-        // fn pipeline<I: Iterator<Item = Creature> + Send>(
-        //     &self,
-        //     inbound: I,
-        // ) -> Box<dyn Iterator<Item = Creature>> {
-        //     Box::new(inbound.map(|p| {
-        //         self.tx.send(p).expect("tx failure");
-        //         self.rx.recv().expect("rx failure")
-        //     }))
-        // }
+
+        fn apply_fitness_function(&mut self, creature: Creature) -> Creature {
+            let mut phenome = (self.fitness_fn)(creature, &mut self.sketch, self.config.clone());
+
+            // register and measure frequency
+            // TODO: move to fitness function and refactor
+            phenome.record_genetic_frequency(&mut self.sketch);
+            let genetic_frequency = phenome.query_genetic_frequency(&self.sketch);
+            phenome
+                .fitness
+                .as_mut()
+                .map(|fit| fit.insert("genetic_freq", genetic_frequency));
+
+            log::debug!("fitness: {:?}", phenome.fitness());
+            phenome
+        }
 
         fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, CountMinSketch, Config>) -> Self {
             let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
             let config = Arc::new(config.clone());
-
+            let conf = config.clone();
             let handle = spawn(move || {
                 // TODO: parameterize sketch construction
-                let mut sketch = CountMinSketch::new(&config);
 
-                for (counter, mut phenome) in our_rx.iter().enumerate() {
+                for mut phenome in our_rx.iter() {
                     if phenome.fitness().is_none() {
-                        phenome = execute(config.clone(), phenome);
+                        phenome = execute(conf.clone(), phenome);
                     }
-                    phenome = (fitness_fn)(phenome, &mut sketch, config.clone());
-                    // register and measure frequency
-                    // TODO: move to fitness function and refactor
-                    phenome.record_genetic_frequency(&mut sketch);
-                    let genetic_frequency = phenome.query_genetic_frequency(&sketch);
-                    phenome
-                        .fitness
-                        .as_mut()
-                        .map(|fit| fit.insert("genetic_freq", genetic_frequency));
-                    // sketch
-                    //     .insert(phenome.problems(), counter)
-                    //     .expect("Failed to update phenomic diversity");
-                    // let _phenomic_frequency = sketch
-                    //     .query(phenome.problems())
-                    //     .expect("Failed to measure phenomic diversity");
-                    //
-                    // // try this:  / FIXME shitty fitness sharing impl //
-                    // let mut sum = 0.0;
-                    // let mut c = 0.0;
-                    // for (answer, problem) in phenome
-                    //     .problems()
-                    //     .as_ref()
-                    //     .unwrap()
-                    //     .iter()
-                    //     .zip(config.problems.as_ref().unwrap().iter())
-                    // {
-                    //     if answer.output == problem.output {
-                    //         sketch.insert(&answer, counter).expect("shit");
-                    //         let score = sketch.query(&answer).expect("fuck");
-                    //         sum += score;
-                    //         c += 1.0;
-                    //     }
-                    // }
-                    // let challenge_rating = if c == 0.0 { 1.0 } else { sum / c };
-                    ////////////////////////////////////////////////////////
-                    // phenome.fitness.as_mut().map(|f| {
-                    //     //f.push(phenomic_frequency);
-                    //     //f[0] += challenge_rating;
-                    //     f.push(challenge_rating);
-                    //     //f[0] += phenomic_frequency;
-                    //     //let _ = f.pop();
-                    //     //f.push(genomic_frequency)
-                    // });
-
-                    //.map(|(_fit, p_freq, g_freq, len)| { *g_freq = genomic_frequency; *p_freq = phenomic_frequency } );
-                    log::debug!("[{}] fitness: {:?}", counter, phenome.fitness());
 
                     our_tx.send(phenome).expect("Channel failure");
                 }
             });
 
-            Self { handle, tx, rx }
+            let sketch = CountMinSketch::new(&config);
+            Self {
+                handle,
+                tx,
+                rx,
+                sketch,
+                fitness_fn,
+                config,
+            }
         }
     }
 }
@@ -749,5 +720,6 @@ pub fn run(config: Config) {
                 world = world.evolve();
             }
         }
+        sel => unimplemented!("{:?} not implemented for {:?}", sel, config.job),
     }
 }

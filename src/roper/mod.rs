@@ -11,12 +11,14 @@ use crate::{
     evolution::{tournament::Tournament, Phenome},
 };
 // the runner
-use crate::evaluator::{Evaluate, FitnessFn};
+use crate::emulator::register_pattern::{RegisterFeature, RegisterPattern};
+use crate::evolution::lexicase::Lexicase;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
+use crate::ontogenesis::{Develop, FitnessFn};
 use crate::util::count_min_sketch::CountMinSketch;
 
 /// The `analysis` module contains the reporting function passed to the observation
@@ -63,10 +65,10 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
     init_soup(&mut config).expect("Failed to initialize the soup");
 
     let (observer, evaluator) = prepare(config.clone());
+    let pier = Pier::spawn(&config);
 
     match config.selection {
         Selection::Tournament => {
-            let pier = Pier::spawn(&config);
             let mut world = Tournament::<evaluation::Evaluator<C>, Creature>::new(
                 config, observer, evaluator, pier,
             );
@@ -94,6 +96,23 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
         Selection::Metropolis => {
             let mut world =
                 Metropolis::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
+            while world.observer.keep_going() {
+                world = world.evolve();
+            }
+        }
+        Selection::Lexicase => {
+            let cases = config
+                .roper
+                .register_pattern
+                .as_ref()
+                .map(|rp| {
+                    let pattern: RegisterPattern = rp.into();
+                    pattern.features()
+                })
+                .expect("No register pattern specified");
+            let mut world = Lexicase::<RegisterFeature, evaluation::Evaluator<C>, Creature>::new(
+                config, observer, evaluator, pier, cases,
+            );
             while world.observer.keep_going() {
                 world = world.evolve();
             }

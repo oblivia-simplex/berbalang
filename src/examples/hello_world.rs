@@ -16,7 +16,7 @@ use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
-use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
+use crate::{evolution::tournament::*, observer::Observer, ontogenesis::Develop};
 
 pub type Fitness = Vec<f64>;
 
@@ -273,7 +273,8 @@ mod evaluation {
     use std::sync::{Arc, Mutex};
     use std::thread::{spawn, JoinHandle};
 
-    use crate::evaluator::FitnessFn;
+    use crate::examples::linear_gp::Creature;
+    use crate::ontogenesis::FitnessFn;
     use crate::util::count_min_sketch::CountMinSketch;
 
     use super::*;
@@ -284,14 +285,20 @@ mod evaluation {
         rx: Receiver<Genotype>,
     }
 
-    impl Evaluate<Genotype, CountMinSketch, ()> for Evaluator<Genotype> {
-        fn evaluate(&mut self, phenome: Genotype) -> Genotype {
+    impl Develop<Genotype, CountMinSketch> for Evaluator<Genotype> {
+        fn develop(&self, phenome: Genotype) -> Genotype {
             self.tx.send(phenome).expect("tx failure");
             self.rx.recv().expect("rx failure")
         }
 
-        fn eval_pipeline<I: Iterator<Item = Genotype>>(&mut self, inbound: I) -> Vec<Genotype> {
-            inbound.map(|p| self.evaluate(p)).collect::<Vec<Genotype>>()
+        fn development_pipeline<I: Iterator<Item = Genotype>>(&self, inbound: I) -> Vec<Genotype> {
+            inbound.map(|p| self.develop(p)).collect::<Vec<Genotype>>()
+        }
+
+        // FIXME: this is an ugly design compromise. Here, we're performing
+        // the fitness assessment inside the spawn loop.
+        fn apply_fitness_function(&mut self, creature: Genotype) -> Genotype {
+            creature
         }
 
         fn spawn(config: &Config, fitness_fn: FitnessFn<Genotype, CountMinSketch, Config>) -> Self {

@@ -7,22 +7,16 @@ use rand_distr::Distribution;
 use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 
 use crate::configure::Config;
-use crate::evaluator::Evaluate;
 use crate::evolution::{Genome, Phenome};
 use crate::increment_epoch_counter;
 use crate::observer::Observer;
+use crate::ontogenesis::Develop;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 
 type SketchType = CountMinSketch;
 
-type Case = (); // TODO
-
-pub struct Roulette<
-    E: Evaluate<P, SketchType, Case>,
-    P: Phenome + Genome + 'static,
-    D: DominanceOrd<P>,
-> {
+pub struct Roulette<E: Develop<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> {
     pub population: Vec<P>,
     pub config: Arc<Config>,
     pub observer: Observer<P>,
@@ -31,7 +25,7 @@ pub struct Roulette<
     pub dominance_order: D,
 }
 
-impl<E: Evaluate<P, SketchType, Case>, P: Phenome + Genome + 'static, D: DominanceOrd<P>>
+impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static, D: DominanceOrd<P>>
     Roulette<E, P, D>
 {
     pub fn new(config: Config, observer: Observer<P>, evaluator: E, dominance_order: D) -> Self {
@@ -61,7 +55,11 @@ impl<E: Evaluate<P, SketchType, Case>, P: Phenome + Genome + 'static, D: Dominan
 
         let mut rng = hash_seed_rng(&population);
         // measure and assign fitness scores to entire population
-        let mut population = evaluator.eval_pipeline(population.into_iter());
+        let mut population = evaluator
+            .development_pipeline(population.into_iter())
+            .into_iter()
+            .map(|p| evaluator.apply_fitness_function(p))
+            .collect::<Vec<P>>();
         // we're going to need to clone the population to send to the observer, anyway
         // so we might as well do that now. this lets us get around certain awkward
         // lifetime constraints imposed on us by the `Front` struct.

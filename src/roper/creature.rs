@@ -13,6 +13,7 @@ use crate::configure::{Config, IOProblem};
 use crate::emulator::loader;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
+use crate::emulator::register_pattern::RegisterFeature;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::{HasScalar, MapFit};
@@ -351,7 +352,7 @@ impl Genome for Creature {
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
-    type Problem = (); // TODO
+    type Problem = RegisterFeature;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -398,5 +399,20 @@ impl Phenome for Creature {
             .unwrap_or(std::f64::MAX)
             - config.fitness.target)
             <= std::f64::EPSILON
+    }
+
+    fn mature(&self) -> bool {
+        self.profile.is_some()
+    }
+
+    fn fails(&self, case: &Self::Problem) -> bool {
+        if let Some(ref profile) = self.profile {
+            !profile
+                .registers
+                .iter()
+                .all(|reg_state| case.check_state(reg_state))
+        } else {
+            true
+        }
     }
 }

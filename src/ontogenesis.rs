@@ -10,7 +10,7 @@ pub type FitnessFn<Pheno, State, Conf> =
 // TODO: Consider replicating design seen in observer
 // using a generic struct instead of a trait
 
-pub trait Evaluate<P: Phenome, S: Sketch, Q> {
+pub trait Develop<P: Phenome, S: Sketch> {
     /// We're assuming that the Phenotype contains a binding to
     /// the resulting fitness score, and that this method sets
     /// that score before returning the phenotype.
@@ -20,13 +20,11 @@ pub trait Evaluate<P: Phenome, S: Sketch, Q> {
     /// is to allow the use of asynchronous evaluation pipelines.
     ///
 
-    fn evaluate(&mut self, ob: P) -> P;
+    fn develop(&self, ob: P) -> P;
 
-    fn eval_with_problem(&mut self, ob: P, problem: Q) -> P {
-        unimplemented!("todo")
-    }
+    fn apply_fitness_function(&mut self, ob: P) -> P;
 
-    fn eval_pipeline<I: 'static + Iterator<Item = P> + Send>(&mut self, inbound: I) -> Vec<P>;
+    fn development_pipeline<I: 'static + Iterator<Item = P> + Send>(&self, inbound: I) -> Vec<P>;
 
     fn spawn(config: &Config, fitness_fn: FitnessFn<P, S, Config>) -> Self;
 }

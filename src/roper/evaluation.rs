@@ -5,14 +5,14 @@ use hashbrown::HashSet;
 use unicorn::Cpu;
 
 use crate::emulator::loader::get_static_memory_image;
-use crate::emulator::register_pattern::{Register, UnicornRegisterState};
-use crate::evaluator::FitnessFn;
+use crate::emulator::register_pattern::{Register, RegisterFeature, UnicornRegisterState};
 use crate::fitness::Weighted;
+use crate::ontogenesis::FitnessFn;
 use crate::{
     configure::Config,
     emulator::hatchery::Hatchery,
-    evaluator::Evaluate,
     evolution::{Genome, Phenome},
+    ontogenesis::Develop,
     util,
     util::count_min_sketch::CountMinSketch,
 };
@@ -146,27 +146,31 @@ pub struct Evaluator<C: 'static + Cpu<'static>> {
     fitness_fn: Box<FitnessFn<Creature, CountMinSketch, Config>>,
 }
 
-type Problem = (); // TODO
+impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<C> {
+    fn develop(&self, creature: Creature) -> Creature {
+        if creature.profile.is_none() {
+            let (mut creature, profile) = self
+                .hatchery
+                .execute(creature)
+                .expect("Failed to evaluate creature");
+            creature.profile = Some(profile);
+            creature
+        } else {
+            creature
+        }
+    }
 
-impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch, Problem> for Evaluator<C> {
-    fn evaluate(&mut self, creature: Creature) -> Creature {
-        let (mut creature, profile) = self
-            .hatchery
-            .execute(creature)
-            .expect("Failed to evaluate creature");
-
-        creature.profile = Some(profile);
-        creature.tag = rand::random::<u64>(); // TODO: rethink this tag thing
+    fn apply_fitness_function(&mut self, creature: Creature) -> Creature {
         (self.fitness_fn)(creature, &mut self.sketch, self.config.clone())
     }
 
-    fn eval_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
-        &mut self,
+    fn development_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
+        &self,
         inbound: I,
     ) -> Vec<Creature> {
         // we need to have the entire sample pass through the count-min sketch
         // before we can use it to measure the frequency of any individual
-        let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(|c| c.profile.is_some());
+        let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(Creature::mature);
         let mut batch = self
             .hatchery
             .execute_batch(fresh_meat.into_iter())
@@ -177,11 +181,9 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch, Problem> for 
                 creature
             })
             .chain(old_meat)
-            .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
+            // NOTE: in progress of decoupling fitness function from development
+            // .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
             .collect::<Vec<_>>();
-        batch
-            .iter_mut()
-            .for_each(|c| c.record_genetic_frequency(&mut self.sketch));
         batch
     }
 
@@ -189,16 +191,6 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch, Problem> for 
         let mut config = config.clone();
         config.roper.parse_register_pattern();
         let hatch_config = Arc::new(config.roper.clone());
-        // fn random_register_state<C: 'static + Cpu<'static>>(
-        //     registers: &[Register<C>],
-        // ) -> HashMap<Register<C>, u64> {
-        //     let mut map = HashMap::new();
-        //     let mut rng = thread_rng();
-        //     for reg in registers.iter() {
-        //         map.insert(reg.clone(), rng.gen::<u64>());
-        //     }
-        //     map
-        // }
         let register_pattern = config.roper.register_pattern();
         let output_registers: Vec<Register<C>> = {
             let mut out_reg: Vec<Register<C>> = config
@@ -213,13 +205,10 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature, CountMinSketch, Problem> for 
                 let regs_in_pat = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
                 out_reg.extend_from_slice(&regs_in_pat);
                 out_reg.dedup();
-                // sort alphabetically (lame)
-                // out_reg.sort_by_key(|r| format!("{:?}", r));
                 out_reg
             } else {
                 out_reg
                 //todo!("implement a conversion method from problem sets to register maps");
-                //out_reg
             }
         };
         let inputs = vec![util::architecture::random_register_state::<u64, C>(
