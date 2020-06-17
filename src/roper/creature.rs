@@ -26,9 +26,9 @@ use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Creature {
+pub struct Creature<T: Clone + Serialize + Deserialize<'static>> {
     //pub crossover_mask: u64,
-    pub chromosome: Vec<u64>,
+    pub chromosome: Vec<T>,
     pub chromosome_parentage: Vec<usize>,
     pub chromosome_mutation: Vec<Option<Mutation>>,
     pub tag: u64,
@@ -42,13 +42,13 @@ pub struct Creature {
     pub num_offspring: usize,
 }
 
-impl Hash for Creature {
+impl<T: Clone + Serialize + Deserialize<'static>> Hash for Creature<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.tag.hash(state)
     }
 }
 
-impl Creature {
+impl Creature<u64> {
     /// Returns the number of alleles executed.
     pub fn num_uniq_alleles_executed(&self) -> usize {
         if let Some(ref profile) = self.profile {
@@ -84,7 +84,7 @@ impl Creature {
     }
 }
 
-impl Pack for Creature {
+impl Pack for Creature<u64> {
     fn pack(&self, word_size: usize, endian: Endian) -> Vec<u8> {
         let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
             (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
@@ -120,7 +120,7 @@ impl Pack for Creature {
     }
 }
 
-impl fmt::Debug for Creature {
+impl fmt::Debug for Creature<u64> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}", self.name)?;
         writeln!(f, "Generation: {}", self.generation)?;
@@ -214,7 +214,7 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
     Ok(())
 }
 
-impl Genome for Creature {
+impl Genome for Creature<u64> {
     type Allele = u64;
 
     fn incr_num_offspring(&mut self, n: usize) {
@@ -372,7 +372,7 @@ impl Distribution<Mutation> for Standard {
     }
 }
 
-impl Phenome for Creature {
+impl Phenome for Creature<u64> {
     type Fitness = Fitness<'static>;
     type Problem = lexi::Task;
 

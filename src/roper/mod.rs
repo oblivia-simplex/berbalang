@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use non_dominated_sort::DominanceOrd;
+use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
 use creature::*;
@@ -39,12 +41,10 @@ mod push;
 
 type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
-crate::make_phenome_heap_friendly!(Creature);
-
-fn prepare<C: 'static + Cpu<'static>>(
+fn prepare<'a, C: 'static + Cpu<'static>>(
     config: Config,
-) -> (Observer<Creature>, evaluation::Evaluator<C>) {
-    let fitness_function: FitnessFn<Creature, CountMinSketch, Config> =
+) -> (Observer<Creature<u64>>, evaluation::Evaluator<C>) {
+    let fitness_function: FitnessFn<Creature<u64>, CountMinSketch, Config> =
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
@@ -56,7 +56,17 @@ fn prepare<C: 'static + Cpu<'static>>(
     (observer, evaluator)
 }
 
-crate::impl_dominance_ord_for_phenome!(Creature, CreatureDominanceOrd);
+pub struct CreatureDominanceOrd;
+
+impl DominanceOrd<Creature<u64>> for CreatureDominanceOrd {
+    fn dominance_ord(&self, a: &Creature<u64>, b: &Creature<u64>) -> std::cmp::Ordering {
+        a.fitness()
+            .partial_cmp(&b.fitness())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
+impl DominanceOrd<&Creature<u64>> for CreatureDominanceOrd {}
 
 pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
     let _ = loader::load_from_path(
@@ -73,7 +83,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
 
     match config.selection {
         Selection::Tournament => {
-            let mut world = Tournament::<evaluation::Evaluator<C>, Creature>::new(
+            let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
                 config, observer, evaluator, pier,
             );
             let mut counter = 0;
@@ -87,7 +97,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
         }
         Selection::Roulette => {
             let mut world =
-                Roulette::<evaluation::Evaluator<C>, Creature, CreatureDominanceOrd>::new(
+                Roulette::<evaluation::Evaluator<C>, Creature<u64>, CreatureDominanceOrd>::new(
                     config,
                     observer,
                     evaluator,
@@ -98,8 +108,9 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             }
         }
         Selection::Metropolis => {
-            let mut world =
-                Metropolis::<evaluation::Evaluator<C>, Creature>::new(config, observer, evaluator);
+            let mut world = Metropolis::<evaluation::Evaluator<C>, Creature<u64>>::new(
+                config, observer, evaluator,
+            );
             while world.observer.keep_going() {
                 world = world.evolve();
             }
@@ -126,7 +137,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             cases.push(lexi::Task::UniqExec(2));
             cases.push(lexi::Task::UniqExec(3));
             log::info!("Register Feature cases: {:#x?}", cases);
-            let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature>::new(
+            let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature<u64>>::new(
                 config, observer, evaluator, pier, cases,
             );
             while world.observer.keep_going() {

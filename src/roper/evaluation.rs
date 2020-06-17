@@ -15,11 +15,11 @@ use crate::{
 
 use super::Creature;
 
-pub fn code_coverage_ff(
-    mut creature: Creature,
+pub fn code_coverage_ff<'a>(
+    mut creature: Creature<u64>,
     sketch: &mut CountMinSketch,
     config: Arc<Config>,
-) -> Creature {
+) -> Creature<u64> {
     if let Some(ref profile) = creature.profile {
         let mut addresses_visited = HashSet::new();
         // TODO: optimize this, maybe parallelize
@@ -63,11 +63,11 @@ pub fn code_coverage_ff(
     creature
 }
 
-pub fn register_pattern_ff(
-    mut creature: Creature,
+pub fn register_pattern_ff<'a>(
+    mut creature: Creature<u64>,
     _sketch: &mut CountMinSketch,
     config: Arc<Config>,
-) -> Creature {
+) -> Creature<u64> {
     // measure fitness
     // for now, let's just handle the register pattern task
     if let Some(ref profile) = creature.profile {
@@ -112,11 +112,11 @@ pub fn register_pattern_ff(
     creature
 }
 
-pub fn register_conjunction_ff(
-    mut creature: Creature,
+pub fn register_conjunction_ff<'a>(
+    mut creature: Creature<u64>,
     _sketch: &mut CountMinSketch,
     config: Arc<Config>,
-) -> Creature {
+) -> Creature<u64> {
     if let Some(ref profile) = creature.profile {
         if let Some(registers) = profile.registers.last() {
             let word_size = get_static_memory_image().word_size * 8;
@@ -144,13 +144,13 @@ pub fn register_conjunction_ff(
 
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
-    hatchery: Hatchery<C, Creature>,
+    hatchery: Hatchery<C, Creature<u64>>,
     sketch: CountMinSketch,
-    fitness_fn: Box<FitnessFn<Creature, CountMinSketch, Config>>,
+    fitness_fn: Box<FitnessFn<Creature<u64>, CountMinSketch, Config>>,
 }
 
-impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<C> {
-    fn develop(&self, creature: Creature) -> Creature {
+impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>, CountMinSketch> for Evaluator<C> {
+    fn develop(&self, creature: Creature<u64>) -> Creature<u64> {
         if creature.profile.is_none() {
             let (mut creature, profile) = self
                 .hatchery
@@ -163,17 +163,18 @@ impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<
         }
     }
 
-    fn apply_fitness_function(&mut self, creature: Creature) -> Creature {
+    fn apply_fitness_function(&mut self, creature: Creature<u64>) -> Creature<u64> {
         (self.fitness_fn)(creature, &mut self.sketch, self.config.clone())
     }
 
-    fn development_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
+    fn development_pipeline<'b, I: 'static + Iterator<Item = Creature<u64>> + Send>(
         &self,
         inbound: I,
-    ) -> Vec<Creature> {
+    ) -> Vec<Creature<u64>> {
         // we need to have the entire sample pass through the count-min sketch
         // before we can use it to measure the frequency of any individual
-        let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(Creature::mature);
+        let (old_meat, fresh_meat): (Vec<Creature<u64>>, _) =
+            inbound.partition(Creature::<u64>::mature);
         let batch = self
             .hatchery
             .execute_batch(fresh_meat.into_iter())
@@ -190,7 +191,10 @@ impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<
         batch
     }
 
-    fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, CountMinSketch, Config>) -> Self {
+    fn spawn(
+        config: &Config,
+        fitness_fn: FitnessFn<Creature<u64>, CountMinSketch, Config>,
+    ) -> Self {
         let mut config = config.clone();
         config.roper.parse_register_pattern();
         let hatch_config = Arc::new(config.roper.clone());
@@ -218,7 +222,7 @@ impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<
             &output_registers,
             config.random_seed,
         )];
-        let hatchery: Hatchery<C, Creature> = Hatchery::new(
+        let hatchery: Hatchery<C, Creature<u64>> = Hatchery::new(
             hatch_config,
             Arc::new(inputs),
             Arc::new(output_registers),
@@ -246,7 +250,7 @@ pub mod lexi {
     }
 
     impl Task {
-        pub fn check_creature(&self, creature: &Creature) -> bool {
+        pub fn check_creature(&self, creature: &Creature<u64>) -> bool {
             match self {
                 Task::Reg(rf) => {
                     if let Some(ref profile) = creature.profile {

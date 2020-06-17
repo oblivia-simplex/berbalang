@@ -131,7 +131,7 @@ pub trait Genome: Debug + Hash {
     fn incr_num_offspring(&mut self, _n: usize);
 }
 
-pub trait Phenome: Clone + Debug + Send + Ord + Serialize + Hash {
+pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
     type Fitness: FitnessScore;
     type Problem: Hash;
     // TODO: generalize fitness. should be able to use vecs, etc.

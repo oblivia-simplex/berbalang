@@ -17,7 +17,7 @@ use crate::emulator::register_pattern::{Register, RegisterState};
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
 pub struct Block {
     pub entry: u64,
     pub size: usize,

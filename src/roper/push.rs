@@ -9,6 +9,9 @@ pub type Stack<T> = Vec<T>;
 pub type Input = Type;
 pub type Output = Type;
 
+// TODO: define a distribution over these ops. WordConst should comprise about half
+// of any genome, I think, since without that, there's no ROP chain.
+
 #[derive(Copy, Clone, Debug, Hash)]
 pub enum Op {
     BoolAnd(Input, Input),
@@ -279,6 +282,12 @@ pub struct MachineState(HashMap<Type, Stack<Val>>);
 // TODO try optimizing by getting rid of the hashmap in favour of just
 // using struct fields
 impl MachineState {
+    pub fn load_args(&mut self, args: &[Val]) {
+        for arg in args {
+            self.push(arg.clone())
+        }
+    }
+
     pub fn flush(&mut self) {
         self.0 = HashMap::new();
         self.0.insert(Type::Word, vec![]);
@@ -305,8 +314,9 @@ impl MachineState {
         self.0.get_mut(&s).expect("missing output stack").push(val)
     }
 
-    pub fn exec(&mut self, code: &Vec<Op>, config: &Config) -> Vec<u64> {
+    pub fn exec(&mut self, code: &[Op], args: &[Val], config: &Config) -> Vec<u64> {
         self.flush();
+        self.load_args(args);
         // Load the exec stack
         for op in code {
             self.push(Val::Exec(op.clone()))
@@ -331,3 +341,5 @@ impl MachineState {
             .collect()
     }
 }
+
+pub mod creature {}
