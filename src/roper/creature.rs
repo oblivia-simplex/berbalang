@@ -6,10 +6,11 @@ use std::io::{BufRead, BufReader};
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use rand::seq::IteratorRandom;
 use rand::Rng;
+use rand_distr::{Distribution, Standard};
 use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
-use crate::configure::{Config, IOProblem};
+use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
@@ -17,8 +18,10 @@ use crate::emulator::register_pattern::RegisterFeature;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::{HasScalar, MapFit};
+use crate::roper::evaluation::lexi;
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
+use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::util::{
     self,
@@ -30,6 +33,7 @@ pub struct Creature {
     //pub crossover_mask: u64,
     pub chromosome: Vec<u64>,
     pub chromosome_parentage: Vec<usize>,
+    pub chromosome_mutation: Vec<Option<Mutation>>,
     pub tag: u64,
     pub name: String,
     pub parents: Vec<String>,
@@ -139,14 +143,18 @@ impl fmt::Debug for Creature {
                 .as_ref()
                 .map(|p| p.gadgets_executed.contains(&allele))
                 .unwrap_or(false);
+            let mutation = self.chromosome_mutation[i];
             writeln!(
                 f,
-                "[{}][{}] 0x{:010x}{}{}",
+                "[{}][{}] 0x{:010x}{}{} {}",
                 i,
                 parent,
                 allele,
                 perms,
-                if was_it_executed { " *" } else { "" }
+                if was_it_executed { " *" } else { "" },
+                mutation
+                    .map(|m| format!("{:?}", m))
+                    .unwrap_or("".to_string()),
             )?;
         }
         if let Some(ref profile) = self.profile {
@@ -242,6 +250,7 @@ impl Genome for Creature {
             //crossover_mask,
             chromosome,
             chromosome_parentage: vec![],
+            chromosome_mutation: vec![None; length],
             tag,
             name,
             parents: vec![],
@@ -279,9 +288,11 @@ impl Genome for Creature {
             };
         let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
         let name = util::name::random(4, &chromosome);
+        let len = chromosome.len();
         Self {
             chromosome,
             chromosome_parentage,
+            chromosome_mutation: vec![None; len],
             tag: rand::random::<u64>(),
             parents: parent_names,
             generation,
@@ -293,66 +304,72 @@ impl Genome for Creature {
     }
 
     fn mutate(&mut self, config: &Config) {
+        let memory = loader::get_static_memory_image();
+        let word_size = memory.word_size;
+        let endian = memory.endian;
         let mut rng = hash_seed_rng(&self);
-        let i = rng.gen_range(0, self.chromosome.len());
-
-        match rng.gen_range(0, 6) {
-            0 => {
-                // Dereference mutation
-                let memory = loader::get_static_memory_image();
-                if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
-                    if bytes.len() > 8 {
-                        let endian = endian(config.roper.arch, config.roper.mode);
-                        let word_size = word_size_in_bytes(config.roper.arch, config.roper.mode);
-                        if let Some(word) = read_integer(bytes, endian, word_size) {
-                            self.chromosome[i] = word;
+        for i in 0..self.len() {
+            if !levy_decision(&mut rng, self.len(), config.mutation_exponent) {
+                continue;
+            }
+            match rand::random() {
+                Mutation::Dereference => {
+                    if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
+                        if bytes.len() > 8 {
+                            if let Some(word) = read_integer(bytes, endian, word_size) {
+                                self.chromosome[i] = word;
+                            }
                         }
                     }
                 }
-            }
-            1 => {
-                // Indirection mutation
-                let memory = loader::get_static_memory_image();
-                let word_size = word_size_in_bytes(config.roper.arch, config.roper.mode);
-                let mut bytes = vec![0; word_size];
-                let word = self.chromosome[i];
-                write_integer(
-                    endian(config.roper.arch, config.roper.mode),
-                    word_size,
-                    word,
-                    &mut bytes,
-                );
-                if let Some(address) = memory.seek_from_random_address(&bytes, &self) {
-                    self.chromosome[i] = address;
+                Mutation::Indirection => {
+                    let mut bytes = vec![0; word_size];
+                    let word = self.chromosome[i];
+                    write_integer(endian, word_size, word, &mut bytes);
+                    if let Some(address) = memory.seek_from_random_address(&bytes, &self) {
+                        self.chromosome[i] = address;
+                    }
+                }
+                Mutation::AddressAdd => {
+                    self.chromosome[i] = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
+                }
+                Mutation::AddressSub => {
+                    self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+                }
+                Mutation::BitFlip => {
+                    self.chromosome[i] ^= 1 << rng.gen_range(0, word_size as u64 * 8)
                 }
             }
-            2 => {
-                self.chromosome[i] = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
-            }
-            3 => {
-                self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
-            }
-            4 => {
-                if rng.gen::<bool>() {
-                    self.chromosome[i] >>= 1;
-                } else {
-                    self.chromosome[i] <<= 1;
-                }
-            }
-            5 => {
-                self.chromosome[i] = loader::get_static_memory_image().random_address(None, &self);
-            }
-            // 5 => {
-            //     self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-            // }
-            m => unimplemented!("mutation {} out of range, but this should never happen", m),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum Mutation {
+    Dereference,
+    Indirection,
+    AddressAdd,
+    AddressSub,
+    BitFlip,
+}
+
+impl Distribution<Mutation> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Mutation {
+        use Mutation::*;
+        match rng.gen_range(0, 5) {
+            0 => Dereference,
+            1 => Indirection,
+            2 => AddressAdd,
+            3 => AddressSub,
+            4 => BitFlip,
+            n => unreachable!("no, can't get {}", n),
         }
     }
 }
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
-    type Problem = RegisterFeature;
+    type Problem = lexi::Task;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -406,13 +423,14 @@ impl Phenome for Creature {
     }
 
     fn fails(&self, case: &Self::Problem) -> bool {
-        if let Some(ref profile) = self.profile {
-            !profile
-                .registers
-                .iter()
-                .all(|reg_state| case.check_state(reg_state))
-        } else {
-            true
-        }
+        !case.check_creature(self)
+        // if let Some(ref profile) = self.profile {
+        //     !profile
+        //         .registers
+        //         .iter()
+        //         .all(|reg_state| case.check_state(reg_state))
+        // } else {
+        //     true
+        // }
     }
 }

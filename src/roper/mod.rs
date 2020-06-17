@@ -19,6 +19,7 @@ use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
 use crate::ontogenesis::{Develop, FitnessFn};
+use crate::roper::evaluation::lexi;
 use crate::util::count_min_sketch::CountMinSketch;
 
 /// The `analysis` module contains the reporting function passed to the observation
@@ -101,16 +102,28 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             }
         }
         Selection::Lexicase => {
-            let cases = config
+            let observer = Observer::spawn(
+                &config,
+                Box::new(analysis::lexicase::report_fn),
+                CreatureDominanceOrd,
+            );
+            let mut cases = config
                 .roper
                 .register_pattern
                 .as_ref()
                 .map(|rp| {
                     let pattern: RegisterPattern = rp.into();
-                    pattern.features()
+                    pattern
+                        .features()
+                        .into_iter()
+                        .map(lexi::Task::Reg)
+                        .collect::<Vec<lexi::Task>>()
                 })
                 .expect("No register pattern specified");
-            let mut world = Lexicase::<RegisterFeature, evaluation::Evaluator<C>, Creature>::new(
+            cases.push(lexi::Task::UniqExec(2));
+            cases.push(lexi::Task::UniqExec(3));
+            log::info!("Register Feature cases: {:#x?}", cases);
+            let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature>::new(
                 config, observer, evaluator, pier, cases,
             );
             while world.observer.keep_going() {

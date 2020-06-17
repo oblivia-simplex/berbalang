@@ -4,7 +4,7 @@ use std::hash::Hash;
 use rand::Rng;
 use serde::Serialize;
 
-use crate::configure::{Config, IOProblem};
+use crate::configure::Config;
 use crate::fitness::FitnessScore;
 use crate::util::count_min_sketch::Sketch;
 use crate::util::random::{hash_seed_rng, Prng};
@@ -85,9 +85,7 @@ pub trait Genome: Debug + Hash {
     {
         let mut rng = hash_seed_rng(parents);
         let mut child = Self::crossover(parents, config);
-        if rng.gen_range(0.0, 1.0) < config.mutation_rate() {
-            child.mutate(&config);
-        }
+        child.mutate(&config);
         child
     }
 

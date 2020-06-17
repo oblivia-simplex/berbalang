@@ -20,7 +20,7 @@ type SketchType = CountMinSketch;
 pub struct Tournament<E: Develop<P, SketchType>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>,
     //BinaryHeap<P>,
-    pub config: Arc<Config>,
+    pub config: Config,
     pub best: Option<P>,
     pub iteration: usize,
     pub observer: Observer<P>,
@@ -49,7 +49,7 @@ impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> 
 
         Self {
             population,
-            config: Arc::new(config),
+            config,
             best: None,
             iteration: 0,
             observer,
@@ -132,6 +132,7 @@ impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> 
             .take(config.num_parents)
             .collect::<Vec<&P>>();
 
+        // TODO: Experimental: tuning mutation rate by soup size
         let offspring: Vec<P> = iter::repeat(())
             .take(config.num_offspring)
             .map(|()| Genome::mate(&parents, &config))

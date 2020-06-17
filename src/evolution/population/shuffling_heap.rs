@@ -3,17 +3,18 @@
 //!
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::convert::identity;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
-use bson::spec::ElementType::Binary;
 use rand::Rng;
-use rayon::iter::{FromParallelIterator, IntoParallelIterator};
+use rayon::iter::{FromParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::util::random::{hash_seed, hash_seed_rng, Prng};
+use crate::util::random::{hash_seed_rng, Prng};
 
 type Tag = u64;
 
+#[derive(Debug)]
 struct Cell<P> {
     tag: Tag,
     val: P,
@@ -39,11 +40,18 @@ impl<P> Ord for Cell<P> {
     }
 }
 
+#[derive(Debug)]
 pub struct ShufflingHeap<P> {
     heap: BinaryHeap<Cell<P>>,
     rng: Prng,
     count: usize,
 }
+
+// impl<P: Debug> fmt::Debug for ShufflingHeap<P> {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+//         write!(f, "ShufflingHeap { count: {}, rng: {:?")
+//     }
+// }
 
 impl<P> ShufflingHeap<P> {
     pub fn new<H: Hash>(seed: &H) -> Self {
@@ -57,8 +65,11 @@ impl<P> ShufflingHeap<P> {
     }
 
     pub fn pop(&mut self) -> Option<P> {
-        self.count -= 1;
-        self.heap.pop().map(|Cell { tag, val }| val)
+        let res = self.heap.pop().map(|Cell { val, .. }| val);
+        if res.is_some() {
+            self.count -= 1;
+        }
+        res
     }
 
     pub fn push(&mut self, item: P) {
@@ -132,5 +143,15 @@ impl<P> Default for ShufflingHeap<P> {
         // be fixed.
         let seed = rand::random::<u64>();
         ShufflingHeap::new(&seed)
+    }
+}
+
+impl<P: Hash + Send> FromParallelIterator<P> for ShufflingHeap<P> {
+    fn from_par_iter<I>(par_iter: I) -> Self
+    where
+        I: IntoParallelIterator<Item = P>,
+    {
+        let items: Vec<P> = par_iter.into_par_iter().map(identity).collect::<Vec<P>>();
+        items.into_iter().collect::<ShufflingHeap<P>>()
     }
 }

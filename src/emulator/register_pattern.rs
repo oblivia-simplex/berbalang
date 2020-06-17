@@ -420,6 +420,15 @@ mod test {
         pub pattern: RegisterPatternConfig,
     }
 
+    fn initialize_mem_image() {
+        let _ = loader::load_from_path(
+            "./binaries/X86/MODE_64/bash",
+            0x1000,
+            unicorn::Arch::X86,
+            unicorn::Mode::MODE_64,
+        );
+    }
+
     #[test]
     fn test_register_value_parser() {
         let rvs = vec![
@@ -477,6 +486,48 @@ mod test {
         let res = register_pattern.distance_from_register_state(&register_state);
 
         assert!(res < std::f64::EPSILON, "nonzero score on match");
+    }
+
+    #[test]
+    fn test_register_features() {
+        initialize_mem_image();
+        let register_pattern = RegisterPattern(hashmap! {
+            "RAX".to_string() => RegisterValue {
+                val: 0xbeef,
+                deref: 1,
+            },
+
+            "RBX".to_string() => RegisterValue {
+                val: 3,
+                deref: 2,
+            },
+        });
+
+        let features = register_pattern.features();
+
+        println!(
+            "register_pattern: {:#x?}, features: {:#x?}",
+            register_pattern, features
+        );
+
+        let register_state = RegisterState(hashmap! {
+            "RAX".to_string() => vec![0xff, 0xbeef, 0xdead],
+            "RBX".to_string() => vec![1, 2, 3],
+        });
+
+        let res = features
+            .iter()
+            .all(|feat| feat.check_state(&register_state));
+        assert!(res);
+
+        let register_state = RegisterState(hashmap! {
+            "RAX".to_string() => vec![0xff, 0xbee8, 0xdead],
+            "RBX".to_string() => vec![1, 2, 4],
+        });
+        let res = features
+            .iter()
+            .all(|feat| feat.check_state(&register_state));
+        assert!(!res);
     }
 
     #[test]

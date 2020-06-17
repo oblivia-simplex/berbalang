@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant};
@@ -395,13 +395,12 @@ pub mod tools {
 }
 
 pub mod hooking {
-    use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use capstone::Insn;
     use hashbrown::HashSet;
     use unicorn::{CodeHookType, MemHookType, MemType, Protection};
 
     use crate::emulator::profiler::Block;
-    use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
+    use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 
     use super::*;
 

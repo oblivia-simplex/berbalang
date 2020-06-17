@@ -9,12 +9,13 @@ use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, IOProblem};
+use crate::configure::Config;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
 use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::{evolution::tournament::*, observer::Observer, ontogenesis::Develop};
 
@@ -147,36 +148,39 @@ impl Genome for Genotype {
         }
     }
 
-    fn mutate(&mut self, _config: &Config) {
+    fn mutate(&mut self, config: &Config) {
         let mut rng = hash_seed_rng(&self);
         let mutation = rng.gen::<u8>() % 4;
-        match mutation {
-            // replace some character with random character
-            0 => unsafe {
-                let i: usize = rng.gen::<usize>() % self.len();
-                let bytes = self.genes.as_bytes_mut();
-                bytes[i] = rng.gen_range(0x20, 0x7e);
-            },
-            // swaps halves of the string
-            1 => {
-                let tmp = self.genes.split_off(self.genes.len() / 2);
-                self.genes = format!("{}{}", self.genes, tmp);
+        for i in 0..self.len() {
+            if !levy_decision(&mut rng, self.len(), config.mutation_exponent) {
+                continue;
             }
-            // swaps two random characters in the string
-            2 => unsafe {
-                let len = self.genes.len();
-                let bytes = self.genes.as_mut_vec();
-                let i = rng.gen::<usize>() % len;
-                let j = rng.gen::<usize>() % len;
-                if i != j {
-                    bytes.swap(i, j)
+            match mutation {
+                // replace some character with random character
+                0 => unsafe {
+                    let bytes = self.genes.as_bytes_mut();
+                    bytes[i] = rng.gen_range(0x20, 0x7e);
+                },
+                // swaps halves of the string
+                1 => {
+                    let tmp = self.genes.split_off(self.genes.len() / 2);
+                    self.genes = format!("{}{}", self.genes, tmp);
                 }
-            },
-            // reverse the string
-            3 => {
-                self.genes = self.genes.chars().rev().collect::<String>();
+                // swaps two random characters in the string
+                2 => unsafe {
+                    let len = self.genes.len();
+                    let bytes = self.genes.as_mut_vec();
+                    let j = rng.gen::<usize>() % len;
+                    if i != j {
+                        bytes.swap(i, j)
+                    }
+                },
+                // reverse the string
+                3 => {
+                    self.genes = self.genes.chars().rev().collect::<String>();
+                }
+                _ => unreachable!("Unreachable"),
             }
-            _ => unreachable!("Unreachable"),
         }
     }
 }
@@ -273,7 +277,6 @@ mod evaluation {
     use std::sync::{Arc, Mutex};
     use std::thread::{spawn, JoinHandle};
 
-    use crate::examples::linear_gp::Creature;
     use crate::ontogenesis::FitnessFn;
     use crate::util::count_min_sketch::CountMinSketch;
 

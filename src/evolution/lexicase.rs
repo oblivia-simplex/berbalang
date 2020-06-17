@@ -5,23 +5,20 @@
 //! fitness cases. This is what we need, for instance, for ROPER's "register_pattern" task. It
 //! shouldn't be hard to generalize the algorithm beyond that.
 //!
-use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
 
 use rand::Rng;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::configure::Config;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::population::shuffling_heap::ShufflingHeap;
 use crate::evolution::{Genome, Phenome};
-use crate::increment_epoch_counter;
 use crate::observer::Observer;
 use crate::ontogenesis::Develop;
 use crate::util::count_min_sketch::CountMinSketch;
-use crate::util::random::{hash_seed, hash_seed_rng};
+use crate::util::random::hash_seed_rng;
 
 pub struct Lexicase<Q: Hash + Debug, E: Develop<P, CountMinSketch>, P: Phenome + 'static> {
     pub population: ShufflingHeap<P>,
@@ -30,7 +27,7 @@ pub struct Lexicase<Q: Hash + Debug, E: Develop<P, CountMinSketch>, P: Phenome +
     pub best: Option<P>,
     pub iteration: usize,
     pub observer: Observer<P>,
-    pub evaluator: E,
+    pub womb: E,
     pub pier: Pier<P>,
 }
 
@@ -43,7 +40,7 @@ impl<
     pub fn new(
         config: Config,
         observer: Observer<P>,
-        mut evaluator: E,
+        womb: E,
         pier: Pier<P>,
         problems: Vec<Q>,
     ) -> Self
@@ -51,12 +48,18 @@ impl<
         Self: Sized,
     {
         log::debug!("Initializing population");
-        let population: ShufflingHeap<P> = (0..config.pop_size)
-            .map(|i| {
-                log::debug!("creating phenome {}/{}", i, config.pop_size);
-                let phenome = P::random(&config, i);
-                log::debug!("Developing phenome {}/{}", i, config.pop_size);
-                let phenome = evaluator.develop(phenome);
+        let config = Arc::new(config);
+        let conf = config.clone();
+        let pop_size = config.pop_size;
+        let population: ShufflingHeap<P> = womb
+            .development_pipeline((0..pop_size).map(move |i| {
+                log::debug!("creating phenome {}/{}", i, pop_size);
+                let phenome = P::random(&conf, i);
+
+                phenome
+            }))
+            .into_iter()
+            .map(|phenome| {
                 observer.observe(phenome.clone());
                 phenome
             })
@@ -68,11 +71,11 @@ impl<
         Self {
             population,
             problems,
-            config: Arc::new(config),
+            config,
             best: None,
             iteration: 0,
             observer,
-            evaluator,
+            womb,
             pier,
         }
     }
@@ -85,7 +88,7 @@ impl<
             best,
             iteration,
             mut observer,
-            evaluator,
+            womb,
             pier,
         } = self;
 
@@ -96,49 +99,60 @@ impl<
 
         let mut next_population = ShufflingHeap::new(&rng.gen::<u64>());
         let mut next_problems = ShufflingHeap::new(&rng.gen::<u64>());
-        while population.len() > config.num_parents {
-            while problems.len() > 0 {
-                if let Some(problem) = problems.pop() {
-                    // In most cases, the developed phenotypes won't actually need re-development,
-                    // and so `development_pipeline` will act like a simple pass-through.
-                    let (mut fail, pass): (ShufflingHeap<P>, ShufflingHeap<P>) = evaluator
-                        .development_pipeline(population.into_iter())
-                        .into_iter()
-                        // Here, we split the population into those that pass the test, and those
-                        // that fail it.
-                        .partition(|mut creature| creature.fails(&problem));
-                    log::debug!(
-                        "iteration {}, problem {:?}, # fail: {}, # pass: {}",
-                        iteration,
-                        problem,
-                        fail.len(),
-                        pass.len()
-                    );
-                    next_problems.push(problem);
+        //log::debug!("problems: {:?}", problems);
+        let num_problems = problems.len();
+        let mut problem_counter = 0;
+        let mut problems_solved = 0;
+        while let Some(problem) = problems.pop() {
+            problem_counter += 1;
+            // In most cases, the developed phenotypes won't actually need re-development,
+            // and so `development_pipeline` will act like a simple pass-through.
+            let (mut fail, mut pass): (ShufflingHeap<P>, ShufflingHeap<P>) = womb
+                .development_pipeline(population.into_iter())
+                .into_iter()
+                // Here, we split the population into those that pass the test, and those
+                // that fail it.
+                .partition(|creature| creature.fails(&problem));
 
-                    population = pass;
-                    if problems.len() == 0 && population.len() > 0 {
-                        // if we just popped the last problem
-                        // and we have some creatures who have passed,
-                        // then the evolutionary process is complete!
-                        log::info!("Solution(s) found!");
-                        while let Some(champion) = population.pop() {
-                            log::info!("{:?}", champion);
-                            // TODO: Log this! have the observer handle it.
-                        }
-                        observer.stop_evolution();
-                    }
+            next_problems.push(problem);
+            if pass.len() > 0 {
+                problems_solved += 1;
+            }
 
-                    while population.len() < config.num_parents {
-                        population.push(fail.pop().unwrap());
-                    }
-                    next_population.extend(fail.into_iter());
-                    if population.len() == config.num_parents {
-                        break;
-                    }
+            // log::debug!("# fail: {}, # pass: {}", fail.len(), pass.len());
+            if problems.len() == 0 && pass.len() > 0 {
+                // if we just popped the last problem
+                // and we have some creatures who have passed,
+                // then the evolutionary process is complete!
+                log::info!("Solution(s) found!");
+                while let Some(champion) = pass.pop() {
+                    log::info!("{:?}", champion);
+
+                    // TODO: Log this! have the observer handle it.
                 }
+                observer.stop_evolution();
+                population = pass;
+                break;
+            }
+
+            while pass.len() < config.num_parents {
+                pass.push(fail.pop().unwrap());
+            }
+            population = pass;
+            next_population.extend(fail.into_iter());
+            if population.len() == config.num_parents {
+                break;
             }
         }
+        // If any problems are remaining, dump them into the next_problems heap,
+        // shuffling them in the process.
+        log::debug!(
+            "iteration {}: solved {} of {} problems",
+            iteration,
+            problems_solved,
+            num_problems,
+        );
+        problems.into_iter().for_each(|p| next_problems.push(p));
         // TODO: I don't really know the best way to pass everything off
         // to the observer. Cloning the entire population each generation
         // feels excessive. Is excessive. I could just clone and observe the
@@ -182,26 +196,34 @@ impl<
                 // Should we observe the dead?
                 //observer.observe(next_population.pop());
                 let _dead = next_population.pop();
-                let offspring = evaluator.develop(offspring);
+                let offspring = womb.develop(offspring);
                 observer.observe(offspring.clone());
                 next_population.push(offspring);
             }
+            // Return the parents to the population
+            next_population.extend(parents.into_iter());
             // A generation should be considered to have elapsed once
             // `pop_size` offspring have been spawned.
             if iteration % (config.pop_size / config.num_offspring) == 0 {
                 crate::increment_epoch_counter();
-                if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
-                    log::info!("Attempting migration...");
-                    if let Some(immigrant) = pier.disembark() {
-                        log::info!("Found immigrant on pier");
-                        let emigrant = next_population.pop().unwrap();
-                        if let Err(_emigrant) = pier.embark(emigrant) {
-                            log::error!("emigration failure, do something!");
-                        }
-                        next_population.push(immigrant);
-                    }
-                }
+                // if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+                //     log::info!("Attempting migration...");
+                //     if let Some(immigrant) = pier.disembark() {
+                //         log::info!("Found immigrant on pier");
+                //         let emigrant = next_population.pop().unwrap();
+                //         if let Err(_emigrant) = pier.embark(emigrant) {
+                //             log::error!("emigration failure, do something!");
+                //         }
+                //         next_population.push(immigrant);
+                //     }
+                // }
             }
+
+            debug_assert_eq!(
+                next_population.len(),
+                config.pop_size,
+                "the population is leaking!"
+            );
         }
 
         Self {
@@ -211,7 +233,7 @@ impl<
             best,
             iteration: iteration + 1,
             observer,
-            evaluator,
+            womb,
             pier,
         }
     }

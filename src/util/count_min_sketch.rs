@@ -1,8 +1,9 @@
-use crate::get_epoch_counter;
-//use std::collections::hash_map::DefaultHasher;
-use crate::configure::Config;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+//use std::collections::hash_map::DefaultHasher;
+use crate::configure::Config;
+use crate::get_epoch_counter;
 
 pub trait Sketch: Send + Sync + Clone {
     fn insert<T: Hash>(&mut self, thing: T);
@@ -127,9 +128,13 @@ impl DecayingSketch {
     pub fn new(config: &Config) -> Self {
         let depth = suggest_depth(config.pop_size);
         let width = suggest_width(config.pop_size);
+        let half_life = config.pop_size as f64; // TODO add config field for this
+        Self::with_dimensions(depth, width, half_life)
+    }
+
+    pub fn with_dimensions(depth: usize, width: usize, half_life: f64) -> Self {
         let time_table = vec![vec![0_usize; width]; depth];
         let freq_table = vec![vec![0_f64; width]; depth];
-        let half_life = config.pop_size as f64; // TODO add config field for this
         Self {
             depth,
             width,
@@ -231,6 +236,10 @@ impl CountMinSketch {
     pub fn new(config: &Config) -> Self {
         let depth = suggest_depth(config.pop_size);
         let width = suggest_width(config.pop_size);
+        Self::with_dimensions(depth, width)
+    }
+
+    pub fn with_dimensions(depth: usize, width: usize) -> Self {
         Self {
             table: vec![vec![0; width]; depth],
             depth,
@@ -279,8 +288,9 @@ pub fn suggest_depth(expected_count: usize) -> usize {
 mod test {
     use std::iter;
 
-    use super::*;
     use crate::increment_epoch_counter;
+
+    use super::*;
 
     #[test]
     fn test_decaying_count_min_sketch() {
@@ -292,8 +302,8 @@ mod test {
 
         let depth = suggest_depth(count) / 2;
         let width = suggest_width(count) / 2;
-        let mut d_sketch = DecayingSketch::new(depth, width, 2.0);
-        let mut c_sketch = CountMinSketch::new(depth, width);
+        let mut d_sketch = DecayingSketch::with_dimensions(depth, width, 2.0);
+        let mut c_sketch = CountMinSketch::with_dimensions(depth, width);
 
         increment_epoch_counter();
         increment_epoch_counter();

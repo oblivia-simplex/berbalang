@@ -43,7 +43,8 @@ pub struct Config {
     pub max_init_len: usize,
     pub max_length: usize,
     pub min_init_len: usize,
-    pub mut_rate: f32,
+    // See the comments in util::levy_flight for an explanation
+    pub mutation_exponent: f64,
     pub num_offspring: usize,
     pub num_parents: usize,
     pub observer: ObserverConfig,
@@ -263,10 +264,6 @@ impl Config {
     pub fn assert_invariants(&self) {
         assert!(self.tournament.tournament_size >= self.num_offspring + 2);
         //assert_eq!(self.num_offspring, 2); // all that's supported for now
-    }
-
-    pub fn mutation_rate(&self) -> f32 {
-        self.mut_rate
     }
 
     pub fn crossover_rate(&self) -> f32 {

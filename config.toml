@@ -6,10 +6,12 @@
 job = "Roper"
 #job = "LinearGp"
 #selection = "Roulette"
-#selection = "Tournament" # currently inefficient
-selection = "Lexicase"
+selection = "Tournament" # currently inefficient
+#selection = "Lexicase"
 #selection = "Metropolis"
-mut_rate = 0.05
+## should be between 1 and 3
+# The mutation_exponent is the lambda for a Levy Flight mutation pattern.
+mutation_exponent = 1.0
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
@@ -18,11 +20,14 @@ min_init_len = 10
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x1000
+pop_size = 0x100
 num_offspring = 2
 num_parents = 2
 max_length = 100
-num_epochs = 100 # = infinite
+num_epochs = 500 # = infinite
+# season length is only used by 
+# SeasonalSketch, which I don't
+# think actually works
 season_length = 100 # tweak
 # add this:
 
@@ -43,7 +48,7 @@ dynamic = true # TODO: use this to decide whether to re-evaluate fitness
 ##
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "(5 - min(5, x)) / ((1+E)/ 100)" #"-1 * min(3, x)"
+gadgets_executed = "(5 - min(5, x))" # / ((1+E)/ 100)" #"-1 * min(3, x)"
 register_error = "x"
 #mem_ratio_written = "0"
 crash_count = "x"
@@ -77,8 +82,8 @@ max_steps = 0x1000
 dump_population = false
 dump_soup = true 
 data_directory = "~/logs"
-window_size  = 3000
-report_every = 3000
+window_size  = 512
+report_every = 512
 dump_every = 1000000
 
 [data]
@@ -96,21 +101,21 @@ arch = "X86"
 mode = "MODE_32"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "./binaries/X86/MODE_32/tshark"
+binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 num_workers = 41
 num_emulators = 31
-max_emu_steps = 0x100_000
-millisecond_timeout = 500
+max_emu_steps = 0x10_000
+millisecond_timeout = 100
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
-output_registers = ["EAX", "EDI", "ESI" , "EIP", "EBP", "ESP"]
+output_registers = ["EAX"]
   [roper.register_pattern] 
 #  RAX = "0x3b"                   # execve syscall number
-  EAX = "0x0b"
-  EBX = "&'/bin/sh"
+  EAX = "0xb"
+#  EBX = "&'/bin/sh"
   ECX = "&0"
   EDX = "0"
 #  RSI = "&&0"                  # an empty argv array

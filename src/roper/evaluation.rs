@@ -5,16 +5,12 @@ use hashbrown::HashSet;
 use unicorn::Cpu;
 
 use crate::emulator::loader::get_static_memory_image;
-use crate::emulator::register_pattern::{Register, RegisterFeature, UnicornRegisterState};
+use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::fitness::Weighted;
 use crate::ontogenesis::FitnessFn;
 use crate::{
-    configure::Config,
-    emulator::hatchery::Hatchery,
-    evolution::{Genome, Phenome},
-    ontogenesis::Develop,
-    util,
-    util::count_min_sketch::CountMinSketch,
+    configure::Config, emulator::hatchery::Hatchery, evolution::Phenome, ontogenesis::Develop,
+    util, util::count_min_sketch::CountMinSketch,
 };
 
 use super::Creature;
@@ -171,7 +167,7 @@ impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<
         // we need to have the entire sample pass through the count-min sketch
         // before we can use it to measure the frequency of any individual
         let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(Creature::mature);
-        let mut batch = self
+        let batch = self
             .hatchery
             .execute_batch(fresh_meat.into_iter())
             .expect("execute batch failure")
@@ -228,6 +224,39 @@ impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<
             hatchery,
             sketch,
             fitness_fn: Box::new(fitness_fn),
+        }
+    }
+}
+
+pub mod lexi {
+    use crate::emulator::profiler::Profile;
+    use crate::emulator::register_pattern::RegisterFeature;
+    use crate::roper::creature::Creature;
+
+    #[derive(Clone, Debug, Hash)]
+    pub enum Task {
+        Reg(RegisterFeature),
+        UniqExec(usize),
+    }
+
+    impl Task {
+        pub fn check_creature(&self, creature: &Creature) -> bool {
+            match self {
+                Task::Reg(rf) => {
+                    if let Some(ref profile) = creature.profile {
+                        profile.registers.iter().all(|state| rf.check_state(state))
+                    } else {
+                        false
+                    }
+                }
+                Task::UniqExec(n) => {
+                    if let Some(ref profile) = creature.profile {
+                        profile.gadgets_executed.len() >= *n
+                    } else {
+                        false
+                    }
+                }
+            }
         }
     }
 }

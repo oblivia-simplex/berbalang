@@ -216,7 +216,7 @@ mod test {
             deme: (0..2048).map(Option::Some).collect::<Vec<Option<usize>>>(),
             vacancies: vec![],
         };
-        let mut rng = hash_seed_rng(&0xdeadbeef);
+        let mut rng = hash_seed_rng(&0xbeef);
         for i in 0..100_000 {
             let mut range: Vec<usize> = geo.get_range(&mut rng);
 

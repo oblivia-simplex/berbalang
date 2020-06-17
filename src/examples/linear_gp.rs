@@ -17,6 +17,7 @@ use crate::observer::{Observer, ReportFn, Window};
 use crate::ontogenesis::{Develop, FitnessFn};
 use crate::util;
 use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::levy_flight::levy_decision;
 use crate::util::random::{hash_seed, hash_seed_rng};
 
 pub type Fitness<'a> = Weighted<'a>;
@@ -439,10 +440,15 @@ impl Genome for Creature {
 
     fn mutate(&mut self, config: &Config) {
         let mut rng = hash_seed_rng(&self);
-        let i = rng.gen_range(0, self.len());
+        //let i = rng.gen_range(0, self.len());
         //self.crossover_mask ^= 1 << rng.gen_range(0, 64);
-        let seed = hash_seed(&self);
-        self.chromosome_mut()[i].mutate(&config.linear_gp, &seed);
+        for i in 0..self.len() {
+            if !levy_decision(&mut rng, self.len(), config.mutation_exponent) {
+                continue;
+            }
+            let seed = hash_seed(&rng.gen::<u64>());
+            self.chromosome_mut()[i].mutate(&config.linear_gp, &seed);
+        }
     }
 }
 

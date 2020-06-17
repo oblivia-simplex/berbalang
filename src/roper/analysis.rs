@@ -166,3 +166,16 @@ pub fn report_fn(
         log::debug!("Memory status: {:#x?}", stat);
     }
 }
+
+pub mod lexicase {
+    use super::*;
+
+    pub fn report_fn(
+        window: &Window<Creature, super::CreatureDominanceOrd>,
+        _counter: usize,
+        _config: &Config,
+    ) {
+        let soup = window.soup();
+        log::info!("soup size: {}", soup.len());
+    }
+}

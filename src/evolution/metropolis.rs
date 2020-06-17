@@ -39,7 +39,7 @@ impl<E: Develop<P, CountMinSketch>, P: Phenome + Genome + 'static> Metropolis<E,
             config,
             iteration,
             observer,
-            mut evaluator,
+            evaluator,
             best,
         } = self;
 
