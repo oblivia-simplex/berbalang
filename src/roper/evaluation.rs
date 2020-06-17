@@ -52,8 +52,8 @@ pub fn code_coverage_ff(
         let gadgets_executed = profile.gadgets_executed.len();
         fitness.insert("gadgets_executed", gadgets_executed as f64);
 
-        let mem_ratio_written = 1.0 - profile.mem_ratio_written();
-        fitness.insert("mem_ratio_written", mem_ratio_written);
+        let mem_write_ratio = 1.0 - profile.mem_write_ratio();
+        fitness.insert("mem_write_ratio", mem_write_ratio);
 
         creature.set_fitness(fitness);
 
@@ -83,8 +83,13 @@ pub fn register_pattern_ff(
                 .insert("register_error", register_error);
             // FIXME broken // fitness_vector.push(reg_freq);
 
-            let mem_ratio_written = 1.0 - profile.mem_ratio_written();
-            weighted_fitness.insert("mem_ratio_written", mem_ratio_written);
+            // get the number of times a referenced value, aside from 0, has been written
+            // to memory
+            let writes_of_referenced_values =
+                pattern.count_writes_of_referenced_values(&profile, true);
+            weighted_fitness
+                .scores
+                .insert("important_writes", writes_of_referenced_values as f64);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
@@ -114,21 +119,23 @@ pub fn register_conjunction_ff(
 ) -> Creature {
     if let Some(ref profile) = creature.profile {
         if let Some(registers) = profile.registers.last() {
-            let conj = registers
-                .0
-                .values()
-                .fold(0xffff_ffff_ffff_ffff, |a, b| a & b[0]);
-            let score = conj.count_zeros() as f64;
+            let word_size = get_static_memory_image().word_size * 8;
+            let mask = 2 ^ word_size - 1;
+            let conj = registers.0.values().fold(mask as u64, |a, b| a & b[0]);
+            let score = conj.count_zeros() as usize;
+            // ignore bits outside of the register's word size
+            let ignore_bits = 64 - word_size;
+            let score = (score - ignore_bits) as f64;
             let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
             weighted_fitness.scores.insert("zeroes", score);
             weighted_fitness
                 .scores
                 .insert("gadgets_executed", profile.gadgets_executed.len() as f64);
 
-            let mem_ratio_written = profile.mem_ratio_written();
+            let mem_write_ratio = profile.mem_write_ratio();
             weighted_fitness
                 .scores
-                .insert("mem_ratio_written", mem_ratio_written);
+                .insert("mem_write_ratio", mem_write_ratio);
             creature.set_fitness(weighted_fitness);
         }
     }
@@ -229,7 +236,6 @@ impl<C: 'static + Cpu<'static>> Develop<Creature, CountMinSketch> for Evaluator<
 }
 
 pub mod lexi {
-    use crate::emulator::profiler::Profile;
     use crate::emulator::register_pattern::RegisterFeature;
     use crate::roper::creature::Creature;
 

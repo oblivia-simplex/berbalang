@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use hashbrown::HashMap;
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use rand_distr::{Distribution, Standard};
@@ -14,7 +15,6 @@ use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
-use crate::emulator::register_pattern::RegisterFeature;
 use crate::error::Error;
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::{HasScalar, MapFit};
@@ -23,10 +23,7 @@ use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer};
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
-use crate::util::{
-    self,
-    architecture::{endian, word_size_in_bytes, Endian},
-};
+use crate::util::{self, architecture::Endian};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Creature {
@@ -42,6 +39,7 @@ pub struct Creature {
     #[serde(borrow)]
     pub fitness: Option<Fitness<'static>>,
     pub front: Option<usize>,
+    pub num_offspring: usize,
 }
 
 impl Hash for Creature {
@@ -191,7 +189,8 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
 
         if gadget_file.ends_with(".json") {
             log::info!("Deserializing soup from {}", gadget_file);
-            soup = serde_json::from_reader(reader)?;
+            let map: HashMap<u64, usize> = serde_json::from_reader(reader)?;
+            soup = map.keys().copied().collect::<Vec<u64>>();
         } else {
             log::info!("Parsing soup from {}", gadget_file);
             for line in reader.lines() {
@@ -217,6 +216,10 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
 
 impl Genome for Creature {
     type Allele = u64;
+
+    fn incr_num_offspring(&mut self, n: usize) {
+        self.num_offspring += n
+    }
 
     fn chromosome(&self) -> &[Self::Allele] {
         &self.chromosome
@@ -258,6 +261,7 @@ impl Genome for Creature {
             profile: None,
             fitness: None,
             front: None,
+            num_offspring: 0,
         }
     }
 
@@ -300,6 +304,7 @@ impl Genome for Creature {
             profile: None,
             fitness: None,
             front: None,
+            num_offspring: 0,
         }
     }
 

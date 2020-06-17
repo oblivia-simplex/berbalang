@@ -58,7 +58,7 @@ pub struct Profiler<C: Cpu<'static>> {
     pub gadget_log: Arc<RwLock<Vec<u64>>>,
     /// These fields are written to after the emulation has finished.
     pub written_memory: Vec<Seg>,
-    //pub write_log: Arc<Mutex<Vec<MemLogEntry>>>,
+    pub write_log: Arc<RwLock<Vec<MemLogEntry>>>,
     pub addresses_written_to: Arc<RwLock<HashSet<u64>>>,
     pub cpu_error: Option<unicorn::Error>,
     pub computation_time: Duration,
@@ -75,13 +75,14 @@ impl<C: Cpu<'static>> Profiler<C> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
-    pub paths: Vec<Vec<Block>>, //PrefixSet<Block>,
+    pub paths: Vec<Vec<Block>>,
+    //PrefixSet<Block>,
     pub cpu_errors: HashMap<unicorn::Error, usize>,
     pub computation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
     pub gadgets_executed: HashSet<u64>,
     pub writeable_memory: Vec<Vec<Seg>>,
-    pub addresses_written_to: HashSet<u64>,
+    pub write_logs: Vec<Vec<MemLogEntry>>,
 }
 
 impl Profile {
@@ -93,7 +94,7 @@ impl Profile {
         let mut register_maps = Vec::new();
         let mut gadgets_executed = HashSet::new();
         let mut writeable_memory_regions = Vec::new();
-        let mut all_addresses_written_to = HashSet::new();
+        let mut write_logs = Vec::new();
 
         // Commented this out. It didn't seem to work, so no need to spend the time.
         // Sort to remove any unpredictability introduced by parallelism
@@ -109,13 +110,12 @@ impl Profile {
 
         for Profiler {
             block_log,
-            //write_log,
+            write_log,
             cpu_error,
             computation_time,
             registers,
             gadget_log,
             written_memory,
-            addresses_written_to,
             ..
         } in profilers.into_iter()
         {
@@ -139,20 +139,17 @@ impl Profile {
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
             writeable_memory_regions.push(written_memory);
-            addresses_written_to.read().unwrap().iter().for_each(|a| {
-                all_addresses_written_to.insert(*a);
-            });
+            write_logs.push(write_log.read().unwrap().to_vec());
         }
 
         Self {
             paths,
-            //write_trie,
             cpu_errors,
             computation_times,
             gadgets_executed,
             registers: register_maps,
             writeable_memory: writeable_memory_regions,
-            addresses_written_to: all_addresses_written_to,
+            write_logs,
         }
     }
 
@@ -176,11 +173,38 @@ impl Profile {
         })
     }
 
-    pub fn mem_ratio_written(&self) -> f64 {
+    pub fn addresses_written_to(&self) -> HashSet<u64> {
+        let mut set = HashSet::new();
+        self.write_logs.iter().flatten().for_each(|entry| {
+            for i in 0..entry.num_bytes_written {
+                set.insert(entry.address + i as u64);
+            }
+        });
+        set
+    }
+
+    pub fn mem_write_ratio(&self) -> f64 {
         let memory = get_static_memory_image();
         let size_of_writeable = memory.size_of_writeable_memory();
-        let bytes_written = self.addresses_written_to.len();
+        let bytes_written = self.addresses_written_to().len();
         bytes_written as f64 / size_of_writeable as f64
+    }
+
+    /// Given a word `w`, return a vector of entries that show
+    /// that word was written. If the word was not written, return
+    /// an empty vector.
+    ///
+    /// This method flattens the write_log, and doesn't distinguish
+    /// between inputs. This is easily changed, if we end up needing
+    /// to make that distinction in the future.
+    pub fn was_this_written(&self, w: u64) -> Vec<&MemLogEntry> {
+        self.write_logs
+            .iter()
+            .flatten()
+            .filter(|entry| {
+                entry.value == w // could return hamming score instead
+            })
+            .collect()
     }
 }
 
@@ -192,11 +216,11 @@ impl<C: 'static + Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
 
 impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // write!(
-        //     f,
-        //     "write_log: {} entries; ",
-        //     self.write_log.lock().unwrap().len()
-        // )?;
+        write!(
+            f,
+            "write_log: {} entries; ",
+            self.write_log.read().unwrap().len()
+        )?;
         write!(f, "registers: {:?}; ", self.registers)?;
         write!(f, "cpu_error: {:?}; ", self.cpu_error)?;
         write!(
@@ -236,15 +260,15 @@ impl<C: Cpu<'static>> Profiler<C> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct MemLogEntry {
     pub program_counter: u64,
-    pub mem_address: u64,
+    pub address: u64,
     pub num_bytes_written: usize,
-    pub value: i64,
+    pub value: u64,
 }
 
 impl<C: Cpu<'static>> Default for Profiler<C> {
     fn default() -> Self {
         Self {
-            //write_log: Arc::new(RwLock::new(Vec::default())),
+            write_log: Arc::new(RwLock::new(Vec::default())),
             input: HashMap::default(),
             registers: HashMap::default(),
             cpu_error: None,

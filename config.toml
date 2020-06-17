@@ -11,7 +11,7 @@ selection = "Tournament" # currently inefficient
 #selection = "Metropolis"
 ## should be between 1 and 3
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
-mutation_exponent = 1.0
+mutation_exponent = 3.0
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 100
@@ -20,11 +20,11 @@ min_init_len = 10
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x100
+pop_size = 0x300
 num_offspring = 2
 num_parents = 2
 max_length = 100
-num_epochs = 500 # = infinite
+num_epochs = 2000 # = infinite
 # season length is only used by 
 # SeasonalSketch, which I don't
 # think actually works
@@ -34,9 +34,11 @@ season_length = 100 # tweak
 [fitness]
 priority = "register_error"
 function = "register_pattern"
+#function = "register_conjunction"
+#function = "code_coverage"
 target = 0
 eval_by_case = false
-dynamic = true # TODO: use this to decide whether to re-evaluate fitness
+dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 # as distinct, sometimes, from execution.
 #
 ###
@@ -48,14 +50,16 @@ dynamic = true # TODO: use this to decide whether to re-evaluate fitness
 ##
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
-gadgets_executed = "(5 - min(5, x))" # / ((1+E)/ 100)" #"-1 * min(3, x)"
+important_writes = "100 - min(100, x*50)"
+gadgets_executed = "(10 - min(10, x))" # / ((1+E)/ 100)" #"-1 * min(3, x)"
 register_error = "x"
-#mem_ratio_written = "0"
-crash_count = "x"
-code_frequency = "0"
+#mem_write_ratio = "0"
+crash_count = "0"
+#code_frequency = "x"
+#code_coverage = "100 * x"
 #genetic_freq = "0" #"min(2, x * 50)"
-#mem_ratio_written ="x" 
-#crash_count = "x"
+#mem_write_ratio ="x" 
+crash_count = "x"
 zeroes = "x"
 #code_frequency = "10*x" #x/2"
 
@@ -79,24 +83,21 @@ target = "Mares eat oats and does eat oats and little lambs eat ivy."
 max_steps = 0x1000
 
 [observer]
-dump_population = false
+dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
-window_size  = 512
-report_every = 512
-dump_every = 1000000
+window_size  = 1000
+report_every = 1000
+dump_every = 10000
 
 [data]
-#path = "./data/iris.tsv"
+path = "./data/iris.tsv"
 # FIXME: something fishy is happening with square! too many registers, and
-# it appears that the machine is not
+# it app<F2>ears that the machine is not
 # running!
-#path = "./data/square.tsv"
-path = "./data/agaricus-lepiota.tsv"
+#path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-#fitness_function = "register_pattern"
-#fitness_function = "code_coverage"
 arch = "X86"
 mode = "MODE_32"
 #gadget_file = "./gadgets/sh_soup.json"
@@ -111,11 +112,12 @@ emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
-output_registers = ["EAX"]
+#output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
+output_registers= []
   [roper.register_pattern] 
 #  RAX = "0x3b"                   # execve syscall number
   EAX = "0xb"
-#  EBX = "&'/bin/sh"
+  EBX = "&'/bin/sh"
   ECX = "&0"
   EDX = "0"
 #  RSI = "&&0"                  # an empty argv array

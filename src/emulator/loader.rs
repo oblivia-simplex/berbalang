@@ -181,6 +181,16 @@ impl MemoryImage {
         }
     }
 
+    pub fn seek_all_segs(&self, sequence: &[u8], extra_segs: Option<&[Seg]>) -> Option<u64> {
+        for seg in self.segments() {
+            let offset = seg.aligned_start();
+            if let Some(res) = self.seek(offset, sequence, extra_segs) {
+                return Some(res);
+            }
+        }
+        None
+    }
+
     pub fn seek_from_random_address<H: Hash>(&self, sequence: &[u8], seed: H) -> Option<u64> {
         self.seek(self.random_address(None, seed), sequence, None)
     }

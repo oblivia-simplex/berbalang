@@ -36,6 +36,8 @@ pub mod machine {
     use crate::examples::linear_gp::MachineWord;
     use crate::util::random::hash_seed_rng;
 
+    use super::Mutation;
+
     #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
     pub enum Op {
         Add,
@@ -125,7 +127,7 @@ pub mod machine {
             }
         }
 
-        pub fn mutate<H: Hash>(&mut self, config: &LinearGpConfig, seed: H) {
+        pub fn mutate<H: Hash>(&mut self, config: &LinearGpConfig, seed: H) -> Mutation {
             let num_registers = config.num_registers.unwrap();
             let mut rng = hash_seed_rng(&seed);
             let mutation = rng.gen::<u8>() % 4;
@@ -137,6 +139,7 @@ pub mod machine {
                 3 => std::mem::swap(&mut self.a, &mut self.b),
                 _ => unreachable!("out of range"),
             }
+            mutation
         }
     }
 
@@ -273,6 +276,7 @@ pub type Answer = Vec<IOProblem>;
 pub struct Creature {
     chromosome: Genotype,
     chromosome_parentage: Vec<usize>,
+    chromosome_mutation: Vec<Option<Mutation>>,
     answers: Option<Answer>,
     #[serde(borrow)]
     pub fitness: Option<Fitness<'static>>,
@@ -281,6 +285,7 @@ pub struct Creature {
     name: String,
     parents: Vec<String>,
     generation: usize,
+    num_offspring: usize,
 }
 
 impl Hash for Creature {
@@ -293,16 +298,20 @@ impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}, generation: {}", self.name, self.generation)?;
         for (i, inst) in self.chromosome().iter().enumerate() {
+            let mutation = self.chromosome_mutation[i];
             writeln!(
                 f,
-                "[{}][{}]  {}",
+                "[{}][{}]  {}{}",
                 if self.parents.is_empty() {
                     "seed"
                 } else {
                     &self.parents[self.chromosome_parentage[i]]
                 },
                 i,
-                inst
+                inst,
+                mutation
+                    .map(|m| format!(" (mutation {:?})", m))
+                    .unwrap_or("".to_string()),
             )?;
         }
         writeln!(f, "Fitness: {:#?}", self.fitness)
@@ -381,6 +390,10 @@ struct Frame {
 impl Genome for Creature {
     type Allele = machine::Inst;
 
+    fn incr_num_offspring(&mut self, n: usize) {
+        self.num_offspring += n
+    }
+
     fn chromosome(&self) -> &[Self::Allele] {
         &self.chromosome
     }
@@ -396,11 +409,13 @@ impl Genome for Creature {
         let seed = hasher.finish();
         let mut rng = hash_seed_rng(&seed);
         let chromosome = random_chromosome(config, &seed);
+        let length = chromosome.len();
         Self {
             chromosome,
             tag: rng.gen::<u64>(),
             //crossover_mask: rng.gen::<u64>(),
             name: crate::util::name::random(4, &seed),
+            chromosome_mutation: vec![None; length],
             ..Default::default()
         }
     }
@@ -425,9 +440,11 @@ impl Genome for Creature {
                 };
         let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
         let name = util::name::random(4, &chromosome);
+        let length = chromosome.len();
         Self {
             chromosome,
             chromosome_parentage,
+            chromosome_mutation: vec![None; length],
             answers: None,
             fitness: None,
             tag: rand::random::<u64>(),
@@ -435,6 +452,7 @@ impl Genome for Creature {
             name,
             parents: parent_names,
             generation,
+            num_offspring: 0,
         }
     }
 
@@ -447,10 +465,13 @@ impl Genome for Creature {
                 continue;
             }
             let seed = hash_seed(&rng.gen::<u64>());
-            self.chromosome_mut()[i].mutate(&config.linear_gp, &seed);
+            let m = self.chromosome_mut()[i].mutate(&config.linear_gp, &seed);
+            self.chromosome_mutation[i] = Some(m);
         }
     }
 }
+
+type Mutation = u8;
 
 impl_dominance_ord_for_phenome!(Creature, Dom);
 
@@ -681,6 +702,8 @@ fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evalu
     if let Some(r) = config.linear_gp.num_registers {
         num_registers = std::cmp::max(num_registers, r);
     }
+    // NOTE: this only makes sense for classification problems, and will do strange
+    // things when it comes to regression data sets. Not a priority to fix right now.
     config.linear_gp.return_registers = Some(return_registers);
     config.linear_gp.num_registers = Some(num_registers);
     log::info!("Config: {:#?}", config);

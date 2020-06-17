@@ -28,6 +28,7 @@ pub struct Genotype {
     tag: u64,
     // used for sorting in heap
     generation: usize,
+    num_offspring: usize,
 }
 
 impl Hash for Genotype {
@@ -128,6 +129,7 @@ impl Genome for Genotype {
             fitness: None,
             tag: rng.gen::<u64>(),
             generation: 0,
+            num_offspring: 0,
         }
     }
 
@@ -145,6 +147,7 @@ impl Genome for Genotype {
             fitness: None,
             tag: rng.gen::<u64>(),
             generation,
+            num_offspring: 0,
         }
     }
 
@@ -182,6 +185,10 @@ impl Genome for Genotype {
                 _ => unreachable!("Unreachable"),
             }
         }
+    }
+
+    fn incr_num_offspring(&mut self, n: usize) {
+        self.num_offspring += n
     }
 }
 

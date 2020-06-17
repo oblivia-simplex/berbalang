@@ -83,8 +83,9 @@ pub trait Genome: Debug + Hash {
     where
         Self: Sized,
     {
-        let mut rng = hash_seed_rng(parents);
         let mut child = Self::crossover(parents, config);
+        // the mutate method should check the mutation rate or exponent and
+        // make the mutation decisions internally
         child.mutate(&config);
         child
     }
@@ -126,6 +127,8 @@ pub trait Genome: Debug + Hash {
             .sum::<f64>()
             / d
     }
+
+    fn incr_num_offspring(&mut self, _n: usize);
 }
 
 pub trait Phenome: Clone + Debug + Send + Ord + Serialize + Hash {

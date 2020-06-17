@@ -9,7 +9,7 @@ use std::thread::{spawn, JoinHandle};
 
 use deflate::write::GzEncoder;
 use deflate::Compression;
-use hashbrown::HashSet;
+use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use serde::Serialize;
 
@@ -275,13 +275,17 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         };
     }
 
-    pub fn soup(&self) -> HashSet<<O as Genome>::Allele> {
+    pub fn soup(&self) -> HashMap<<O as Genome>::Allele, usize> {
+        let mut map: HashMap<<O as Genome>::Allele, usize> = HashMap::new();
         self.frame
             .iter()
             .map(|g| g.chromosome())
             .flatten()
             .cloned()
-            .collect::<HashSet<_>>()
+            .for_each(|a| {
+                *map.entry(a).or_insert(0) += 1;
+            });
+        map
     }
 
     pub fn dump_soup(&self) {

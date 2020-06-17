@@ -11,6 +11,7 @@ use unicorn::Cpu;
 
 use crate::emulator::loader;
 use crate::emulator::loader::{get_static_memory_image, Seg};
+use crate::emulator::profiler::Profile;
 use crate::error::Error;
 use crate::util;
 use crate::util::architecture::Endian;
@@ -204,6 +205,18 @@ impl RegisterPattern {
         log::debug!("summed_dist = {}", summed_dist);
 
         summed_dist
+    }
+
+    pub fn count_writes_of_referenced_values(
+        &self,
+        profile: &Profile,
+        exclude_null: bool,
+    ) -> usize {
+        self.0
+            .values()
+            .filter(|v| v.deref > 0 && (!exclude_null || v.val != 0))
+            .map(|v| profile.was_this_written(v.val).len())
+            .sum()
     }
 
     pub fn spider(&self, extra_segs: Option<&[Seg]>) -> HashMap<String, Vec<u64>> {

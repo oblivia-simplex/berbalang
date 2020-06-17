@@ -399,7 +399,7 @@ pub mod hooking {
     use hashbrown::HashSet;
     use unicorn::{CodeHookType, MemHookType, MemType, Protection};
 
-    use crate::emulator::profiler::Block;
+    use crate::emulator::profiler::{Block, MemLogEntry};
     use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 
     use super::*;
@@ -529,32 +529,26 @@ pub mod hooking {
         Ok(hooks)
     }
 
-    // NOTE: Currently disabled.
     pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         profiler: &Profiler<C>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
-        //let pc: i32 = emu.program_counter().into();
-        //let write_log = profiler.write_log.clone();
-        let addresses_written_to = profiler.addresses_written_to.clone();
+        let pc: i32 = emu.program_counter().into();
+        let write_log = profiler.write_log.clone();
         let mem_write_callback =
             // TODO: we might want to track the # of unique addresses written to instead.
-            move |_engine: &unicorn::Unicorn<'_>, mem_type, address, num_bytes_written, _value| {
+            move |engine: &unicorn::Unicorn<'_>, mem_type, address, num_bytes_written, value| {
                 //log::trace!("Inside memory hook!");
                 if let MemType::WRITE = mem_type {
-                    let mut set = addresses_written_to.write().expect("poison");
-                    for i in 0..num_bytes_written {
-                        set.insert(address + i as u64);
-                    }
-                    //let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
-                    // let _entry = MemLogEntry {
-                    //     program_counter,
-                    //     mem_address: address,
-                    //     num_bytes_written,
-                    //     value,
-                    // };
-                    // let mut write_log = write_log.write().expect("Poisoned mutex in callback");
-                    // write_log.push(entry);
+                    let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
+                    let entry = MemLogEntry {
+                        program_counter,
+                        address,
+                        num_bytes_written,
+                        value: value as u64,
+                    };
+                    let mut write_log = write_log.write().expect("Poisoned mutex in callback");
+                    write_log.push(entry);
                     true // NOTE: I'm not really sure what this return value means, here.
                 } else {
                     false

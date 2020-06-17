@@ -11,7 +11,7 @@ use crate::{
     evolution::{tournament::Tournament, Phenome},
 };
 // the runner
-use crate::emulator::register_pattern::{RegisterFeature, RegisterPattern};
+use crate::emulator::register_pattern::RegisterPattern;
 use crate::evolution::lexicase::Lexicase;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
@@ -33,6 +33,9 @@ mod creature;
 /// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness
 /// scores to each member of the population.
 mod evaluation;
+
+/// A ROPER-specific implementation of Spector's PUSH VM.
+mod push;
 
 type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 

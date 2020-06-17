@@ -3,6 +3,7 @@ use serde::Serialize;
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::MapFit;
+use crate::get_epoch_counter;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
 use crate::util::count_min_sketch::CountMinSketch;
@@ -12,6 +13,7 @@ use super::CreatureDominanceOrd;
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct StatRecord {
     pub counter: usize,
+    pub epoch: usize,
     // #[serde(flatten)]
     // Fitness scores // TODO find a way to make this more flexible
     // TODO: how to report on fitness vectors?
@@ -87,7 +89,7 @@ impl StatRecord {
             .as_ref()
             .unwrap()
             .scores
-            .get("mem_ratio_written")
+            .get("mem_write_ratio")
             .cloned()
             .unwrap_or_default();
 
@@ -96,6 +98,7 @@ impl StatRecord {
 
         StatRecord {
             counter,
+            epoch: get_epoch_counter(),
             avg_len,
             avg_genetic_freq_by_window: avg_genetic_freq,
             avg_scalar_fitness,
@@ -107,7 +110,7 @@ impl StatRecord {
             // avg_value_error: fit_vec["value_error"],
             // avg_crash_count: fit_vec["crash_count"],
             avg_register_error: fit_vec.get("register_error").unwrap_or_default(),
-            avg_ratio_written: fit_vec.get("mem_ratio_written").unwrap_or_default(),
+            avg_ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
             //avg_genetic_freq_by_gen: fit_vec["genetic_frequency"],
             best_genetic_freq_by_window,
             best_scalar_fitness,

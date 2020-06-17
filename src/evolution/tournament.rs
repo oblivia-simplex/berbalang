@@ -1,6 +1,5 @@
 use std::cmp::{Ordering, PartialOrd};
 use std::iter;
-use std::sync::Arc;
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -128,8 +127,12 @@ impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> 
         }
 
         let parents = survivors
-            .iter()
+            .iter_mut()
             .take(config.num_parents)
+            .map(|p| {
+                p.incr_num_offspring(config.num_offspring);
+                &*p
+            })
             .collect::<Vec<&P>>();
 
         // TODO: Experimental: tuning mutation rate by soup size

@@ -101,10 +101,8 @@ impl<
         let mut next_problems = ShufflingHeap::new(&rng.gen::<u64>());
         //log::debug!("problems: {:?}", problems);
         let num_problems = problems.len();
-        let mut problem_counter = 0;
         let mut problems_solved = 0;
         while let Some(problem) = problems.pop() {
-            problem_counter += 1;
             // In most cases, the developed phenotypes won't actually need re-development,
             // and so `development_pipeline` will act like a simple pass-through.
             let (mut fail, mut pass): (ShufflingHeap<P>, ShufflingHeap<P>) = womb

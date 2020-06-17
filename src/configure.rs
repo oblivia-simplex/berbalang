@@ -64,10 +64,21 @@ pub struct Config {
     pub fitness: FitnessConfig,
     #[serde(default = "default_random_seed")]
     pub random_seed: u64,
+    pub push_vm: PushVm,
 }
 
 fn default_tournament_size() -> usize {
     4
+}
+
+fn default_push_vm_max_steps() -> usize {
+    0x1000
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PushVm {
+    #[serde(default = "default_push_vm_max_steps")]
+    pub max_steps: usize,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

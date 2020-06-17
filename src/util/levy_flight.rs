@@ -13,11 +13,12 @@ pub fn levy_flight_rate(length: usize, exponent: f64) -> f64 {
 }
 
 pub fn levy_decision<R: Rng>(rng: &mut R, length: usize, exponent: f64) -> bool {
+    debug_assert!(length > 0);
     let thresh = 1.0 - (1.0 / length as f64);
     rand_distr::Exp::new(exponent)
         .expect("Bad exponent for Exp distribution")
         .sample(rng)
-        > thresh
+        >= thresh
 }
 
 #[cfg(test)]
@@ -32,12 +33,12 @@ mod test {
         let rate = levy_flight_rate(10, 2.0);
         println!("rate = {}", rate);
 
-        let len = 20;
+        let len = 2;
         let mut rng = thread_rng();
         for i in 0..len {
             println!(
                 "[{}]",
-                if levy_decision(&mut rng, len, 2.8) {
+                if levy_decision(&mut rng, len, 2.9) {
                     '*'
                 } else {
                     ' '
