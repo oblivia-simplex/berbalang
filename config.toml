@@ -4,9 +4,11 @@
 
 #random_seed = 0xdeadbeef
 job = "Roper"
+selection = "Tournament" # currently inefficient
+
+num_islands = 4
 #job = "LinearGp"
 #selection = "Roulette"
-selection = "Tournament" # currently inefficient
 #selection = "Lexicase"
 #selection = "Metropolis"
 ## should be between 1 and 3
@@ -21,14 +23,11 @@ min_init_len = 10
 # large initial populations, with permadeath
 # and a minimal limit set.
 pop_size = 0x300
-num_offspring = 2
-num_parents = 2
 max_length = 100
 num_epochs = 2000 # = infinite
 # season length is only used by 
 # SeasonalSketch, which I don't
 # think actually works
-season_length = 100 # tweak
 # add this:
 
 [fitness]
@@ -65,12 +64,14 @@ zeroes = "0"
 #code_frequency = "10*x" #x/2"
 
 [tournament]
+num_offspring = 2
+num_parents = 2
 tournament_size = 7
 # todo: plot diversity and fitness wrt radius changes.
 # maybe experiment with dynamic radius adjustments
 # as a response to loss of diversity
 geographic_radius = 20
-migration_rate = 0.0001
+migration_rate = 1
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.

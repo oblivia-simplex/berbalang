@@ -1,5 +1,6 @@
-use crossbeam::queue::SegQueue;
 use std::sync::atomic::{self, AtomicUsize};
+
+use crossbeam::queue::SegQueue;
 
 pub struct Pier<P> {
     capacity: usize,
@@ -28,16 +29,21 @@ impl<P> Pier<P> {
         self.count.fetch_sub(1, atomic::Ordering::SeqCst)
     }
 
-    pub fn embark(&self, emigrant: P) {
+    pub fn embark(&self, emigrant: P) -> Result<(), P> {
+        if self.len() >= self.capacity {
+            log::info!("Pier at capacity, returning emigrant");
+            return Err(emigrant);
+        }
         self.q.push(emigrant);
         let len = self.incr_count();
-        log::debug!("Emigrant embarked onto pier. Holding {}", len + 1);
+        log::info!("Emigrant embarked onto pier. Holding {}", len + 1);
+        Ok(())
     }
 
     pub fn disembark(&self) -> Option<P> {
         if let Some(p) = self.q.pop().ok() {
             let len = self.decr_count();
-            log::debug!("Immigrant disembarked from pier. Holding {}", len - 1);
+            log::info!("Immigrant disembarked from pier. Holding {}", len - 1);
             Some(p)
         } else {
             None

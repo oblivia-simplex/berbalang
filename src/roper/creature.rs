@@ -279,7 +279,7 @@ impl Genome for Creature<u64> {
         let mut rng = hash_seed_rng(mates);
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
-            if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
+            if rng.gen_range(0.0, 1.0) < config.crossover_rate {
                 let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
                 let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
                 (c, p, names)

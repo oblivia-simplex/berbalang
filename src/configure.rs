@@ -28,6 +28,10 @@ impl Default for Job {
     }
 }
 
+fn default_num_islands() -> usize {
+    1
+}
+
 fn default_random_seed() -> u64 {
     rand::random::<u64>()
 }
@@ -36,17 +40,18 @@ fn default_random_seed() -> u64 {
 pub struct Config {
     pub job: Job,
     pub selection: Selection,
+    #[serde(default = "default_num_islands")]
+    pub num_islands: usize,
+    // The island identifier is used internally
+    pub island_identifier: usize,
     pub crossover_period: f64,
     pub crossover_rate: f32,
-    pub season_length: usize,
     pub data: DataConfig,
     pub max_init_len: usize,
     pub max_length: usize,
     pub min_init_len: usize,
     // See the comments in util::levy_flight for an explanation
     pub mutation_exponent: f64,
-    pub num_offspring: usize,
-    pub num_parents: usize,
     pub observer: ObserverConfig,
     pub pop_size: usize,
     pub problems: Option<Vec<IOProblem>>,
@@ -97,6 +102,8 @@ pub struct TournamentConfig {
     pub tournament_size: usize,
     pub geographic_radius: usize,
     pub migration_rate: f64,
+    pub num_offspring: usize,
+    pub num_parents: usize,
 }
 
 fn default_weight_decay() -> f64 {
@@ -155,7 +162,7 @@ impl Config {
         };
 
         let path = format!(
-            "{data_dir}/berbalang/{job:?}/{selection:?}/{year}/{month}/{day}/{pop_name}",
+            "{data_dir}/berbalang/{job:?}/{selection:?}/{year}/{month}/{day}/{pop_name}/island_{island}",
             data_dir = data_dir,
             job = self.job,
             selection = self.selection,
@@ -163,6 +170,7 @@ impl Config {
             month = local_date.month(),
             day = local_date.day(),
             pop_name = self.observer.population_name,
+            island = self.island_identifier,
         );
 
         for sub in ["", "soup", "population"].iter() {
@@ -273,16 +281,8 @@ impl Default for RoperConfig {
 
 impl Config {
     pub fn assert_invariants(&self) {
-        assert!(self.tournament.tournament_size >= self.num_offspring + 2);
+        assert!(self.tournament.tournament_size >= self.tournament.num_offspring + 2);
         //assert_eq!(self.num_offspring, 2); // all that's supported for now
-    }
-
-    pub fn crossover_rate(&self) -> f32 {
-        self.crossover_rate
-    }
-
-    pub fn num_offspring(&self) -> usize {
-        self.num_offspring
     }
 }
 

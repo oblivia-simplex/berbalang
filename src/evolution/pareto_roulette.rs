@@ -11,10 +11,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::increment_epoch_counter;
 use crate::observer::Observer;
 use crate::ontogenesis::Develop;
-use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
-
-type SketchType = CountMinSketch;
 
 pub struct Roulette<E: Develop<P>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> {
     pub population: Vec<P>,
@@ -116,7 +113,8 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static, D: DominanceOrd<P>> Roulette<
         //     .collect::<Vec<&P>>();
         while new_population.len() < config.pop_size {
             let parents: Vec<&P> = iter::repeat(())
-                .take(config.num_parents)
+                // FIXME: define parentage numbers in separate selection method sections
+                .take(config.tournament.num_parents)
                 .map(|()| indices[dist.sample(&mut rng)])
                 .map(|i| &cloned_population[i])
                 .collect::<Vec<&P>>();

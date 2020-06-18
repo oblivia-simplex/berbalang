@@ -1,7 +1,7 @@
-use std::cmp::Ordering;
+use std::sync::Arc;
+use std::thread::spawn;
 
 use non_dominated_sort::DominanceOrd;
-use serde::{Deserialize, Serialize};
 use unicorn::Cpu;
 
 use creature::*;
@@ -20,11 +20,8 @@ use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
-use crate::ontogenesis::{Develop, FitnessFn};
+use crate::ontogenesis::FitnessFn;
 use crate::roper::evaluation::{lexi, Sketches};
-use crate::util::count_min_sketch::CountMinSketch;
-use std::sync::Arc;
-use std::thread::spawn;
 
 /// The `analysis` module contains the reporting function passed to the observation
 /// window. Population saving, soup dumping, statistical assessment, etc., happens there.
@@ -39,12 +36,13 @@ mod creature;
 mod evaluation;
 
 /// A ROPER-specific implementation of Spector's PUSH VM.
+#[allow(dead_code)]
 mod push;
 
 type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
 fn prepare<'a, C: 'static + Cpu<'static>>(
-    config: Arc<Config>,
+    config: &Config,
 ) -> (Observer<Creature<u64>>, evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<Creature<u64>, Sketches, Config> =
         match config.fitness.function.as_str() {
@@ -79,21 +77,25 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
     )
     .expect("Failed to load binary image");
     init_soup(&mut config).expect("Failed to initialize the soup");
-    let config = Arc::new(config); // it would be nice if each island could have its own config
 
-    let (observer, evaluator) = prepare(config.clone());
+    let (observer, evaluator) = prepare(&config);
     let pier = Pier::new(4); // FIXME: don't hardcode
 
     match config.selection {
         Selection::Tournament => {
             // first, crude shot at islands...
-            let num_islands = 4;
+            // TODO: factor this out into its own module, so that it works with
+            // any job and selection method.
+            let num_islands = config.num_islands;
             let pier = Arc::new(pier);
+            let mut handles = Vec::new();
             for i in 0..num_islands {
-                let config = config.clone();
-                let (observer, evaluator) = prepare(config.clone());
+                let mut config = config.clone();
+                let (observer, evaluator) = prepare(&config);
+                config.island_identifier = i;
+                config.set_data_directory();
                 let pier = pier.clone();
-                let _h = spawn(move || {
+                let h = spawn(move || {
                     let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
                         &config, observer, evaluator, pier,
                     );
@@ -106,6 +108,10 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                         }
                     }
                 });
+                handles.push(h);
+            }
+            for h in handles.into_iter() {
+                h.join().expect("Failed to join thread");
             }
         }
         Selection::Roulette => {

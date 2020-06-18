@@ -160,12 +160,16 @@ mod test {
 pub fn report_fn<'a>(
     window: &Window<Creature<u64>, super::CreatureDominanceOrd>,
     counter: usize,
-    _config: &Config,
+    config: &Config,
 ) {
     let record = StatRecord::from_window(window, counter);
 
-    log::info!("Current best: {:#x?}", window.best);
-    log::info!("{:#?}", record);
+    log::info!(
+        "Island #{}. Current best: {:#x?}\n{:#?}",
+        config.island_identifier,
+        window.best,
+        record
+    );
 
     window.log_record(record);
 

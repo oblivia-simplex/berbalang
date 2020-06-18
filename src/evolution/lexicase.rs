@@ -17,7 +17,6 @@ use crate::evolution::population::shuffling_heap::ShufflingHeap;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
 use crate::ontogenesis::Develop;
-use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 
 pub struct Lexicase<Q: Hash + Debug, E: Develop<P>, P: Phenome + 'static> {
@@ -128,12 +127,12 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
                 break;
             }
 
-            while pass.len() < config.num_parents {
+            while pass.len() < config.tournament.num_parents {
                 pass.push(fail.pop().unwrap());
             }
             population = pass;
             next_population.extend(fail.into_iter());
-            if population.len() == config.num_parents {
+            if population.len() == config.tournament.num_parents {
                 break;
             }
         }
@@ -160,12 +159,12 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
         if observer.keep_going() {
             debug_assert_eq!(
                 population.len(),
-                config.num_parents,
+                config.tournament.num_parents,
                 "not enough left in the population to breed"
             );
 
             let mut parents = Vec::new();
-            for _ in 0..config.num_parents {
+            for _ in 0..config.tournament.num_parents {
                 let p = population.pop().unwrap();
                 // Here's what we'll do: we'll restrict our observation to the individuals
                 // that are eventually selected as parents. This feels like an okay compromise.
@@ -178,7 +177,7 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
                 //observer.observe(p.clone());
                 parents.push(p)
             }
-            for _ in 0..config.num_offspring {
+            for _ in 0..config.tournament.num_offspring {
                 let parents = parents.iter().collect::<Vec<&P>>();
                 let offspring = Genome::mate(&parents, &config);
                 // I could evaluate and observe the offspring here, as they're generated.
@@ -197,7 +196,7 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
             next_population.extend(parents.into_iter());
             // A generation should be considered to have elapsed once
             // `pop_size` offspring have been spawned.
-            if iteration % (config.pop_size / config.num_offspring) == 0 {
+            if iteration % (config.pop_size / config.tournament.num_offspring) == 0 {
                 crate::increment_epoch_counter();
                 // if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
                 //     log::info!("Attempting migration...");

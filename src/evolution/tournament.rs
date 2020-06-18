@@ -1,5 +1,6 @@
 use std::cmp::{Ordering, PartialOrd};
 use std::iter;
+use std::sync::Arc;
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -10,17 +11,10 @@ use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
 use crate::ontogenesis::Develop;
-use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
-use crossbeam_deque::Steal::Success;
-use std::sync::Arc;
-
-type SketchType = CountMinSketch;
-// consider an island-pier structure
 
 pub struct Tournament<E: Develop<P>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>,
-    //BinaryHeap<P>,
     pub config: Config,
     pub best: Option<P>,
     pub iteration: usize,
@@ -97,16 +91,8 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         let best = Self::update_best(best, &combatants[0]);
 
         // kill one off for every offspring to be produced
-        for _ in 0..config.num_offspring() {
+        for _ in 0..config.tournament.num_offspring {
             let _ = combatants.pop();
-        }
-
-        // replace the combatants that will neither breed nor die
-        let bystanders = config.tournament.tournament_size - (config.num_offspring() + 2);
-        for _ in 0..bystanders {
-            if let Some(c) = combatants.pop() {
-                population.insert(c).unwrap();
-            }
         }
 
         let mut survivors = combatants; //combatants.into_iter().collect::<Vec<P>>();
@@ -114,31 +100,42 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
 
         // A generation should be considered to have elapsed once
         // `pop_size` offspring have been spawned.
-        if iteration % (config.pop_size / config.num_offspring) == 0 {
+        if iteration % (config.pop_size / config.tournament.num_offspring) == 0 {
             crate::increment_epoch_counter();
-            if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
-                log::info!("Attempting migration...");
-                if let Some(immigrant) = pier.disembark() {
-                    log::info!("Found immigrant on pier");
+            // NOTE: migration relies on tournaments being at least 1 larger than
+            // the number of parents plus the number of children
+            if survivors.len() > config.tournament.num_parents {
+                if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+                    log::info!("Attempting migration...");
                     let emigrant = survivors.pop().unwrap();
-                    pier.embark(emigrant);
-                    survivors.push(immigrant);
+                    if let Err(emigrant) = pier.embark(emigrant) {
+                        log::debug!("Pier full, returning emigrant to population");
+                        survivors.push(emigrant);
+                    }
+                }
+                if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+                    if let Some(immigrant) = pier.disembark() {
+                        log::info!("Found immigrant on pier");
+                        survivors.push(immigrant);
+                    }
                 }
             }
         }
 
+        debug_assert!(survivors.len() >= config.tournament.num_parents);
+
         let parents = survivors
             .iter_mut()
-            .take(config.num_parents)
+            .take(config.tournament.num_parents)
             .map(|p| {
-                p.incr_num_offspring(config.num_offspring);
+                p.incr_num_offspring(config.tournament.num_offspring);
                 &*p
             })
             .collect::<Vec<&P>>();
 
         // TODO: Experimental: tuning mutation rate by soup size
         let offspring: Vec<P> = iter::repeat(())
-            .take(config.num_offspring)
+            .take(config.tournament.num_offspring)
             .map(|()| Genome::mate(&parents, &config))
             .collect::<Vec<_>>();
 

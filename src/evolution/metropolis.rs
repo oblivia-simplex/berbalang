@@ -6,7 +6,6 @@ use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
 use crate::ontogenesis::Develop;
-use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 use crate::EPOCH_COUNTER;
 

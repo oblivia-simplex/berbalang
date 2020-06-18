@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::{fmt, iter};
 
 use rand::Rng;
@@ -14,12 +15,11 @@ use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::{MapFit, Weighted};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
-use crate::ontogenesis::{Develop, FitnessFn};
+use crate::ontogenesis::FitnessFn;
 use crate::util;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::{hash_seed, hash_seed_rng};
-use std::sync::Arc;
 
 pub type Fitness<'a> = Weighted<'a>;
 // try setting fitness to (usize, usize);
@@ -428,7 +428,7 @@ impl Genome for Creature {
         let mut rng = hash_seed_rng(mates);
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
-            if rng.gen_range(0.0, 1.0) < config.crossover_rate() {
+            if rng.gen_range(0.0, 1.0) < config.crossover_rate {
                 let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
                 let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
                 (c, p, names)
@@ -436,9 +436,9 @@ impl Genome for Creature {
                 let parent = parental_chromosomes[rng.gen_range(0, 2)];
                 let chromosome = parent.to_vec();
                 let parentage =
-                        chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
-                    (chromosome, parentage, vec![mates[0].name.clone()])
-                };
+                    chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
+                (chromosome, parentage, vec![mates[0].name.clone()])
+            };
         let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
         let name = util::name::random(4, &chromosome);
         let length = chromosome.len();

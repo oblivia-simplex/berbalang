@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use crate::configure::Config;
 use crate::evolution::Phenome;
-use crate::util::count_min_sketch::Sketch;
 
 pub type FitnessFn<Pheno, State, Conf> =
     Box<dyn Fn(Pheno, &mut State, Arc<Conf>) -> Pheno + Sync + Send + 'static>;

@@ -62,7 +62,7 @@ pub struct SeasonalSketch {
 
 impl SeasonalSketch {
     pub fn new(config: &Config) -> Self {
-        let period = config.season_length;
+        let period = 100; // FIXME // config.season_length;
         Self {
             hot: CountMinSketch::new(config),
             cold: CountMinSketch::new(config),
