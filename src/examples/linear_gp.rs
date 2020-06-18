@@ -19,6 +19,7 @@ use crate::util;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::{hash_seed, hash_seed_rng};
+use std::sync::Arc;
 
 pub type Fitness<'a> = Weighted<'a>;
 // try setting fitness to (usize, usize);
@@ -548,6 +549,39 @@ mod evaluation {
         config: Arc<Config>,
     }
 
+    impl Evaluator {
+        pub fn spawn(
+            config: &Config,
+            fitness_fn: FitnessFn<Creature, CountMinSketch, Config>,
+        ) -> Self {
+            let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
+            let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
+            let config = Arc::new(config.clone());
+            let conf = config.clone();
+            let handle = spawn(move || {
+                // TODO: parameterize sketch construction
+
+                for mut phenome in our_rx.iter() {
+                    if phenome.fitness().is_none() {
+                        phenome = execute(conf.clone(), phenome);
+                    }
+
+                    our_tx.send(phenome).expect("Channel failure");
+                }
+            });
+
+            let sketch = CountMinSketch::new(&config);
+            Self {
+                handle,
+                tx,
+                rx,
+                sketch,
+                fitness_fn,
+                config,
+            }
+        }
+    }
+
     // It's important that the problems in the pheno are returned sorted
     pub fn execute(config: Arc<Config>, mut creature: Creature) -> Creature {
         let problems = config.problems.as_ref().expect("No problems!");
@@ -619,7 +653,7 @@ mod evaluation {
         creature
     }
 
-    impl Develop<Creature, CountMinSketch> for Evaluator {
+    impl Develop<Creature> for Evaluator {
         fn develop(&self, genome: Creature) -> Creature {
             self.tx.send(genome).expect("tx failure");
             self.rx.recv().expect("rx failure")
@@ -646,34 +680,6 @@ mod evaluation {
 
             log::debug!("fitness: {:?}", phenome.fitness());
             phenome
-        }
-
-        fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, CountMinSketch, Config>) -> Self {
-            let (tx, our_rx): (Sender<Creature>, Receiver<Creature>) = channel();
-            let (our_tx, rx): (Sender<Creature>, Receiver<Creature>) = channel();
-            let config = Arc::new(config.clone());
-            let conf = config.clone();
-            let handle = spawn(move || {
-                // TODO: parameterize sketch construction
-
-                for mut phenome in our_rx.iter() {
-                    if phenome.fitness().is_none() {
-                        phenome = execute(conf.clone(), phenome);
-                    }
-
-                    our_tx.send(phenome).expect("Channel failure");
-                }
-            });
-
-            let sketch = CountMinSketch::new(&config);
-            Self {
-                handle,
-                tx,
-                rx,
-                sketch,
-                fitness_fn,
-                config,
-            }
         }
     }
 }
@@ -723,9 +729,12 @@ pub fn run(config: Config) {
 
     match selection {
         Selection::Tournament => {
-            let pier = Pier::spawn(&config);
+            let pier = Pier::new(4); // FIXME: don't hardcode
             let mut world = Tournament::<evaluation::Evaluator, Creature>::new(
-                config, observer, evaluator, pier,
+                &config,
+                observer,
+                evaluator,
+                Arc::new(pier),
             );
             while world.observer.keep_going() {
                 world = world.evolve();
@@ -733,7 +742,7 @@ pub fn run(config: Config) {
         }
         Selection::Roulette => {
             let mut world = Roulette::<evaluation::Evaluator, Creature, CreatureDominanceOrd>::new(
-                config,
+                &config,
                 observer,
                 evaluator,
                 CreatureDominanceOrd,
@@ -744,7 +753,7 @@ pub fn run(config: Config) {
         }
         Selection::Metropolis => {
             let mut world =
-                Metropolis::<evaluation::Evaluator, Creature>::new(config, observer, evaluator);
+                Metropolis::<evaluation::Evaluator, Creature>::new(&config, observer, evaluator);
             while world.observer.keep_going() {
                 world = world.evolve();
             }

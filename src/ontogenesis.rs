@@ -10,7 +10,7 @@ pub type FitnessFn<Pheno, State, Conf> =
 // TODO: Consider replicating design seen in observer
 // using a generic struct instead of a trait
 
-pub trait Develop<P: Phenome, S: Sketch> {
+pub trait Develop<P: Phenome> {
     /// We're assuming that the Phenotype contains a binding to
     /// the resulting fitness score, and that this method sets
     /// that score before returning the phenotype.
@@ -25,6 +25,4 @@ pub trait Develop<P: Phenome, S: Sketch> {
     fn apply_fitness_function(&mut self, ob: P) -> P;
 
     fn development_pipeline<I: 'static + Iterator<Item = P> + Send>(&self, inbound: I) -> Vec<P>;
-
-    fn spawn(config: &Config, fitness_fn: FitnessFn<P, S, Config>) -> Self;
 }

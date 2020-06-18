@@ -12,11 +12,13 @@ use crate::observer::Observer;
 use crate::ontogenesis::Develop;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
+use crossbeam_deque::Steal::Success;
+use std::sync::Arc;
 
 type SketchType = CountMinSketch;
 // consider an island-pier structure
 
-pub struct Tournament<E: Develop<P, SketchType>, P: Phenome + 'static> {
+pub struct Tournament<E: Develop<P>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>,
     //BinaryHeap<P>,
     pub config: Config,
@@ -24,17 +26,18 @@ pub struct Tournament<E: Develop<P, SketchType>, P: Phenome + 'static> {
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
-    pub pier: Pier<P>,
+    pub pier: Arc<Pier<P>>,
 }
 
 // TODO factor TrivialGeography to its own module
 // maybe create a Population trait.
 
-impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> {
-    pub fn new(config: Config, observer: Observer<P>, evaluator: E, pier: Pier<P>) -> Self
+impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
+    pub fn new(config: &Config, observer: Observer<P>, evaluator: E, pier: Arc<Pier<P>>) -> Self
     where
         Self: Sized,
     {
+        let config = config.clone();
         log::debug!("Initializing population");
         let mut population: TrivialGeography<P> = (0..config.pop_size)
             .into_par_iter()
@@ -118,9 +121,7 @@ impl<E: Develop<P, SketchType>, P: Phenome + Genome + 'static> Tournament<E, P> 
                 if let Some(immigrant) = pier.disembark() {
                     log::info!("Found immigrant on pier");
                     let emigrant = survivors.pop().unwrap();
-                    if let Err(_emigrant) = pier.embark(emigrant) {
-                        log::error!("emigration failure, do something!");
-                    }
+                    pier.embark(emigrant);
                     survivors.push(immigrant);
                 }
             }

@@ -1,45 +1,43 @@
-use std::sync::mpsc::{channel, Receiver, SendError, Sender};
-use std::thread::spawn;
+use crossbeam::queue::SegQueue;
+use std::sync::atomic::{self, AtomicUsize};
 
-use crossbeam_deque::{self as deque, Steal, Worker};
-
-// for island shit
-use crate::configure::Config;
-use crate::evolution::Phenome;
-
-#[derive(Clone)]
-pub struct Pier<P: Phenome> {
-    dock: deque::Stealer<P>,
-    inbound: Sender<P>,
-    //handle: JoinHandle<()>,
+pub struct Pier<P> {
+    capacity: usize,
+    count: AtomicUsize,
+    q: SegQueue<P>,
 }
 
-impl<P: Phenome + 'static> Pier<P> {
-    pub fn spawn(_config: &Config) -> Self {
-        let (tx, rx): (Sender<P>, Receiver<P>) = channel();
-        let ship: Worker<P> = Worker::new_fifo();
-        let dock = ship.stealer();
-
-        let _handle = spawn(move || {
-            for incoming in rx.into_iter() {
-                log::info!("incoming");
-                ship.push(incoming)
-            }
-        });
-
+impl<P> Pier<P> {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            dock,
-            inbound: tx,
-            //handle,
+            capacity,
+            count: AtomicUsize::new(0),
+            q: SegQueue::new(),
         }
     }
 
-    pub fn embark(&self, traveller: P) -> Result<(), SendError<P>> {
-        self.inbound.send(traveller)
+    pub fn len(&self) -> usize {
+        self.count.load(atomic::Ordering::SeqCst)
+    }
+
+    fn incr_count(&self) -> usize {
+        self.count.fetch_add(1, atomic::Ordering::SeqCst)
+    }
+
+    fn decr_count(&self) -> usize {
+        self.count.fetch_sub(1, atomic::Ordering::SeqCst)
+    }
+
+    pub fn embark(&self, emigrant: P) {
+        self.q.push(emigrant);
+        let len = self.incr_count();
+        log::debug!("Emigrant embarked onto pier. Holding {}", len + 1);
     }
 
     pub fn disembark(&self) -> Option<P> {
-        if let Steal::Success(p) = self.dock.steal() {
+        if let Some(p) = self.q.pop().ok() {
+            let len = self.decr_count();
+            log::debug!("Immigrant disembarked from pier. Holding {}", len - 1);
             Some(p)
         } else {
             None

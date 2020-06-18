@@ -20,7 +20,7 @@ use crate::ontogenesis::Develop;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
 
-pub struct Lexicase<Q: Hash + Debug, E: Develop<P, CountMinSketch>, P: Phenome + 'static> {
+pub struct Lexicase<Q: Hash + Debug, E: Develop<P>, P: Phenome + 'static> {
     pub population: ShufflingHeap<P>,
     pub problems: ShufflingHeap<Q>,
     pub config: Arc<Config>,
@@ -31,14 +31,9 @@ pub struct Lexicase<Q: Hash + Debug, E: Develop<P, CountMinSketch>, P: Phenome +
     pub pier: Pier<P>,
 }
 
-impl<
-        Q: Hash + Debug,
-        E: Develop<P, CountMinSketch>,
-        P: Phenome<Problem = Q> + Genome + 'static,
-    > Lexicase<Q, E, P>
-{
+impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static> Lexicase<Q, E, P> {
     pub fn new(
-        config: Config,
+        config: &Config,
         observer: Observer<P>,
         womb: E,
         pier: Pier<P>,
@@ -48,7 +43,7 @@ impl<
         Self: Sized,
     {
         log::debug!("Initializing population");
-        let config = Arc::new(config);
+        let config = Arc::new(config.clone());
         let conf = config.clone();
         let pop_size = config.pop_size;
         let population: ShufflingHeap<P> = womb

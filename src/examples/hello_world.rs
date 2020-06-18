@@ -259,9 +259,12 @@ pub fn run(config: Config) -> Option<Genotype> {
     let fitness_fn = Box::new(fitness_function);
     let observer = Observer::spawn(&config, report_fn, Dom);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-    let pier = Pier::spawn(&config);
-    let mut world = Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(
-        config, observer, evaluator, pier,
+    let pier = Pier::new(4); // FIXME: don't hardcode, make this the number of islands, say
+    let mut world = Tournament::<evaluation::Evaluator, Genotype>::new(
+        &config,
+        observer,
+        evaluator,
+        Arc::new(pier),
     );
 
     loop {
@@ -289,29 +292,17 @@ mod evaluation {
 
     use super::*;
 
-    pub struct Evaluator<Genotype> {
+    pub struct Evaluator {
         pub handle: JoinHandle<()>,
         tx: Sender<Genotype>,
         rx: Receiver<Genotype>,
     }
 
-    impl Develop<Genotype, CountMinSketch> for Evaluator<Genotype> {
-        fn develop(&self, phenome: Genotype) -> Genotype {
-            self.tx.send(phenome).expect("tx failure");
-            self.rx.recv().expect("rx failure")
-        }
-
-        fn development_pipeline<I: Iterator<Item = Genotype>>(&self, inbound: I) -> Vec<Genotype> {
-            inbound.map(|p| self.develop(p)).collect::<Vec<Genotype>>()
-        }
-
-        // FIXME: this is an ugly design compromise. Here, we're performing
-        // the fitness assessment inside the spawn loop.
-        fn apply_fitness_function(&mut self, creature: Genotype) -> Genotype {
-            creature
-        }
-
-        fn spawn(config: &Config, fitness_fn: FitnessFn<Genotype, CountMinSketch, Config>) -> Self {
+    impl Evaluator {
+        pub fn spawn(
+            config: &Config,
+            fitness_fn: FitnessFn<Genotype, CountMinSketch, Config>,
+        ) -> Self {
             let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let config = Arc::new(config.clone());
@@ -333,6 +324,23 @@ mod evaluation {
             });
 
             Self { handle, tx, rx }
+        }
+    }
+
+    impl Develop<Genotype> for Evaluator {
+        fn develop(&self, phenome: Genotype) -> Genotype {
+            self.tx.send(phenome).expect("tx failure");
+            self.rx.recv().expect("rx failure")
+        }
+
+        fn development_pipeline<I: Iterator<Item = Genotype>>(&self, inbound: I) -> Vec<Genotype> {
+            inbound.map(|p| self.develop(p)).collect::<Vec<Genotype>>()
+        }
+
+        // FIXME: this is an ugly design compromise. Here, we're performing
+        // the fitness assessment inside the spawn loop.
+        fn apply_fitness_function(&mut self, creature: Genotype) -> Genotype {
+            creature
         }
     }
 }

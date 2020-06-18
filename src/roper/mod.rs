@@ -21,8 +21,10 @@ use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
 use crate::ontogenesis::{Develop, FitnessFn};
-use crate::roper::evaluation::lexi;
+use crate::roper::evaluation::{lexi, Sketches};
 use crate::util::count_min_sketch::CountMinSketch;
+use std::sync::Arc;
+use std::thread::spawn;
 
 /// The `analysis` module contains the reporting function passed to the observation
 /// window. Population saving, soup dumping, statistical assessment, etc., happens there.
@@ -42,9 +44,9 @@ mod push;
 type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
 fn prepare<'a, C: 'static + Cpu<'static>>(
-    config: Config,
+    config: Arc<Config>,
 ) -> (Observer<Creature<u64>>, evaluation::Evaluator<C>) {
-    let fitness_function: FitnessFn<Creature<u64>, CountMinSketch, Config> =
+    let fitness_function: FitnessFn<Creature<u64>, Sketches, Config> =
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
@@ -77,30 +79,39 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
     )
     .expect("Failed to load binary image");
     init_soup(&mut config).expect("Failed to initialize the soup");
+    let config = Arc::new(config); // it would be nice if each island could have its own config
 
     let (observer, evaluator) = prepare(config.clone());
-    let pier = Pier::spawn(&config);
+    let pier = Pier::new(4); // FIXME: don't hardcode
 
     match config.selection {
         Selection::Tournament => {
             // first, crude shot at islands...
-
-            let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
-                config, observer, evaluator, pier,
-            );
-            let mut counter = 0;
-            while world.observer.keep_going() {
-                world = world.evolve();
-                counter += 1;
-                if counter % 0x1000 == 0 {
-                    log::info!("best: {:#x?}", world.best);
-                }
+            let num_islands = 4;
+            let pier = Arc::new(pier);
+            for i in 0..num_islands {
+                let config = config.clone();
+                let (observer, evaluator) = prepare(config.clone());
+                let pier = pier.clone();
+                let _h = spawn(move || {
+                    let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
+                        &config, observer, evaluator, pier,
+                    );
+                    let mut counter = 0;
+                    while world.observer.keep_going() {
+                        world = world.evolve();
+                        counter += 1;
+                        if counter % 0x1000 == 0 {
+                            log::info!("best: {:#x?}", world.best);
+                        }
+                    }
+                });
             }
         }
         Selection::Roulette => {
             let mut world =
                 Roulette::<evaluation::Evaluator<C>, Creature<u64>, CreatureDominanceOrd>::new(
-                    config,
+                    &config,
                     observer,
                     evaluator,
                     CreatureDominanceOrd,
@@ -111,7 +122,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
         }
         Selection::Metropolis => {
             let mut world = Metropolis::<evaluation::Evaluator<C>, Creature<u64>>::new(
-                config, observer, evaluator,
+                &config, observer, evaluator,
             );
             while world.observer.keep_going() {
                 world = world.evolve();
@@ -140,7 +151,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             cases.push(lexi::Task::UniqExec(3));
             log::info!("Register Feature cases: {:#x?}", cases);
             let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature<u64>>::new(
-                config, observer, evaluator, pier, cases,
+                &config, observer, evaluator, pier, cases,
             );
             while world.observer.keep_going() {
                 world = world.evolve();

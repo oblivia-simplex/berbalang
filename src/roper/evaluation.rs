@@ -17,7 +17,7 @@ use super::Creature;
 
 pub fn code_coverage_ff<'a>(
     mut creature: Creature<u64>,
-    sketch: &mut CountMinSketch,
+    sketch: &mut Sketches,
     config: Arc<Config>,
 ) -> Creature<u64> {
     if let Some(ref profile) = creature.profile {
@@ -32,8 +32,8 @@ pub fn code_coverage_ff<'a>(
         });
         let mut freq_score = 0.0;
         for addr in addresses_visited.iter() {
-            sketch.insert(*addr);
-            freq_score += sketch.query(*addr);
+            sketch.addresses_visited.insert(*addr);
+            freq_score += sketch.addresses_visited.query(*addr);
         }
         let num_addr_visit = addresses_visited.len() as f64;
         let avg_freq = if num_addr_visit < 1.0 {
@@ -65,7 +65,7 @@ pub fn code_coverage_ff<'a>(
 
 pub fn register_pattern_ff<'a>(
     mut creature: Creature<u64>,
-    sketch: &mut CountMinSketch,
+    sketch: &mut Sketches,
     config: Arc<Config>,
 ) -> Creature<u64> {
     // measure fitness
@@ -89,8 +89,8 @@ pub fn register_pattern_ff<'a>(
                 .map(|r| pattern.incorrect_register_states(r))
                 .flatten()
                 .map(|p| {
-                    sketch.insert(p);
-                    sketch.query(p)
+                    sketch.register_error.insert(p);
+                    sketch.register_error.query(p)
                 });
 
             let register_novelty = stats::mean(iter);
@@ -102,8 +102,8 @@ pub fn register_pattern_ff<'a>(
                 .iter()
                 .flatten()
                 .map(|m| {
-                    sketch.insert(m);
-                    sketch.query(m)
+                    sketch.memory_writes.insert(m);
+                    sketch.memory_writes.query(m)
                 })
                 .collect::<Vec<f64>>();
             let mem_write_novelty = if mem_scores.is_empty() {
@@ -142,7 +142,7 @@ pub fn register_pattern_ff<'a>(
 
 pub fn register_conjunction_ff<'a>(
     mut creature: Creature<u64>,
-    _sketch: &mut CountMinSketch,
+    _sketch: &mut Sketches,
     config: Arc<Config>,
 ) -> Creature<u64> {
     if let Some(ref profile) = creature.profile {
@@ -170,59 +170,31 @@ pub fn register_conjunction_ff<'a>(
     creature
 }
 
+pub struct Sketches {
+    pub register_error: CountMinSketch,
+    pub memory_writes: CountMinSketch,
+    pub addresses_visited: CountMinSketch,
+}
+
+impl Sketches {
+    pub fn new(config: &Config) -> Self {
+        Self {
+            register_error: CountMinSketch::new(config),
+            memory_writes: CountMinSketch::new(config),
+            addresses_visited: CountMinSketch::new(config),
+        }
+    }
+}
+
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
     hatchery: Hatchery<C, Creature<u64>>,
-    sketch: CountMinSketch,
-    fitness_fn: Box<FitnessFn<Creature<u64>, CountMinSketch, Config>>,
+    sketches: Sketches,
+    fitness_fn: Box<FitnessFn<Creature<u64>, Sketches, Config>>,
 }
 
-impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>, CountMinSketch> for Evaluator<C> {
-    fn develop(&self, creature: Creature<u64>) -> Creature<u64> {
-        if creature.profile.is_none() {
-            let (mut creature, profile) = self
-                .hatchery
-                .execute(creature)
-                .expect("Failed to evaluate creature");
-            creature.profile = Some(profile);
-            creature
-        } else {
-            creature
-        }
-    }
-
-    fn apply_fitness_function(&mut self, creature: Creature<u64>) -> Creature<u64> {
-        (self.fitness_fn)(creature, &mut self.sketch, self.config.clone())
-    }
-
-    fn development_pipeline<'b, I: 'static + Iterator<Item = Creature<u64>> + Send>(
-        &self,
-        inbound: I,
-    ) -> Vec<Creature<u64>> {
-        // we need to have the entire sample pass through the count-min sketch
-        // before we can use it to measure the frequency of any individual
-        let (old_meat, fresh_meat): (Vec<Creature<u64>>, _) =
-            inbound.partition(Creature::<u64>::mature);
-        let batch = self
-            .hatchery
-            .execute_batch(fresh_meat.into_iter())
-            .expect("execute batch failure")
-            .into_iter()
-            .map(|(mut creature, profile)| {
-                creature.profile = Some(profile);
-                creature
-            })
-            .chain(old_meat)
-            // NOTE: in progress of decoupling fitness function from development
-            // .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
-            .collect::<Vec<_>>();
-        batch
-    }
-
-    fn spawn(
-        config: &Config,
-        fitness_fn: FitnessFn<Creature<u64>, CountMinSketch, Config>,
-    ) -> Self {
+impl<C: 'static + Cpu<'static>> Evaluator<C> {
+    pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature<u64>, Sketches, Config>) -> Self {
         let mut config = config.clone();
         config.roper.parse_register_pattern();
         let hatch_config = Arc::new(config.roper.clone());
@@ -257,13 +229,56 @@ impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>, CountMinSketch> for E
             None,
         );
 
-        let sketch = CountMinSketch::new(&config);
+        let sketches = Sketches::new(&config);
         Self {
             config: Arc::new(config),
             hatchery,
-            sketch,
+            sketches,
             fitness_fn: Box::new(fitness_fn),
         }
+    }
+}
+
+impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>> for Evaluator<C> {
+    fn develop(&self, creature: Creature<u64>) -> Creature<u64> {
+        if creature.profile.is_none() {
+            let (mut creature, profile) = self
+                .hatchery
+                .execute(creature)
+                .expect("Failed to evaluate creature");
+            creature.profile = Some(profile);
+            creature
+        } else {
+            creature
+        }
+    }
+
+    fn apply_fitness_function(&mut self, creature: Creature<u64>) -> Creature<u64> {
+        (self.fitness_fn)(creature, &mut self.sketches, self.config.clone())
+    }
+
+    fn development_pipeline<'b, I: 'static + Iterator<Item = Creature<u64>> + Send>(
+        &self,
+        inbound: I,
+    ) -> Vec<Creature<u64>> {
+        // we need to have the entire sample pass through the count-min sketch
+        // before we can use it to measure the frequency of any individual
+        let (old_meat, fresh_meat): (Vec<Creature<u64>>, _) =
+            inbound.partition(Creature::<u64>::mature);
+        let batch = self
+            .hatchery
+            .execute_batch(fresh_meat.into_iter())
+            .expect("execute batch failure")
+            .into_iter()
+            .map(|(mut creature, profile)| {
+                creature.profile = Some(profile);
+                creature
+            })
+            .chain(old_meat)
+            // NOTE: in progress of decoupling fitness function from development
+            // .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
+            .collect::<Vec<_>>();
+        batch
     }
 }
 
