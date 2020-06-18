@@ -66,4 +66,7 @@ fn main() {
             }
         }
     }
+
+    log::info!("Waiting 3 seconds for file writes to complete...");
+    std::thread::sleep(std::time::Duration::from_secs(3));
 }

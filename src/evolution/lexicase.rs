@@ -27,7 +27,7 @@ pub struct Lexicase<Q: Hash + Debug, E: Develop<P>, P: Phenome + 'static> {
     pub iteration: usize,
     pub observer: Observer<P>,
     pub womb: E,
-    pub pier: Pier<P>,
+    pub pier: Arc<Pier<P>>,
 }
 
 impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static> Lexicase<Q, E, P> {
@@ -35,7 +35,7 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
         config: &Config,
         observer: Observer<P>,
         womb: E,
-        pier: Pier<P>,
+        pier: Arc<Pier<P>>,
         problems: Vec<Q>,
     ) -> Self
     where

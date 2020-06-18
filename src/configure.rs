@@ -43,6 +43,7 @@ pub struct Config {
     #[serde(default = "default_num_islands")]
     pub num_islands: usize,
     // The island identifier is used internally
+    #[serde(default)]
     pub island_identifier: usize,
     pub crossover_period: f64,
     pub crossover_rate: f32,
@@ -143,7 +144,11 @@ impl Config {
         config.assert_invariants();
         config.set_data_directory();
         // copy the config file to the data directory for posterity
-        std::fs::copy(&path, &format!("{}/config.toml", config.data_directory()))?;
+        // bit ugly, here: copying it to the parent of the directory, just above the island subdirs
+        std::fs::copy(
+            &path,
+            &format!("{}/../config.toml", config.data_directory()),
+        )?;
 
         println!("{:#?}", config);
 
@@ -173,7 +178,7 @@ impl Config {
             island = self.island_identifier,
         );
 
-        for sub in ["", "soup", "population"].iter() {
+        for sub in ["", "soup", "population", "champions"].iter() {
             let d = format!("{}/{}", path, sub);
             std::fs::create_dir_all(&d)
                 .map_err(|e| log::error!("Error creating {}: {:?}", path, e))

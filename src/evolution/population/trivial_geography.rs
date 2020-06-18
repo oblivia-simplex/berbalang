@@ -42,10 +42,18 @@ impl<P: Hash> TrivialGeography<P> {
     }
 
     pub fn extract(&mut self, index: usize) -> Option<P> {
+        // let's try to handle empty cells gracefully
         let len = self.deme.len();
+        assert!(len > 0, "tried to extract from empty geography");
         let i = index % len;
-        self.vacancies.push(i);
-        std::mem::take(&mut self.deme[i])
+        let res = std::mem::take(&mut self.deme[i]);
+        if res.is_some() {
+            self.vacancies.push(i);
+            res
+        } else {
+            log::debug!("cell was empty, sliding along...");
+            self.extract(index + 1)
+        }
     }
 
     pub fn insert(&mut self, creature: P) -> Result<(), Error> {
@@ -54,7 +62,12 @@ impl<P: Hash> TrivialGeography<P> {
             self.deme[i] = Some(creature);
             Ok(())
         } else {
-            Err(Error::NoVacancy)
+            // make room. we need the geography to be a bit more elastic
+            // if migration is going to work.
+            log::debug!("expanding deme to accommodate newcomer");
+            self.deme.push(Some(creature));
+            //Err(Error::NoVacancy)
+            Ok(())
         }
     }
 

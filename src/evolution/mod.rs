@@ -141,6 +141,11 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
 
     fn scalar_fitness(&self) -> Option<f64>;
 
+    fn priority_fitness(&self, _config: &Config) -> Option<f64> {
+        unimplemented!("let's break here for now");
+        //self.scalar_fitness()
+    }
+
     fn set_fitness(&mut self, f: Self::Fitness);
 
     fn tag(&self) -> u64;

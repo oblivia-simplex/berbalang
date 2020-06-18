@@ -39,6 +39,7 @@ pub struct StatRecord {
     pub best_uniq_exec_count: f64,
     pub best_ratio_written: f64,
 
+    pub immigrant_ratio: f64,
     pub soup_len: f64,
     // NOTE duplication here. maybe define a struct that is used for both
     // average and best, and a func that derives it
@@ -79,6 +80,12 @@ impl StatRecord {
             .iter()
             .filter_map(|g| g.profile.as_ref().map(|p| p.avg_emulation_millis()))
             .sum::<f64>()
+            / frame.len() as f64;
+
+        let immigrant_ratio = frame
+            .iter()
+            .filter(|g| g.native_island != window.config.island_identifier)
+            .count() as f64
             / frame.len() as f64;
 
         let best_genetic_freq_by_window = best.query_genetic_frequency(&sketch);
@@ -131,6 +138,8 @@ impl StatRecord {
             best_uniq_exec_count,
             best_ratio_written,
 
+            immigrant_ratio,
+
             soup_len,
         }
     }
@@ -165,10 +174,11 @@ pub fn report_fn<'a>(
     let record = StatRecord::from_window(window, counter);
 
     log::info!(
-        "Island #{}. Current best: {:#x?}\n{:#?}",
-        config.island_identifier,
-        window.best,
-        record
+        "Island #{island}. Current best: {best:#x?}\n{pop_name} island #{island} {record:#?}",
+        island = config.island_identifier,
+        best = window.best,
+        record = record,
+        pop_name = config.observer.population_name,
     );
 
     window.log_record(record);

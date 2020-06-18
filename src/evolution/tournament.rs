@@ -65,6 +65,11 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
             iteration,
             pier,
         } = self;
+        log::debug!(
+            "population size in island {}: {}",
+            config.island_identifier,
+            population.len()
+        );
 
         let mut rng = hash_seed_rng(&population);
 
@@ -88,7 +93,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         });
 
         // the best are now at the beginning of the vec
-        let best = Self::update_best(best, &combatants[0]);
+        let best = Self::update_best(best, &combatants[0], &config);
 
         // kill one off for every offspring to be produced
         for _ in 0..config.tournament.num_offspring {
@@ -102,22 +107,29 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         // `pop_size` offspring have been spawned.
         if iteration % (config.pop_size / config.tournament.num_offspring) == 0 {
             crate::increment_epoch_counter();
-            // NOTE: migration relies on tournaments being at least 1 larger than
-            // the number of parents plus the number of children
-            if survivors.len() > config.tournament.num_parents {
-                if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
-                    log::info!("Attempting migration...");
-                    let emigrant = survivors.pop().unwrap();
-                    if let Err(emigrant) = pier.embark(emigrant) {
-                        log::debug!("Pier full, returning emigrant to population");
-                        survivors.push(emigrant);
-                    }
+        }
+        // NOTE: migration relies on tournaments being at least 1 larger than
+        // the number of parents plus the number of children
+        if survivors.len() > config.tournament.num_parents {
+            let mut migrated = false;
+            if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+                log::info!("Attempting migration...");
+                let emigrant = survivors.pop().unwrap();
+                if let Err(emigrant) = pier.embark(emigrant) {
+                    log::debug!("Pier full, returning emigrant to population");
+                    survivors.push(emigrant);
+                } else {
+                    migrated = true;
                 }
-                if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
-                    if let Some(immigrant) = pier.disembark() {
-                        log::info!("Found immigrant on pier");
-                        survivors.push(immigrant);
-                    }
+            }
+            if !migrated {
+                if let Some(immigrant) = pier.disembark() {
+                    log::info!(
+                        "{:?} has arrived from the pier of island {}",
+                        immigrant,
+                        config.island_identifier
+                    );
+                    survivors.push(immigrant);
                 }
             }
         }
@@ -158,14 +170,24 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         }
     }
 
-    pub fn update_best(best: Option<P>, champ: &P) -> P {
+    pub fn update_best(best: Option<P>, champ: &P, config: &Config) -> P {
         match best {
             Some(ref best) if champ.scalar_fitness() < best.scalar_fitness() => {
-                log::info!("new champ with fitness {:?}:\n{:?}", champ.fitness(), champ);
+                log::info!(
+                    "Island #{}. new champ with fitness {:?}:\n{:?}",
+                    config.island_identifier,
+                    champ.fitness(),
+                    champ
+                );
                 champ.clone()
             }
             None => {
-                log::info!("new champ with fitness {:?}\n{:?}", champ.fitness(), champ);
+                log::info!(
+                    "Island #{}. new champ with fitness {:?}\n{:?}",
+                    config.island_identifier,
+                    champ.fitness(),
+                    champ
+                );
                 champ.clone()
             }
             best => best.unwrap(),

@@ -2,13 +2,10 @@
 // record information on the evolutionary process.
 
 use std::fs;
-use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 
-use deflate::write::GzEncoder;
-use deflate::Compression;
 use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use serde::Serialize;
@@ -19,6 +16,7 @@ use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::dump::dump;
 use crate::util::random::hash_seed_rng;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
@@ -88,6 +86,8 @@ pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     window_size: usize,
     report_fn: ReportFn<O, D>,
     pub best: Option<O>,
+    pub champion: Option<O>,
+    // priority fitness best
     pub archive: Vec<O>,
     #[allow(dead_code)] // TODO: re-establish pareto archive as optional
     dominance_order: D,
@@ -116,6 +116,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             report_every,
             report_fn,
             best: None,
+            champion: None,
             archive: vec![],
             stat_writer,
             dominance_order,
@@ -133,7 +134,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         let epoch_limit_reached =
             self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter();
         if epoch_limit_reached {
-            log::error!("epoch limit reached");
+            log::debug!("epoch limit reached");
             self.stop_evolution();
         }
 
@@ -184,6 +185,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         if self.counter % self.config.pop_size == 0 {
             // UNCOMMENT FOR PARETO FIXME // self.update_archive();
             self.update_best();
+            self.update_champion();
         }
         if self.counter % self.report_every == 0 {
             self.report();
@@ -204,6 +206,37 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                     }
                 }
             }
+        }
+    }
+
+    fn update_champion(&mut self) {
+        let mut updated = false;
+        for specimen in self.frame.iter() {
+            if let Some(f) = specimen.priority_fitness(&self.config) {
+                match self.champion.as_ref() {
+                    None => {
+                        updated = true;
+                        self.champion = Some(specimen.clone())
+                    }
+                    Some(champ) => {
+                        if f < champ.priority_fitness(&self.config).unwrap() {
+                            updated = true;
+                            self.champion = Some(specimen.clone())
+                        }
+                    }
+                }
+            }
+        }
+
+        if updated {
+            // dump the champion
+            let path = format!(
+                "{}/champions/champion_{}.json.gz",
+                self.config.data_directory(),
+                self.counter,
+            );
+            log::info!("Dumping new champion to {}", path);
+            dump(self.champion.as_ref().unwrap(), &path).expect("Failed to dump champion");
         }
     }
 
@@ -261,18 +294,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.config.data_directory(),
             self.counter,
         );
-        if let Ok(mut population_file) = fs::File::create(&path)
-            .map_err(|e| log::error!("Failed to create population file: {:?}", e))
-        {
-            let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
-            let _ = serde_json::to_writer(&mut gz, &self.frame)
-                .map_err(|e| log::error!("Failed to compress serialized population: {:?}", e));
-            let compressed_population_data = gz.finish().expect("Failed to finish Gzip encoding");
-            let _ = population_file
-                .write_all(&compressed_population_data)
-                .map_err(|e| log::error!("Failed to write population file: {:?}", e));
-            log::info!("Population dumped to {}", path);
-        };
+        dump(&self.frame, &path).expect("Failed to dump population");
     }
 
     pub fn soup(&self) -> HashMap<<O as Genome>::Allele, usize> {

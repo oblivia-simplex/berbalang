@@ -24,7 +24,7 @@ min_init_len = 10
 # and a minimal limit set.
 pop_size = 0x300
 max_length = 100
-num_epochs = 2000 # = infinite
+num_epochs = 200 # = infinite
 # season length is only used by 
 # SeasonalSketch, which I don't
 # think actually works
@@ -71,7 +71,7 @@ tournament_size = 7
 # maybe experiment with dynamic radius adjustments
 # as a response to loss of diversity
 geographic_radius = 20
-migration_rate = 1
+migration_rate = 0.1
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
@@ -90,7 +90,7 @@ dump_soup = true
 data_directory = "~/logs"
 window_size  = 1000
 report_every = 1000
-dump_every = 10000
+dump_every = 1000
 
 [data]
 path = "./data/iris.tsv"

@@ -40,6 +40,7 @@ pub struct Creature<T: Clone + Serialize + Deserialize<'static>> {
     pub fitness: Option<Fitness<'static>>,
     pub front: Option<usize>,
     pub num_offspring: usize,
+    pub native_island: usize,
 }
 
 impl<T: Clone + Serialize + Deserialize<'static>> Hash for Creature<T> {
@@ -122,7 +123,7 @@ impl Pack for Creature<u64> {
 
 impl fmt::Debug for Creature<u64> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Name: {}", self.name)?;
+        writeln!(f, "Name: {}, from island {}", self.name, self.native_island)?;
         writeln!(f, "Generation: {}", self.generation)?;
         let memory = loader::get_static_memory_image();
         for i in 0..self.chromosome.len() {
@@ -262,6 +263,7 @@ impl Genome for Creature<u64> {
             fitness: None,
             front: None,
             num_offspring: 0,
+            native_island: config.island_identifier,
         }
     }
 
@@ -305,6 +307,7 @@ impl Genome for Creature<u64> {
             fitness: None,
             front: None,
             num_offspring: 0,
+            native_island: config.island_identifier,
         }
     }
 
@@ -386,6 +389,11 @@ impl Phenome for Creature<u64> {
         self.fitness.as_ref().map(HasScalar::scalar)
     }
 
+    fn priority_fitness(&self, config: &Config) -> Option<f64> {
+        let priority = &config.fitness.priority;
+        self.fitness().as_ref().and_then(|f| f.get(priority))
+    }
+
     fn set_fitness(&mut self, f: Self::Fitness) {
         self.fitness = Some(f)
     }
@@ -415,29 +423,16 @@ impl Phenome for Creature<u64> {
     }
 
     fn is_goal_reached(&self, config: &Config) -> bool {
-        let priority = config.fitness.priority.clone();
-        (self
-            .fitness()
-            .as_ref()
-            .and_then(|f| f.get(&priority))
-            .unwrap_or(std::f64::MAX)
-            - config.fitness.target)
-            <= std::f64::EPSILON
-    }
-
-    fn mature(&self) -> bool {
-        self.profile.is_some()
+        self.priority_fitness(config)
+            .map(|p| p - config.fitness.target <= std::f64::EPSILON)
+            .unwrap_or(false)
     }
 
     fn fails(&self, case: &Self::Problem) -> bool {
         !case.check_creature(self)
-        // if let Some(ref profile) = self.profile {
-        //     !profile
-        //         .registers
-        //         .iter()
-        //         .all(|reg_state| case.check_state(reg_state))
-        // } else {
-        //     true
-        // }
+    }
+
+    fn mature(&self) -> bool {
+        self.profile.is_some()
     }
 }

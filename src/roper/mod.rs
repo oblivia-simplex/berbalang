@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::thread::spawn;
 
 use non_dominated_sort::DominanceOrd;
+use rand::Rng;
 use unicorn::Cpu;
 
 use creature::*;
@@ -22,6 +23,7 @@ use crate::fitness::Weighted;
 use crate::observer::Observer;
 use crate::ontogenesis::FitnessFn;
 use crate::roper::evaluation::{lexi, Sketches};
+use crate::util::random::hash_seed_rng;
 
 /// The `analysis` module contains the reporting function passed to the observation
 /// window. Population saving, soup dumping, statistical assessment, etc., happens there.
@@ -78,22 +80,21 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
     .expect("Failed to load binary image");
     init_soup(&mut config).expect("Failed to initialize the soup");
 
-    let (observer, evaluator) = prepare(&config);
-    let pier = Pier::new(4); // FIXME: don't hardcode
-
     match config.selection {
         Selection::Tournament => {
             // first, crude shot at islands...
             // TODO: factor this out into its own module, so that it works with
             // any job and selection method.
             let num_islands = config.num_islands;
-            let pier = Arc::new(pier);
+            let pier: Arc<Pier<Creature<u64>>> = Arc::new(Pier::new(config.num_islands));
             let mut handles = Vec::new();
+            let mut rng = hash_seed_rng(&config.random_seed);
             for i in 0..num_islands {
                 let mut config = config.clone();
-                let (observer, evaluator) = prepare(&config);
                 config.island_identifier = i;
                 config.set_data_directory();
+                config.random_seed = rng.gen::<u64>();
+                let (observer, evaluator) = prepare(&config);
                 let pier = pier.clone();
                 let h = spawn(move || {
                     let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
@@ -115,6 +116,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             }
         }
         Selection::Roulette => {
+            let (observer, evaluator) = prepare(&config);
             let mut world =
                 Roulette::<evaluation::Evaluator<C>, Creature<u64>, CreatureDominanceOrd>::new(
                     &config,
@@ -127,6 +129,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             }
         }
         Selection::Metropolis => {
+            let (observer, evaluator) = prepare(&config);
             let mut world = Metropolis::<evaluation::Evaluator<C>, Creature<u64>>::new(
                 &config, observer, evaluator,
             );
@@ -135,6 +138,15 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             }
         }
         Selection::Lexicase => {
+            let fitness_function: FitnessFn<Creature<u64>, Sketches, Config> =
+                match config.fitness.function.as_str() {
+                    "register_pattern" => Box::new(evaluation::register_pattern_ff),
+                    "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
+                    "code_coverage" => Box::new(evaluation::code_coverage_ff),
+                    s => unimplemented!("No such fitness function as {}", s),
+                };
+            let pier: Arc<Pier<Creature<u64>>> = Arc::new(Pier::new(config.num_islands));
+            let evaluator = evaluation::Evaluator::spawn(&config, fitness_function);
             let observer = Observer::spawn(
                 &config,
                 Box::new(analysis::lexicase::report_fn),
