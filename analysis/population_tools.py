@@ -45,7 +45,9 @@ def generations_of_population(population):
     return [p['generation'] for p in population]
 
 def files(directory):
-    return [os.path.join(directory, f) for f in next(os.walk(directory))[2]]
+    fs = [os.path.join(directory, f) for f in next(os.walk(directory))[2]]
+    print(fs)
+    return fs
 
 def build_dataframe(path, c1_name, c2_name, f1, f2):
     population = load_population(path)
@@ -94,14 +96,14 @@ def population_dirs(population_name, island=None):
 
 def plot_fitness_by_generation(pop_name, island=None):
     pop_dirs = population_dirs(pop_name, island)
-    data = ft.reduce(DataFrame.append, [dataframe_for_dir(pop_dir, "generation", "fitness", generation_of_creature, fitness_of_creature) for pop_dir in pop_dirs])
+    data = ft.reduce(pd.DataFrame.append, [dataframe_for_dir(pop_dir, "generation", "fitness", generation_of_creature, fitness_of_creature) for pop_dir in pop_dirs])
     plot_hexbin(data, "generation", "fitness")
     return data
 
 
-def joy_plot_fitness_by_generation(pop_name, island=None):
+def unknown_pleasures_fitness_by_generation(pop_name, island=None):
     pop_dirs = population_dirs(pop_name, island)
-    data = ft.reduce(DataFrame.append, [dataframe_for_dir(pop_dir, "generation", "fitness", generation_of_creature, fitness_of_creature) for pop_dir in pop_dirs])
+    data = ft.reduce(pd.DataFrame.append, [dataframe_for_dir(pop_dir, "generation", "fitness", generation_of_creature, fitness_of_creature) for pop_dir in pop_dirs])
     min_fit = min(data['fitness'])
     max_fit = max(data['fitness'])
     left = max_fit * 1.1

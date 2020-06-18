@@ -179,6 +179,13 @@ pub fn report_fn<'a>(
         record = record,
     );
 
+    log::info!(
+        "Island #{island} Best: {best:#?}\nIsland #{island} Champion: {champion:#?}",
+        island = config.island_identifier,
+        best = window.best,
+        champion = window.champion,
+    );
+
     window.log_record(record);
 
     // let total = window.archive.len();
