@@ -113,7 +113,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         if survivors.len() > config.tournament.num_parents {
             let mut migrated = false;
             if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
-                log::info!("Attempting migration...");
+                log::debug!("Attempting migration...");
                 let emigrant = survivors.pop().unwrap();
                 if let Err(emigrant) = pier.embark(emigrant) {
                     log::debug!("Pier full, returning emigrant to population");
@@ -124,7 +124,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
             }
             if !migrated {
                 if let Some(immigrant) = pier.disembark() {
-                    log::info!(
+                    log::debug!(
                         "{} has arrived from the pier of island {}",
                         immigrant.name(),
                         config.island_identifier

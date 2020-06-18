@@ -71,7 +71,7 @@ tournament_size = 7
 # maybe experiment with dynamic radius adjustments
 # as a response to loss of diversity
 geographic_radius = 20
-migration_rate = 0.1
+migration_rate = 0.02
 
 [roulette]
 # Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.

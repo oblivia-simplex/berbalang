@@ -31,19 +31,19 @@ impl<P> Pier<P> {
 
     pub fn embark(&self, emigrant: P) -> Result<(), P> {
         if self.len() >= self.capacity {
-            log::info!("Pier at capacity, returning emigrant");
+            log::debug!("Pier at capacity, returning emigrant");
             return Err(emigrant);
         }
         self.q.push(emigrant);
         let len = self.incr_count();
-        log::info!("Emigrant embarked onto pier. Holding {}", len + 1);
+        log::debug!("Emigrant embarked onto pier. Holding {}", len + 1);
         Ok(())
     }
 
     pub fn disembark(&self) -> Option<P> {
         if let Some(p) = self.q.pop().ok() {
             let len = self.decr_count();
-            log::info!("Immigrant disembarked from pier. Holding {}", len - 1);
+            log::debug!("Immigrant disembarked from pier. Holding {}", len - 1);
             Some(p)
         } else {
             None
