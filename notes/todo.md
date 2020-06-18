@@ -42,6 +42,7 @@ ideally, this is somethign you should be able to set in the config.toml
 - new task: write a given string somewhere in memory
 - 2nd stage: point to it with a register
 
+- *Finish Island implementation* -- it won't take much to do this.
 - trial harness for experimental runs
 - dockerize
 - get it cloud ready

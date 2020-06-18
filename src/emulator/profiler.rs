@@ -1,9 +1,10 @@
 use std::cmp::{Ord, PartialOrd};
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use capstone::Instructions;
+use crossbeam::queue::SegQueue;
 //use indexmap::map::IndexMap;
 //use indexmap::set::IndexSet;
 use hashbrown::{HashMap, HashSet};
@@ -54,23 +55,18 @@ impl fmt::Debug for Block {
 
 pub struct Profiler<C: Cpu<'static>> {
     /// The Arc<RwLock<_>> fields need to be writeable for the unicorn callbacks.
-    pub block_log: Arc<RwLock<Vec<Block>>>,
-    pub gadget_log: Arc<RwLock<Vec<u64>>>,
+    pub block_log: Arc<SegQueue<Block>>,
+    pub gadget_log: Arc<SegQueue<u64>>,
+    //Arc<RwLock<Vec<u64>>>,
     /// These fields are written to after the emulation has finished.
     pub written_memory: Vec<Seg>,
-    pub write_log: Arc<RwLock<Vec<MemLogEntry>>>,
-    pub addresses_written_to: Arc<RwLock<HashSet<u64>>>,
+    pub write_log: Arc<SegQueue<MemLogEntry>>,
+    //Arc<RwLock<Vec<MemLogEntry>>>,
     pub cpu_error: Option<unicorn::Error>,
     pub computation_time: Duration,
     pub registers: HashMap<Register<C>, u64>,
     registers_to_read: Vec<Register<C>>,
     pub input: HashMap<Register<C>, u64>,
-}
-
-impl<C: Cpu<'static>> Profiler<C> {
-    pub fn strong_counts(&self) -> usize {
-        Arc::strong_count(&self.block_log)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,8 +77,18 @@ pub struct Profile {
     pub computation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
     pub gadgets_executed: HashSet<u64>,
+    #[serde(skip)]
     pub writeable_memory: Vec<Vec<Seg>>,
     pub write_logs: Vec<Vec<MemLogEntry>>,
+}
+
+fn segqueue_to_vec<T>(sq: Arc<SegQueue<T>>) -> Vec<T> {
+    let mut v = vec![];
+    while let Ok(x) = sq.pop() {
+        v.push(x)
+    }
+    //log::debug!("vec of {} blocks", v.len());
+    v
 }
 
 impl Profile {
@@ -126,12 +132,15 @@ impl Profile {
             //         //.map(|b| (b.entry, b.size))
             //         .collect::<Vec<Block>>(),
             // );
-            paths.push(block_log.read().unwrap().to_vec());
-            gadget_log.read().into_iter().for_each(|glog| {
-                glog.iter().for_each(|g| {
-                    gadgets_executed.insert(*g);
-                })
-            });
+            paths.push(segqueue_to_vec(block_log));
+            while let Ok(g) = gadget_log.pop() {
+                gadgets_executed.insert(g);
+            }
+            // gadget_log.read().into_iter().for_each(|glog| {
+            //     glog.iter().for_each(|g| {
+            //         gadgets_executed.insert(*g);
+            //     })
+            // });
             if let Some(c) = cpu_error {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
@@ -139,7 +148,7 @@ impl Profile {
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
             writeable_memory_regions.push(written_memory);
-            write_logs.push(write_log.read().unwrap().to_vec());
+            write_logs.push(segqueue_to_vec(write_log));
         }
 
         Self {
@@ -216,19 +225,13 @@ impl<C: 'static + Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
 
 impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "write_log: {} entries; ",
-            self.write_log.read().unwrap().len()
-        )?;
         write!(f, "registers: {:?}; ", self.registers)?;
         write!(f, "cpu_error: {:?}; ", self.cpu_error)?;
         write!(
             f,
             "computation_time: {} μs; ",
             self.computation_time.as_micros()
-        )?;
-        write!(f, "{} blocks", self.block_log.read().unwrap().len())
+        )
     }
 }
 
@@ -268,16 +271,15 @@ pub struct MemLogEntry {
 impl<C: Cpu<'static>> Default for Profiler<C> {
     fn default() -> Self {
         Self {
-            write_log: Arc::new(RwLock::new(Vec::default())),
+            write_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::default())),
             input: HashMap::default(),
             registers: HashMap::default(),
             cpu_error: None,
             registers_to_read: Vec::new(),
             computation_time: Duration::default(),
-            block_log: Arc::new(RwLock::new(Vec::new())),
-            gadget_log: Arc::new(RwLock::new(Vec::new())),
+            block_log: Arc::new(SegQueue::new()),
+            gadget_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::new())),
             written_memory: vec![],
-            addresses_written_to: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 }

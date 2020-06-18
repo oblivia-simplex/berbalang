@@ -237,7 +237,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                         let context: Context = (*emu).context_save().expect("Failed to save context");
 
                         if config.record_basic_blocks {
-                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
+                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
                         }
 
                         // track gadget entry execution // NO, this has a loophole in overlapping gadgets
@@ -460,12 +460,7 @@ pub mod hooking {
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let gadget_log = profiler.gadget_log.clone();
 
-        let callback = move |_engine, address, _insn_len| {
-            gadget_log
-                .write()
-                .expect("poisoned lock on gadget_log")
-                .push(address)
-        };
+        let callback = move |_engine, address, _insn_len| gadget_log.push(address);
 
         addresses
             .iter()
@@ -499,7 +494,7 @@ pub mod hooking {
 
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        profiler: &Profiler<C>,
+        profiler: &mut Profiler<C>,
         gadget_addrs: &Vec<u64>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let gadget_addrs: Arc<HashSet<u64>> = Arc::new(gadget_addrs.iter().cloned().collect());
@@ -510,7 +505,7 @@ pub mod hooking {
             let size = size as usize;
 
             if gadget_addrs.contains(&entry) {
-                gadget_log.write().expect("poisoned").push(entry);
+                gadget_log.push(entry);
             }
 
             // If the code ends with a return, log it in the ret log.
@@ -518,10 +513,7 @@ pub mod hooking {
             // return_insn method on the trait, like we did for the special
             // registers. TODO: low priority
             let block = Block { entry, size };
-            block_log
-                .write()
-                .expect("Poisoned mutex in bb_callback")
-                .push(block);
+            block_log.push(block);
         };
 
         let hooks = code_hook_all(emu, CodeHookType::BLOCK, bb_callback)?;
@@ -547,7 +539,6 @@ pub mod hooking {
                         num_bytes_written,
                         value: value as u64,
                     };
-                    let mut write_log = write_log.write().expect("Poisoned mutex in callback");
                     write_log.push(entry);
                     true // NOTE: I'm not really sure what this return value means, here.
                 } else {

@@ -65,7 +65,7 @@ pub fn code_coverage_ff<'a>(
 
 pub fn register_pattern_ff<'a>(
     mut creature: Creature<u64>,
-    _sketch: &mut CountMinSketch,
+    sketch: &mut CountMinSketch,
     config: Arc<Config>,
 ) -> Creature<u64> {
     // measure fitness
@@ -83,17 +83,18 @@ pub fn register_pattern_ff<'a>(
                 .insert("register_error", register_error);
             // FIXME broken // fitness_vector.push(reg_freq);
 
+            sketch.insert(&profile.registers);
+            let register_novelty = sketch.query(&profile.registers);
+            weighted_fitness.insert("register_novelty", register_novelty);
             // get the number of times a referenced value, aside from 0, has been written
             // to memory
             let writes_of_referenced_values =
                 pattern.count_writes_of_referenced_values(&profile, true);
-            weighted_fitness
-                .scores
-                .insert("important_writes", writes_of_referenced_values as f64);
+            weighted_fitness.insert("important_writes", writes_of_referenced_values as f64);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
-            weighted_fitness.scores.insert("crash_count", crashes);
+            weighted_fitness.insert("crash_count", crashes);
 
             let gadgets_executed = profile.gadgets_executed.len();
             weighted_fitness.insert("gadgets_executed", gadgets_executed as f64);
