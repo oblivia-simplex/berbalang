@@ -389,6 +389,10 @@ impl Phenome for Creature<u64> {
         self.fitness.as_ref().map(HasScalar::scalar)
     }
 
+    fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
     fn priority_fitness(&self, config: &Config) -> Option<f64> {
         let priority = &config.fitness.priority;
         self.fitness().as_ref().and_then(|f| f.get(priority))

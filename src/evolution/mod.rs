@@ -148,6 +148,10 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
 
     fn set_fitness(&mut self, f: Self::Fitness);
 
+    fn name(&self) -> &str {
+        "nameless voyager"
+    }
+
     fn tag(&self) -> u64;
 
     fn set_tag(&mut self, tag: u64);

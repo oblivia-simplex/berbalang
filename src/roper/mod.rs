@@ -100,13 +100,8 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                     let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
                         &config, observer, evaluator, pier,
                     );
-                    let mut counter = 0;
                     while world.observer.keep_going() {
                         world = world.evolve();
-                        counter += 1;
-                        if counter % 0x1000 == 0 {
-                            log::info!("best: {:#x?}", world.best);
-                        }
                     }
                 });
                 handles.push(h);

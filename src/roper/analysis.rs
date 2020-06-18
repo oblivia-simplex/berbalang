@@ -174,11 +174,9 @@ pub fn report_fn<'a>(
     let record = StatRecord::from_window(window, counter);
 
     log::info!(
-        "Island #{island}. Current best: {best:#x?}\n{pop_name} island #{island} {record:#?}",
+        "Island #{island} {record:#?}",
         island = config.island_identifier,
-        best = window.best,
         record = record,
-        pop_name = config.observer.population_name,
     );
 
     window.log_record(record);

@@ -253,8 +253,7 @@ fn fitness_function(
     phenome
 }
 
-pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness = config.fitness.target as f64;
+pub fn run(config: Config) {
     let report_fn = Box::new(report);
     let fitness_fn = Box::new(fitness_function);
     let observer = Observer::spawn(&config, report_fn, Dom);
@@ -267,18 +266,8 @@ pub fn run(config: Config) -> Option<Genotype> {
         Arc::new(pier),
     );
 
-    loop {
+    while world.observer.keep_going() {
         world = world.evolve();
-        if let Some(true) = world
-            .best
-            .as_ref()
-            .and_then(|b| b.fitness.as_ref())
-            .map(|f| f[0] <= target_fitness && f[1] <= target_fitness)
-        {
-            println!("\n***** Success after {} epochs! *****", world.iteration);
-            println!("{:#?}", world.best);
-            return world.best;
-        };
     }
 }
 

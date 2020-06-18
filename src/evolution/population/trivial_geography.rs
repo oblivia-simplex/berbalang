@@ -38,7 +38,7 @@ impl<P: Hash> TrivialGeography<P> {
     }
 
     pub fn len(&self) -> usize {
-        self.deme.len()
+        self.deme.len() - self.vacancies.len()
     }
 
     pub fn extract(&mut self, index: usize) -> Option<P> {

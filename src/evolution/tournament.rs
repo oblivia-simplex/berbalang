@@ -16,7 +16,7 @@ use crate::util::random::hash_seed_rng;
 pub struct Tournament<E: Develop<P>, P: Phenome + 'static> {
     pub population: TrivialGeography<P>,
     pub config: Config,
-    pub best: Option<P>,
+    //pub best: Option<P>,
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
@@ -46,7 +46,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         Self {
             population,
             config,
-            best: None,
+            //best: None,
             iteration: 0,
             observer,
             evaluator,
@@ -58,7 +58,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         // destruct the Epoch
         let Self {
             mut population,
-            best,
+            //best,
             observer,
             mut evaluator,
             config,
@@ -93,7 +93,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         });
 
         // the best are now at the beginning of the vec
-        let best = Self::update_best(best, &combatants[0], &config);
+        //let best = Self::update_best(best, &combatants[0], &config);
 
         // kill one off for every offspring to be produced
         for _ in 0..config.tournament.num_offspring {
@@ -125,8 +125,8 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
             if !migrated {
                 if let Some(immigrant) = pier.disembark() {
                     log::info!(
-                        "{:?} has arrived from the pier of island {}",
-                        immigrant,
+                        "{} has arrived from the pier of island {}",
+                        immigrant.name(),
                         config.island_identifier
                     );
                     survivors.push(immigrant);
@@ -162,7 +162,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         Self {
             population,
             config,
-            best: Some(best),
+            //best: Some(best),
             iteration: iteration + 1,
             observer,
             evaluator,
@@ -170,29 +170,29 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         }
     }
 
-    pub fn update_best(best: Option<P>, champ: &P, config: &Config) -> P {
-        match best {
-            Some(ref best) if champ.scalar_fitness() < best.scalar_fitness() => {
-                log::info!(
-                    "Island #{}. new champ with fitness {:?}:\n{:?}",
-                    config.island_identifier,
-                    champ.fitness(),
-                    champ
-                );
-                champ.clone()
-            }
-            None => {
-                log::info!(
-                    "Island #{}. new champ with fitness {:?}\n{:?}",
-                    config.island_identifier,
-                    champ.fitness(),
-                    champ
-                );
-                champ.clone()
-            }
-            best => best.unwrap(),
-        }
-    }
+    // pub fn update_best(best: Option<P>, champ: &P, config: &Config) -> P {
+    //     match best {
+    //         Some(ref best) if champ.scalar_fitness() < best.scalar_fitness() => {
+    //             log::info!(
+    //                 "Island #{}. new champ with fitness {:?}:\n{:?}",
+    //                 config.island_identifier,
+    //                 champ.fitness(),
+    //                 champ
+    //             );
+    //             champ.clone()
+    //         }
+    //         None => {
+    //             log::info!(
+    //                 "Island #{}. new champ with fitness {:?}\n{:?}",
+    //                 config.island_identifier,
+    //                 champ.fitness(),
+    //                 champ
+    //             );
+    //             champ.clone()
+    //         }
+    //         best => best.unwrap(),
+    //     }
+    // }
 
     // pub fn target_reached(&self, target: &<P as Phenome>::Fitness) -> bool {
     //     self.best

@@ -4,9 +4,9 @@
 
 #random_seed = 0xdeadbeef
 job = "Roper"
-selection = "Tournament" # currently inefficient
+selection = "Tournament" 
 
-num_islands = 4
+num_islands = 5
 #job = "LinearGp"
 #selection = "Roulette"
 #selection = "Lexicase"
@@ -88,9 +88,9 @@ max_steps = 0x1000
 dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
-window_size  = 1000
-report_every = 1000
-dump_every = 1000
+window_size  = 4000
+report_every = 4000
+dump_every = 4000
 
 [data]
 path = "./data/iris.tsv"

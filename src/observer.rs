@@ -138,8 +138,8 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.stop_evolution();
         }
 
-        if let Some(ref best) = self.best {
-            if best.is_goal_reached(&self.config) {
+        if let Some(ref champion) = self.champion {
+            if champion.is_goal_reached(&self.config) {
                 self.stop_evolution()
             }
         }
@@ -195,17 +195,30 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
     }
 
     fn update_best(&mut self) {
+        let mut updated = false;
         for specimen in self.frame.iter() {
             if let Some(f) = specimen.scalar_fitness() {
                 match self.best.as_ref() {
-                    None => self.best = Some(specimen.clone()),
+                    None => {
+                        updated = true;
+                        self.best = Some(specimen.clone())
+                    }
                     Some(champ) => {
                         if f < champ.scalar_fitness().unwrap() {
+                            updated = true;
                             self.best = Some(specimen.clone())
                         }
                     }
                 }
             }
+        }
+
+        if updated {
+            log::info!(
+                "Island {}: new best:\n{:#?}",
+                self.config.island_identifier,
+                self.best.as_ref().unwrap()
+            );
         }
     }
 
@@ -229,6 +242,11 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         }
 
         if updated {
+            log::info!(
+                "Island {}: new champion:\n{:#?}",
+                self.config.island_identifier,
+                self.champion.as_ref().unwrap()
+            );
             // dump the champion
             let path = format!(
                 "{}/champions/champion_{}.json.gz",
