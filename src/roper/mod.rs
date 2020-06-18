@@ -83,6 +83,8 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
 
     match config.selection {
         Selection::Tournament => {
+            // first, crude shot at islands...
+
             let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
                 config, observer, evaluator, pier,
             );

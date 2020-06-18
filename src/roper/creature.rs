@@ -317,7 +317,9 @@ impl Genome for Creature<u64> {
             if !levy_decision(&mut rng, self.len(), config.mutation_exponent) {
                 continue;
             }
-            match rand::random() {
+            let mutation = rand::random::<Mutation>();
+            self.chromosome_mutation[i] = Some(mutation);
+            match mutation {
                 Mutation::Dereference => {
                     if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
                         if bytes.len() > 8 {

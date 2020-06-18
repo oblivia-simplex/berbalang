@@ -207,6 +207,29 @@ impl RegisterPattern {
         summed_dist
     }
 
+    /// Returns a vector of register/reference-path pairs *only* for those registers
+    /// that do not already perfectly match the target pattern. The intended use of
+    /// this method is so that only repeated errors are penalized, and not repeated
+    /// successes.
+    pub fn incorrect_register_states<'a>(
+        &'a self,
+        register_state: &'a RegisterState,
+    ) -> Vec<(&'a String, &'a Vec<u64>)> {
+        self.0
+            .iter()
+            .filter_map(|(reg, r_val)| {
+                let d = register_state
+                    .distance_from_register_val(reg, r_val)
+                    .expect("Failed to get distance from register val");
+                if d > 0.0 {
+                    register_state.0.get(reg).map(|v| (reg, v))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub fn count_writes_of_referenced_values(
         &self,
         profile: &Profile,

@@ -63,7 +63,7 @@ pub struct Profiler<C: Cpu<'static>> {
     pub write_log: Arc<SegQueue<MemLogEntry>>,
     //Arc<RwLock<Vec<MemLogEntry>>>,
     pub cpu_error: Option<unicorn::Error>,
-    pub computation_time: Duration,
+    pub emulation_time: Duration,
     pub registers: HashMap<Register<C>, u64>,
     registers_to_read: Vec<Register<C>>,
     pub input: HashMap<Register<C>, u64>,
@@ -74,9 +74,12 @@ pub struct Profile {
     pub paths: Vec<Vec<Block>>,
     //PrefixSet<Block>,
     pub cpu_errors: HashMap<unicorn::Error, usize>,
-    pub computation_times: Vec<Duration>,
+    pub emulation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
     pub gadgets_executed: HashSet<u64>,
+    #[cfg(feature = "full_dump")]
+    pub writeable_memory: Vec<Vec<Seg>>,
+    #[cfg(not(feature = "full_dump"))]
     #[serde(skip)]
     pub writeable_memory: Vec<Vec<Seg>>,
     pub write_logs: Vec<Vec<MemLogEntry>>,
@@ -118,7 +121,7 @@ impl Profile {
             block_log,
             write_log,
             cpu_error,
-            computation_time,
+            emulation_time,
             registers,
             gadget_log,
             written_memory,
@@ -144,7 +147,7 @@ impl Profile {
             if let Some(c) = cpu_error {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
-            computation_times.push(computation_time);
+            computation_times.push(emulation_time);
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
             writeable_memory_regions.push(written_memory);
@@ -154,7 +157,7 @@ impl Profile {
         Self {
             paths,
             cpu_errors,
-            computation_times,
+            emulation_times: computation_times,
             gadgets_executed,
             registers: register_maps,
             writeable_memory: writeable_memory_regions,
@@ -162,7 +165,12 @@ impl Profile {
         }
     }
 
-    pub fn bb_path_iter(&self) -> impl Iterator<Item = &Vec<Block>> + '_ {
+    pub fn avg_emulation_millis(&self) -> f64 {
+        self.emulation_times.iter().sum::<Duration>().as_millis() as f64
+            / self.emulation_times.len() as f64
+    }
+
+    pub fn basic_block_path_iterator(&self) -> impl Iterator<Item = &Vec<Block>> + '_ {
         self.paths.iter()
     }
 
@@ -230,7 +238,7 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
         write!(
             f,
             "computation_time: {} μs; ",
-            self.computation_time.as_micros()
+            self.emulation_time.as_micros()
         )
     }
 }
@@ -260,7 +268,7 @@ impl<C: Cpu<'static>> Profiler<C> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
 pub struct MemLogEntry {
     pub program_counter: u64,
     pub address: u64,
@@ -276,7 +284,7 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             registers: HashMap::default(),
             cpu_error: None,
             registers_to_read: Vec::new(),
-            computation_time: Duration::default(),
+            emulation_time: Duration::default(),
             block_log: Arc::new(SegQueue::new()),
             gadget_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::new())),
             written_memory: vec![],
@@ -299,7 +307,7 @@ mod test {
                     Block { entry: 3, size: 4 },
                 ])),
                 cpu_error: None,
-                computation_time: Default::default(),
+                emulation_time: Default::default(),
                 registers: HashMap::new(),
                 ..Default::default()
             },
@@ -309,7 +317,7 @@ mod test {
                     Block { entry: 6, size: 6 },
                 ])),
                 cpu_error: None,
-                computation_time: Default::default(),
+                emulation_time: Default::default(),
                 registers: HashMap::new(),
                 ..Default::default()
             },

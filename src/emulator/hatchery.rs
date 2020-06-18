@@ -272,7 +272,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                             millisecond_timeout * unicorn::MILLISECOND_SCALE,
                             max_emu_steps,
                         );
-                        profiler.computation_time = start_time.elapsed();
+                        profiler.emulation_time = start_time.elapsed();
                         if let Err(error_code) = result {
                             profiler.set_error(error_code)
                         };

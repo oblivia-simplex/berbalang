@@ -29,6 +29,7 @@ pub struct StatRecord {
     pub avg_scalar_fitness: f64,
     pub avg_uniq_exec_count: f64,
     pub avg_ratio_written: f64,
+    pub avg_emulation_time: f64,
 
     pub best_exec_ratio: f64,
     pub best_genetic_freq_by_window: f64,
@@ -74,6 +75,12 @@ impl StatRecord {
         let avg_exec_ratio: f64 =
             frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
 
+        let avg_emulation_time = frame
+            .iter()
+            .filter_map(|g| g.profile.as_ref().map(|p| p.avg_emulation_millis()))
+            .sum::<f64>()
+            / frame.len() as f64;
+
         let best_genetic_freq_by_window = best.query_genetic_frequency(&sketch);
         let best_exec_ratio = best.execution_ratio();
         let best_scalar_fitness = best.scalar_fitness().unwrap();
@@ -114,6 +121,7 @@ impl StatRecord {
             // avg_crash_count: fit_vec["crash_count"],
             avg_register_error: fit_vec.get("register_error").unwrap_or_default(),
             avg_ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
+            avg_emulation_time,
             //avg_genetic_freq_by_gen: fit_vec["genetic_frequency"],
             best_genetic_freq_by_window,
             best_scalar_fitness,

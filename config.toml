@@ -51,9 +51,10 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
 #important_writes = "100 - min(100, x*50)"
-gadgets_executed = "(20 - min(20, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
-register_error = "x"
-register_novelty = "x*10"
+#gadgets_executed = "10*(5 - min(5, x))/E" # / ((1+E)/ 20)" #"-1 * min(3, x)"
+gadgets_executed = "(5 - min(5,x))/5"
+register_error = "x/5"
+register_novelty = "x*1000"
 #mem_write_ratio = "0"
 #code_frequency = "x"
 #code_coverage = "100 * x"
@@ -104,8 +105,8 @@ mode = "MODE_32"
 soup_size = 0x10000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
-num_workers = 41
-num_emulators = 31
+num_workers = 81
+num_emulators = 71
 max_emu_steps = 0x10_000
 millisecond_timeout = 100
 emulator_stack_size = 0x1000

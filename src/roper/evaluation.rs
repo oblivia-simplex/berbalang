@@ -23,7 +23,7 @@ pub fn code_coverage_ff<'a>(
     if let Some(ref profile) = creature.profile {
         let mut addresses_visited = HashSet::new();
         // TODO: optimize this, maybe parallelize
-        profile.bb_path_iter().for_each(|path| {
+        profile.basic_block_path_iterator().for_each(|path| {
             for block in path {
                 for addr in block.entry..(block.entry + block.size as u64) {
                     addresses_visited.insert(addr);
@@ -81,16 +81,43 @@ pub fn register_pattern_ff<'a>(
             weighted_fitness
                 .scores
                 .insert("register_error", register_error);
-            // FIXME broken // fitness_vector.push(reg_freq);
 
-            sketch.insert(&profile.registers);
-            let register_novelty = sketch.query(&profile.registers);
+            // Calculate the novelty of register state errors
+            let iter = profile
+                .registers
+                .iter()
+                .map(|r| pattern.incorrect_register_states(r))
+                .flatten()
+                .map(|p| {
+                    sketch.insert(p);
+                    sketch.query(p)
+                });
+
+            let register_novelty = stats::mean(iter);
             weighted_fitness.insert("register_novelty", register_novelty);
-            // get the number of times a referenced value, aside from 0, has been written
-            // to memory
-            let writes_of_referenced_values =
-                pattern.count_writes_of_referenced_values(&profile, true);
-            weighted_fitness.insert("important_writes", writes_of_referenced_values as f64);
+
+            // Measure write novelty
+            let mem_scores = profile
+                .write_logs
+                .iter()
+                .flatten()
+                .map(|m| {
+                    sketch.insert(m);
+                    sketch.query(m)
+                })
+                .collect::<Vec<f64>>();
+            let mem_write_novelty = if mem_scores.is_empty() {
+                1.0
+            } else {
+                stats::mean(mem_scores.into_iter())
+            };
+            weighted_fitness.insert("mem_write_novelty", mem_write_novelty);
+
+            // // get the number of times a referenced value, aside from 0, has been written
+            // // to memory
+            // let writes_of_referenced_values =
+            //     pattern.count_writes_of_referenced_values(&profile, true);
+            // weighted_fitness.insert("important_writes", writes_of_referenced_values as f64);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
