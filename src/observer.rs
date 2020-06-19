@@ -41,7 +41,6 @@ fn stat_writer(config: &Config) -> csv::Writer<fs::File> {
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
-    stop_signal_rx: Receiver<bool>,
     stop_flag: bool,
 }
 
@@ -92,16 +91,10 @@ pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     #[allow(dead_code)] // TODO: re-establish pareto archive as optional
     dominance_order: D,
     stat_writer: Arc<Mutex<csv::Writer<fs::File>>>,
-    stop_signal_tx: Sender<bool>,
 }
 
 impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
-    fn new(
-        report_fn: ReportFn<O, D>,
-        config: Arc<Config>,
-        dominance_order: D,
-        stop_signal_tx: Sender<bool>,
-    ) -> Self {
+    fn new(report_fn: ReportFn<O, D>, config: Arc<Config>, dominance_order: D) -> Self {
         let window_size = config.observer.window_size;
         let report_every = config.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
@@ -120,7 +113,6 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             archive: vec![],
             stat_writer,
             dominance_order,
-            stop_signal_tx,
         }
     }
 
@@ -135,22 +127,13 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter();
         if epoch_limit_reached {
             log::debug!("epoch limit reached");
-            self.stop_evolution();
+            crate::stop_everything();
         }
 
         if let Some(ref champion) = self.champion {
             if champion.is_goal_reached(&self.config) {
-                self.stop_evolution()
+                crate::stop_everything();
             }
-        }
-    }
-
-    pub fn stop_evolution(&self) {
-        if let Err(e) = self.stop_signal_tx.send(true) {
-            log::debug!(
-                "Error sending stop signal: {:?}. This is normal if things have already shut down.",
-                e
-            );
         }
     }
 
@@ -242,19 +225,22 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         }
 
         if updated {
-            log::info!(
-                "Island {}: new champion:\n{:#?}",
-                self.config.island_identifier,
-                self.champion.as_ref().unwrap()
-            );
-            // dump the champion
-            let path = format!(
-                "{}/champions/champion_{}.json.gz",
-                self.config.data_directory(),
-                self.counter,
-            );
-            log::info!("Dumping new champion to {}", path);
-            dump(self.champion.as_ref().unwrap(), &path).expect("Failed to dump champion");
+            if let Some(ref mut champion) = self.champion {
+                champion.generate_description();
+                log::info!(
+                    "Island {}: new champion:\n{:#?}",
+                    self.config.island_identifier,
+                    champion
+                );
+                // dump the champion
+                let path = format!(
+                    "{}/champions/champion_{}.json.gz",
+                    self.config.data_directory(),
+                    self.counter,
+                );
+                log::info!("Dumping new champion to {}", path);
+                dump(champion, &path).expect("Failed to dump champion");
+            }
         }
     }
 
@@ -344,7 +330,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         {
             let soup_vec = soup.drain().collect::<Vec<_>>();
             serde_json::to_writer(&mut soup_file, &soup_vec).expect("Failed to dump soup!");
-            log::info!("Soup dumped to {}", path);
+            log::debug!("Soup dumped to {}", path);
         }
     }
 }
@@ -362,12 +348,10 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
         dominance_order: D,
     ) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
-        let (window_tx, stop_signal_rx): (Sender<bool>, Receiver<bool>) = channel();
 
         let config = Arc::new(config.clone());
         let handle: JoinHandle<()> = spawn(move || {
-            let mut window: Window<O, D> =
-                Window::new(report_fn, config.clone(), dominance_order, window_tx);
+            let mut window: Window<O, D> = Window::new(report_fn, config.clone(), dominance_order);
             for observable in rx {
                 window.insert(observable);
             }
@@ -376,24 +360,11 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
         Observer {
             handle,
             tx,
-            stop_signal_rx,
             stop_flag: false,
         }
     }
 
     pub fn stop_evolution(&mut self) {
         self.stop_flag = true
-    }
-
-    pub fn keep_going(&self) -> bool {
-        if self.stop_flag == true {
-            return false;
-        }
-        if let Ok(true) = self.stop_signal_rx.try_recv() {
-            log::info!("Target condition reached. Halting the evolution...");
-            false
-        } else {
-            true
-        }
     }
 }

@@ -2,7 +2,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_range_loop))]
 
 use std::sync::atomic;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use configure::Config;
 
@@ -28,6 +28,16 @@ mod roper;
 mod util;
 
 pub static EPOCH_COUNTER: AtomicUsize = AtomicUsize::new(0);
+pub static KEEP_GOING: AtomicBool = AtomicBool::new(true);
+
+pub fn keep_going() -> bool {
+    KEEP_GOING.load(atomic::Ordering::Relaxed)
+}
+
+pub fn stop_everything() {
+    log::warn!("Stopping everything...");
+    KEEP_GOING.store(false, atomic::Ordering::Relaxed);
+}
 
 pub fn get_epoch_counter() -> usize {
     EPOCH_COUNTER.load(atomic::Ordering::Relaxed)
@@ -38,10 +48,13 @@ pub fn increment_epoch_counter() {
 }
 
 fn main() {
+    // TODO add standard cli
     let config_file = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./config.toml".to_string());
-    let config = Config::from_path(config_file).expect("Failed to generate Config");
+    let population_name = std::env::args().nth(2);
+    let config =
+        Config::from_path(config_file, population_name).expect("Failed to generate Config");
 
     logger::init(&config.observer.population_name);
 

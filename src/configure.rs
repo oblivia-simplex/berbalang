@@ -139,8 +139,14 @@ pub struct ObserverConfig {
 }
 
 impl Config {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn from_path<P: AsRef<Path>>(
+        path: P,
+        population_name: Option<String>,
+    ) -> Result<Self, Error> {
         let mut config: Self = toml::from_str(&std::fs::read_to_string(&path)?)?;
+        if let Some(population_name) = population_name {
+            config.observer.population_name = population_name;
+        }
         config.assert_invariants();
         config.set_data_directory();
         // copy the config file to the data directory for posterity
@@ -167,13 +173,11 @@ impl Config {
         };
 
         let path = format!(
-            "{data_dir}/berbalang/{job:?}/{selection:?}/{year}/{month}/{day}/{pop_name}/island_{island}",
+            "{data_dir}/berbalang/{job:?}/{selection:?}/{date}/{pop_name}/island_{island}",
             data_dir = data_dir,
             job = self.job,
             selection = self.selection,
-            year = local_date.year(),
-            month = local_date.month(),
-            day = local_date.day(),
+            date = local_date.format("%Y/%m/%d"),
             pop_name = self.observer.population_name,
             island = self.island_identifier,
         );

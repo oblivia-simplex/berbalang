@@ -63,6 +63,30 @@ pub fn code_coverage_ff<'a>(
     creature
 }
 
+pub fn just_novelty_ff<'a>(
+    mut creature: Creature<u64>,
+    sketch: &mut Sketches,
+    config: Arc<Config>,
+) -> Creature<u64> {
+    if let Some(ref profile) = creature.profile {
+        let mut scores = vec![];
+        for reg_state in &profile.registers {
+            for (reg, vals) in reg_state.0.iter() {
+                sketch.register_error.insert((reg, vals));
+                scores.push(sketch.register_error.query((reg, vals)));
+            }
+        }
+        let register_novelty = stats::mean(scores.into_iter());
+        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        fitness.insert("register_novelty", register_novelty);
+        let gadgets_executed = profile.gadgets_executed.len();
+        fitness.insert("gadgets_executed", gadgets_executed as f64);
+        creature.set_fitness(fitness);
+    }
+
+    creature
+}
+
 pub fn register_pattern_ff<'a>(
     mut creature: Creature<u64>,
     sketch: &mut Sketches,
@@ -142,33 +166,38 @@ pub fn register_pattern_ff<'a>(
 
 pub fn register_conjunction_ff<'a>(
     mut creature: Creature<u64>,
-    _sketch: &mut Sketches,
+    sketch: &mut Sketches,
     config: Arc<Config>,
 ) -> Creature<u64> {
     if let Some(ref profile) = creature.profile {
         if let Some(registers) = profile.registers.last() {
             let word_size = get_static_memory_image().word_size * 8;
-            let mask = 2 ^ word_size - 1;
-            let conj = registers.0.values().fold(mask as u64, |a, b| a & b[0]);
-            let score = conj.count_zeros() as usize;
+            let mut conj = registers.0.values().fold(!0_u64, |a, b| a & b[0]);
+            let mask: u64 = ((!0_u64) >> word_size) << word_size;
+            debug_assert!(word_size != 64 || mask == 0x0000_0000_0000_0000);
+            debug_assert!(word_size != 32 || mask == 0xFFFF_FFFF_0000_0000);
+            debug_assert!(word_size != 16 || mask == 0xFFFF_FFFF_FFFF_0000);
+            conj |= mask;
+            let score = conj.count_zeros() as f64;
             // ignore bits outside of the register's word size
-            let ignore_bits = 64 - word_size;
-            let score = (score - ignore_bits) as f64;
+            debug_assert!(score <= word_size as f64);
             let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
-            weighted_fitness.scores.insert("zeroes", score);
-            weighted_fitness
-                .scores
-                .insert("gadgets_executed", profile.gadgets_executed.len() as f64);
+            weighted_fitness.insert("zeroes", score);
+            weighted_fitness.insert("gadgets_executed", profile.gadgets_executed.len() as f64);
+
+            sketch.register_error.insert(registers);
+            let reg_freq = sketch.register_error.query(registers);
+            weighted_fitness.insert("register_novelty", reg_freq);
 
             let mem_write_ratio = profile.mem_write_ratio();
-            weighted_fitness
-                .scores
-                .insert("mem_write_ratio", mem_write_ratio);
+            weighted_fitness.insert("mem_write_ratio", mem_write_ratio);
             creature.set_fitness(weighted_fitness);
         }
     }
     creature
 }
+
+// test this zero counter for 3+ words
 
 pub struct Sketches {
     pub register_error: CountMinSketch,

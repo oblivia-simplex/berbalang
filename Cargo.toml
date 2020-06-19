@@ -31,6 +31,7 @@ crossbeam-deque = "0.7"
 csv = "1"
 deflate = { version = "0.8.4", features = [ "gzip" ] }
 distance = "0.4"
+#falcon = "0.4"
 fasteval = { git = "https://github.com/oblivia-simplex/fasteval"}
 fnv = "1"
 goblin = "0.2"

@@ -136,6 +136,11 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
     type Problem: Hash;
     // TODO: generalize fitness. should be able to use vecs, etc.
 
+    /// This method should generate a string describing the creature
+    /// and attach it to the creature, somehow -- storing it in an
+    /// optional field, for example.
+    fn generate_description(&mut self) {}
+
     /// This method is intended for reporting, not measuring, fitness.
     fn fitness(&self) -> Option<&Self::Fitness>;
 

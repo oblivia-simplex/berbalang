@@ -1,8 +1,5 @@
 # TODO
 
-- Basic block bigram diversity measure using a count min sketch.
-
-- debug tournament?
 - set up graphing/plotting
 - set up neo4j
 
@@ -12,7 +9,7 @@ ideally, this is somethign you should be able to set in the config.toml
 
 - make sure linear_gp works. probably a few kinks to work out. 
 
-- implement a ROPush machine
+- implement a ROPush machine (finish -- genetic operators for ropush)
 
 - new fitness factor: bytes written. reinstate mem write hook.
 - better: reward if one of the indirect values in the register pattern is written.
@@ -27,28 +24,26 @@ ideally, this is somethign you should be able to set in the config.toml
   a rather shoddy attempt at doing this in GENLIN, though I didn't have much
   luck over there.  
   
-- periodize diversity scores. every n epochs, copy the sketch to an immutable structure that's used for queries. Seasons. 
-
 - TTL on genes. See appendix to thesis. how did this work?
 
 - it would be interesting to try rewarding chains that read memory that they themselves have written. bit complex. might approximate by ignoring sequence. might not. all the info is available in the hatchery after all. 
 
     track addresses read from, and then later check intersection with addresses written to. abstract away from sequence. it's about building up useful material and control. 
 
-- track and plot soup size
-
 - PE files need support
+
+- profile the hatchery. how many workers and engines are sitting idle? how much time is spent blocking?
 
 - new task: write a given string somewhere in memory
 - 2nd stage: point to it with a register
 
-- *Finish Island implementation* -- it won't take much to do this.
 - trial harness for experimental runs
 - dockerize
 - get it cloud ready
-- island distribution
 
 - Add support for *staged* objectives, or sub-tasks. There's a fair bit of GP lit on this, I think. Take a look. Look at what Malcom did with the soccer task, e.g.
+
+- for exacting tasks, run n evaluations with different (constant) randomized states
 
 # Tomorrow:
 ## Graphing! We really need graphing. Top priority.

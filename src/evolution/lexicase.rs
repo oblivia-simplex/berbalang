@@ -156,7 +156,7 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
         //     .map(|p| observer.observe(p.clone()))
         //     .collect::<ShufflingHeap<P>>();
 
-        if observer.keep_going() {
+        if crate::keep_going() {
             debug_assert_eq!(
                 population.len(),
                 config.tournament.num_parents,

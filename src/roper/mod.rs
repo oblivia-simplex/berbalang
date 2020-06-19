@@ -51,6 +51,7 @@ fn prepare<'a, C: 'static + Cpu<'static>>(
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
             "code_coverage" => Box::new(evaluation::code_coverage_ff),
+            "just_novelty" => Box::new(evaluation::just_novelty_ff),
             s => unimplemented!("No such fitness function as {}", s),
         };
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn), CreatureDominanceOrd);
@@ -100,9 +101,10 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                     let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
                         &config, observer, evaluator, pier,
                     );
-                    while world.observer.keep_going() {
+                    while crate::keep_going() {
                         world = world.evolve();
                     }
+                    log::info!("Evolution completed on island {}.", i);
                 });
                 handles.push(h);
             }
@@ -119,7 +121,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                     evaluator,
                     CreatureDominanceOrd,
                 );
-            while world.observer.keep_going() {
+            while crate::keep_going() {
                 world = world.evolve();
             }
         }
@@ -128,7 +130,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             let mut world = Metropolis::<evaluation::Evaluator<C>, Creature<u64>>::new(
                 &config, observer, evaluator,
             );
-            while world.observer.keep_going() {
+            while crate::keep_going() {
                 world = world.evolve();
             }
         }
@@ -166,7 +168,7 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
             let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature<u64>>::new(
                 &config, observer, evaluator, pier, cases,
             );
-            while world.observer.keep_going() {
+            while crate::keep_going() {
                 world = world.evolve();
             }
         }

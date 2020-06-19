@@ -41,6 +41,7 @@ pub struct Creature<T: Clone + Serialize + Deserialize<'static>> {
     pub front: Option<usize>,
     pub num_offspring: usize,
     pub native_island: usize,
+    pub description: Option<String>,
 }
 
 impl<T: Clone + Serialize + Deserialize<'static>> Hash for Creature<T> {
@@ -264,6 +265,7 @@ impl Genome for Creature<u64> {
             front: None,
             num_offspring: 0,
             native_island: config.island_identifier,
+            description: None,
         }
     }
 
@@ -308,6 +310,7 @@ impl Genome for Creature<u64> {
             front: None,
             num_offspring: 0,
             native_island: config.island_identifier,
+            description: None,
         }
     }
 
@@ -321,13 +324,13 @@ impl Genome for Creature<u64> {
                 continue;
             }
             let mutation = rand::random::<Mutation>();
-            self.chromosome_mutation[i] = Some(mutation);
             match mutation {
                 Mutation::Dereference => {
                     if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
                         if bytes.len() > 8 {
                             if let Some(word) = read_integer(bytes, endian, word_size) {
                                 self.chromosome[i] = word;
+                                self.chromosome_mutation[i] = Some(mutation);
                             }
                         }
                     }
@@ -338,16 +341,20 @@ impl Genome for Creature<u64> {
                     write_integer(endian, word_size, word, &mut bytes);
                     if let Some(address) = memory.seek_from_random_address(&bytes, &self) {
                         self.chromosome[i] = address;
+                        self.chromosome_mutation[i] = Some(mutation);
                     }
                 }
                 Mutation::AddressAdd => {
                     self.chromosome[i] = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
+                    self.chromosome_mutation[i] = Some(mutation);
                 }
                 Mutation::AddressSub => {
                     self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+                    self.chromosome_mutation[i] = Some(mutation);
                 }
                 Mutation::BitFlip => {
-                    self.chromosome[i] ^= 1 << rng.gen_range(0, word_size as u64 * 8)
+                    self.chromosome[i] ^= 1 << rng.gen_range(0, word_size as u64 * 8);
+                    self.chromosome_mutation[i] = Some(mutation);
                 }
             }
         }
@@ -380,6 +387,10 @@ impl Distribution<Mutation> for Standard {
 impl Phenome for Creature<u64> {
     type Fitness = Fitness<'static>;
     type Problem = lexi::Task;
+
+    fn generate_description(&mut self) {
+        self.description = Some(format!("{:#?}", self))
+    }
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()

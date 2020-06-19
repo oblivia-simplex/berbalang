@@ -736,7 +736,7 @@ pub fn run(config: Config) {
                 evaluator,
                 Arc::new(pier),
             );
-            while world.observer.keep_going() {
+            while crate::keep_going() {
                 world = world.evolve();
             }
         }
@@ -747,14 +747,14 @@ pub fn run(config: Config) {
                 evaluator,
                 CreatureDominanceOrd,
             );
-            while world.observer.keep_going() {
+            while crate::keep_going() {
                 world = world.evolve();
             }
         }
         Selection::Metropolis => {
             let mut world =
                 Metropolis::<evaluation::Evaluator, Creature>::new(&config, observer, evaluator);
-            while world.observer.keep_going() {
+            while crate::keep_going() {
                 world = world.evolve();
             }
         }

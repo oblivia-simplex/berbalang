@@ -266,7 +266,7 @@ pub fn run(config: Config) {
         Arc::new(pier),
     );
 
-    while world.observer.keep_going() {
+    while crate::keep_going() {
         world = world.evolve();
     }
 }
