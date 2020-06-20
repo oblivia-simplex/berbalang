@@ -294,41 +294,38 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
 
 #[cfg(test)]
 mod test {
-    use unicorn::CpuX86;
 
-    use super::*;
-
-    #[test]
-    fn test_collate() {
-        let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
-            Profiler {
-                block_log: Arc::new(RwLock::new(vec![
-                    Block { entry: 1, size: 2 },
-                    Block { entry: 3, size: 4 },
-                ])),
-                cpu_error: None,
-                emulation_time: Default::default(),
-                registers: HashMap::new(),
-                ..Default::default()
-            },
-            Profiler {
-                block_log: Arc::new(RwLock::new(vec![
-                    Block { entry: 1, size: 2 },
-                    Block { entry: 6, size: 6 },
-                ])),
-                cpu_error: None,
-                emulation_time: Default::default(),
-                registers: HashMap::new(),
-                ..Default::default()
-            },
-        ];
-
-        let profile: Profile = profilers.into();
-
-        println!("{:#?}", profile);
-        println!(
-            "size of profile in mem: {}",
-            std::mem::size_of_val(&profile.paths)
-        );
-    }
+    // #[test]
+    // fn test_collate() {
+    //     let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
+    //         Profiler {
+    //             block_log: Arc::new(RwLock::new(vec![
+    //                 Block { entry: 1, size: 2 },
+    //                 Block { entry: 3, size: 4 },
+    //             ])),
+    //             cpu_error: None,
+    //             emulation_time: Default::default(),
+    //             registers: HashMap::new(),
+    //             ..Default::default()
+    //         },
+    //         Profiler {
+    //             block_log: Arc::new(RwLock::new(vec![
+    //                 Block { entry: 1, size: 2 },
+    //                 Block { entry: 6, size: 6 },
+    //             ])),
+    //             cpu_error: None,
+    //             emulation_time: Default::default(),
+    //             registers: HashMap::new(),
+    //             ..Default::default()
+    //         },
+    //     ];
+    //
+    //     let profile: Profile = profilers.into();
+    //
+    //     println!("{:#?}", profile);
+    //     println!(
+    //         "size of profile in mem: {}",
+    //         std::mem::size_of_val(&profile.paths)
+    //     );
+    // }
 }

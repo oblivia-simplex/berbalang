@@ -378,11 +378,12 @@ impl RegisterState {
             // but suppose we find x at &&x, pos 2, but
             // target is 0. easy to bring it in. pos - target = +2
             let forward_dist = pos as i32 - target as i32;
-            if forward_dist > 0 {
-                forward_dist as f64
-            } else {
-                -4.0 * forward_dist as f64
-            }
+            forward_dist.abs() as f64
+            // if forward_dist > 0 {
+            //     forward_dist as f64
+            // } else {
+            //     -4.0 * forward_dist as f64
+            // }
         }
         log::debug!("want {:x?}", r_val);
         if let Some(vals) = self.0.get(reg) {
@@ -612,12 +613,15 @@ mod test {
             .unwrap();
         assert!(res - 2.0 < std::f64::EPSILON, "Match failed");
 
+        // FIXME! There's a problem with the distance measurement being used here.
+        // Which might explain the poor performance on this task.
         let register_state = RegisterState(hashmap! {
             "RAX".to_string() => vec![1, 7],
         });
         let res = register_state
             .distance_from_register_val("RAX", &RegisterValue { val: 9, deref: 3 })
             .unwrap();
+        println!("res = {}", res);
         assert!(res - (1.0 + 3.0) < std::f64::EPSILON);
     }
 }

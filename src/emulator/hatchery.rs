@@ -620,12 +620,11 @@ mod test {
     use unicorn::{CpuX86, RegisterX86};
 
     use crate::hashmap;
-    use crate::util::architecture::{endian, word_size_in_bytes, Endian};
+    use crate::util::architecture::{endian, word_size_in_bytes};
 
     use super::*;
 
     mod example {
-        use byteorder::{BigEndian, LittleEndian};
 
         use crate::util::architecture::read_integer;
 

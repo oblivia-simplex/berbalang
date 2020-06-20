@@ -24,7 +24,6 @@ pub fn levy_decision<R: Rng>(rng: &mut R, length: usize, exponent: f64) -> bool 
 #[cfg(test)]
 mod test {
     use rand::thread_rng;
-    use rand_distr::Distribution;
 
     use super::*;
 
@@ -35,7 +34,7 @@ mod test {
 
         let len = 2;
         let mut rng = thread_rng();
-        for i in 0..len {
+        for _ in 0..len {
             println!(
                 "[{}]",
                 if levy_decision(&mut rng, len, 2.9) {
