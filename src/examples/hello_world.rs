@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::iter;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -8,12 +9,15 @@ use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, Problem};
+use crate::configure::Config;
+use crate::evolution::population::pier::Pier;
 use crate::evolution::{Genome, Phenome};
 use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
-use crate::util::count_min_sketch::DecayingSketch;
-use crate::{evaluator::Evaluate, evolution::tournament::*, observer::Observer};
+use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::levy_flight::levy_decision;
+use crate::util::random::hash_seed_rng;
+use crate::{evolution::tournament::*, observer::Observer, ontogenesis::Develop};
 
 pub type Fitness = Vec<f64>;
 
@@ -24,6 +28,13 @@ pub struct Genotype {
     tag: u64,
     // used for sorting in heap
     generation: usize,
+    num_offspring: usize,
+}
+
+impl Hash for Genotype {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tag.hash(state)
+    }
 }
 
 impl PartialEq for Genotype {
@@ -49,6 +60,7 @@ impl Ord for Genotype {
 // because this is a GA we identify genome and phenome
 impl Phenome for Genotype {
     type Fitness = Fitness;
+    type Problem = ();
 
     fn fitness(&self) -> Option<&Fitness> {
         self.fitness.as_ref()
@@ -70,16 +82,17 @@ impl Phenome for Genotype {
         self.tag = tag
     }
 
-    fn problems(&self) -> Option<&Vec<Problem>> {
+    fn answers(&self) -> Option<&Vec<Self::Problem>> {
         unimplemented!("n/a")
     }
 
-    fn store_answers(&mut self, _results: Vec<Problem>) {
+    fn store_answers(&mut self, _results: Vec<Self::Problem>) {
         unimplemented!("n/a") // CODE SMELL FIXME!
     }
 
-    fn len(&self) -> usize {
-        self.genes.len()
+    fn is_goal_reached(&self, config: &Config) -> bool {
+        (self.scalar_fitness().unwrap_or(std::f64::MAX) - config.fitness.target)
+            <= std::f64::EPSILON
     }
 }
 
@@ -100,9 +113,13 @@ impl Genome for Genotype {
         unimplemented!("rust makes treating strings as &[char] tricky")
     }
 
-    fn random(params: &Config) -> Self {
-        let mut rng = thread_rng();
-        let len = rng.gen_range(1, params.max_init_len);
+    fn random<H: Hash>(config: &Config, salt: H) -> Self {
+        let mut hasher = fnv::FnvHasher::default();
+        salt.hash(&mut hasher);
+        config.random_seed.hash(&mut hasher);
+        let seed = hasher.finish();
+        let mut rng = hash_seed_rng(&seed);
+        let len = rng.gen_range(1, config.max_init_len);
         let s: String = iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
             .take(len)
@@ -112,11 +129,12 @@ impl Genome for Genotype {
             fitness: None,
             tag: rng.gen::<u64>(),
             generation: 0,
+            num_offspring: 0,
         }
     }
 
-    fn crossover(mates: &[&Self], _params: &Config) -> Self {
-        let mut rng = thread_rng();
+    fn crossover(mates: &Vec<&Self>, _config: &Config) -> Self {
+        let mut rng = hash_seed_rng(mates);
         let father = &mates[0];
         let mother = &mates[1];
         let split_m: usize = rng.gen::<usize>() % mother.len();
@@ -129,46 +147,54 @@ impl Genome for Genotype {
             fitness: None,
             tag: rng.gen::<u64>(),
             generation,
+            num_offspring: 0,
         }
     }
 
-    fn mutate(&mut self, _params: &Config) {
-        let mut rng: ThreadRng = thread_rng();
+    fn mutate(&mut self, config: &Config) {
+        let mut rng = hash_seed_rng(&self);
         let mutation = rng.gen::<u8>() % 4;
-        match mutation {
-            // replace some character with random character
-            0 => unsafe {
-                let i: usize = rng.gen::<usize>() % self.len();
-                let bytes = self.genes.as_bytes_mut();
-                bytes[i] = rng.gen_range(0x20, 0x7e);
-            },
-            // swaps halves of the string
-            1 => {
-                let tmp = self.genes.split_off(self.genes.len() / 2);
-                self.genes = format!("{}{}", self.genes, tmp);
+        for i in 0..self.len() {
+            if !levy_decision(&mut rng, self.len(), config.mutation_exponent) {
+                continue;
             }
-            // swaps two random characters in the string
-            2 => unsafe {
-                let len = self.genes.len();
-                let bytes = self.genes.as_mut_vec();
-                let i = rng.gen::<usize>() % len;
-                let j = rng.gen::<usize>() % len;
-                if i != j {
-                    bytes.swap(i, j)
+            match mutation {
+                // replace some character with random character
+                0 => unsafe {
+                    let bytes = self.genes.as_bytes_mut();
+                    bytes[i] = rng.gen_range(0x20, 0x7e);
+                },
+                // swaps halves of the string
+                1 => {
+                    let tmp = self.genes.split_off(self.genes.len() / 2);
+                    self.genes = format!("{}{}", self.genes, tmp);
                 }
-            },
-            // reverse the string
-            3 => {
-                self.genes = self.genes.chars().rev().collect::<String>();
+                // swaps two random characters in the string
+                2 => unsafe {
+                    let len = self.genes.len();
+                    let bytes = self.genes.as_mut_vec();
+                    let j = rng.gen::<usize>() % len;
+                    if i != j {
+                        bytes.swap(i, j)
+                    }
+                },
+                // reverse the string
+                3 => {
+                    self.genes = self.genes.chars().rev().collect::<String>();
+                }
+                _ => unreachable!("Unreachable"),
             }
-            _ => unreachable!("Unreachable"),
         }
+    }
+
+    fn incr_num_offspring(&mut self, n: usize) {
+        self.num_offspring += n
     }
 }
 
 impl_dominance_ord_for_phenome!(Genotype, Dom);
 
-fn report(window: &Window<Genotype, Dom>, counter: usize, _params: &Config) {
+fn report(window: &Window<Genotype, Dom>, counter: usize, _config: &Config) {
     let frame = &window.frame;
     let fitnesses: Vec<Fitness> = frame.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
@@ -215,11 +241,11 @@ cached_key! {
 
 fn fitness_function(
     mut phenome: Genotype,
-    sketch: &mut DecayingSketch,
-    params: Arc<Config>,
+    sketch: &mut CountMinSketch,
+    config: Arc<Config>,
 ) -> Genotype {
     if phenome.fitness.is_none() {
-        phenome.set_fitness(ff_helper(&phenome.genes, &params.hello.target));
+        phenome.set_fitness(ff_helper(&phenome.genes, &config.hello.target));
         sketch.insert(&phenome.genes);
         let freq = sketch.query(&phenome.genes);
         phenome.fitness.as_mut().map(|f| f.push(freq));
@@ -227,27 +253,21 @@ fn fitness_function(
     phenome
 }
 
-pub fn run(config: Config) -> Option<Genotype> {
-    let target_fitness = config.target_fitness as f64;
+pub fn run(config: Config) {
     let report_fn = Box::new(report);
     let fitness_fn = Box::new(fitness_function);
     let observer = Observer::spawn(&config, report_fn, Dom);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
-    let mut world =
-        Tournament::<evaluation::Evaluator<Genotype>, Genotype>::new(config, observer, evaluator);
+    let pier = Pier::new(4); // FIXME: don't hardcode, make this the number of islands, say
+    let mut world = Tournament::<evaluation::Evaluator, Genotype>::new(
+        &config,
+        observer,
+        evaluator,
+        Arc::new(pier),
+    );
 
-    loop {
+    while crate::keep_going() {
         world = world.evolve();
-        if let Some(true) = world
-            .best
-            .as_ref()
-            .and_then(|b| b.fitness.as_ref())
-            .map(|f| f[0] <= target_fitness && f[1] <= target_fitness)
-        {
-            println!("\n***** Success after {} epochs! *****", world.iteration);
-            println!("{:#?}", world.best);
-            return world.best;
-        };
     }
 }
 
@@ -256,48 +276,36 @@ mod evaluation {
     use std::sync::{Arc, Mutex};
     use std::thread::{spawn, JoinHandle};
 
-    use crate::evaluator::FitnessFn;
-    use crate::util::count_min_sketch::DecayingSketch;
+    use crate::ontogenesis::FitnessFn;
+    use crate::util::count_min_sketch::CountMinSketch;
 
     use super::*;
 
-    pub struct Evaluator<Genotype> {
+    pub struct Evaluator {
         pub handle: JoinHandle<()>,
         tx: Sender<Genotype>,
         rx: Receiver<Genotype>,
     }
 
-    impl Evaluate<Genotype> for Evaluator<Genotype> {
-        type Params = Config;
-        type State = DecayingSketch;
-
-        fn evaluate(&mut self, phenome: Genotype) -> Genotype {
-            self.tx.send(phenome).expect("tx failure");
-            self.rx.recv().expect("rx failure")
-        }
-
-        fn eval_pipeline<I: Iterator<Item = Genotype>>(&mut self, inbound: I) -> Vec<Genotype> {
-            inbound.map(|p| self.evaluate(p)).collect::<Vec<Genotype>>()
-        }
-
-        fn spawn(
-            params: &Self::Params,
-            fitness_fn: FitnessFn<Genotype, Self::State, Self::Params>,
+    impl Evaluator {
+        pub fn spawn(
+            config: &Config,
+            fitness_fn: FitnessFn<Genotype, CountMinSketch, Config>,
         ) -> Self {
             let (tx, our_rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
             let (our_tx, rx): (Sender<Genotype>, Receiver<Genotype>) = channel();
-            let params = Arc::new(params.clone());
+            let config = Arc::new(config.clone());
             let fitness_fn = Arc::new(fitness_fn);
             let handle = spawn(move || {
-                let sketch = Arc::new(Mutex::new(DecayingSketch::default()));
+                let sketch = Arc::new(Mutex::new(CountMinSketch::new(&config)));
                 for phenome in our_rx {
                     let sketch = sketch.clone();
                     let our_tx = our_tx.clone();
-                    let params = params.clone();
+                    let config = config.clone();
                     let fitness_fn = fitness_fn.clone();
                     rayon::spawn(move || {
                         let mut sketch = sketch.lock().unwrap();
-                        let phenome = fitness_fn(phenome, &mut sketch, params.clone());
+                        let phenome = fitness_fn(phenome, &mut sketch, config.clone());
 
                         our_tx.send(phenome).expect("Channel failure");
                     });
@@ -305,6 +313,23 @@ mod evaluation {
             });
 
             Self { handle, tx, rx }
+        }
+    }
+
+    impl Develop<Genotype> for Evaluator {
+        fn develop(&self, phenome: Genotype) -> Genotype {
+            self.tx.send(phenome).expect("tx failure");
+            self.rx.recv().expect("rx failure")
+        }
+
+        fn development_pipeline<I: Iterator<Item = Genotype>>(&self, inbound: I) -> Vec<Genotype> {
+            inbound.map(|p| self.develop(p)).collect::<Vec<Genotype>>()
+        }
+
+        // FIXME: this is an ugly design compromise. Here, we're performing
+        // the fitness assessment inside the spawn loop.
+        fn apply_fitness_function(&mut self, creature: Genotype) -> Genotype {
+            creature
         }
     }
 }

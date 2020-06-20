@@ -1,5 +1,12 @@
+use std::hash::Hash;
+
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use unicorn::{Arch, Mode};
+use hashbrown::HashMap;
+use rand::Rng;
+use unicorn::{Arch, Cpu, Mode};
+
+use crate::emulator::register_pattern::Register;
+use crate::util::random::hash_seed_rng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endian {
@@ -34,6 +41,18 @@ pub fn write_integer(endian: Endian, word_size: usize, word: u64, bytes: &mut [u
         (Endian::Big, 2) => BigEndian::write_u16(bytes, word as u16),
         (_, _) => unimplemented!("Invalid word size: {}", word_size),
     }
+}
+
+pub fn random_register_state<H: Hash, C: 'static + Cpu<'static>>(
+    registers: &[Register<C>],
+    seed: H,
+) -> HashMap<Register<C>, u64> {
+    let mut map = HashMap::new();
+    let mut rng = hash_seed_rng(&seed);
+    for reg in registers.iter() {
+        map.insert(reg.clone(), rng.gen::<u64>());
+    }
+    map
 }
 
 pub fn endian(arch: Arch, mode: Mode) -> Endian {

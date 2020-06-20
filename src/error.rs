@@ -7,6 +7,11 @@ pub enum Error {
     ParseInt(std::num::ParseIntError),
     Channel(String),
     Parsing(String),
+    Eval(fasteval::error::Error),
+    MissingKey(String),
+    NoVacancy,
+    Misc(String),
+    Unicorn(unicorn::Error),
 }
 
 macro_rules! impl_error_from {
@@ -20,6 +25,7 @@ macro_rules! impl_error_from {
 }
 
 impl_error_from!(std::io::Error, IO);
+impl_error_from!(fasteval::error::Error, Eval);
 impl_error_from!(std::num::ParseIntError, ParseInt);
 
 impl<T: Debug> From<std::sync::mpsc::SendError<T>> for Error {
@@ -36,6 +42,18 @@ impl From<std::sync::mpsc::RecvError> for Error {
 
 impl From<serde_json::error::Error> for Error {
     fn from(e: serde_json::error::Error) -> Self {
+        Self::Parsing(e.to_string())
+    }
+}
+
+impl From<unicorn::Error> for Error {
+    fn from(e: unicorn::Error) -> Error {
+        Error::Unicorn(e)
+    }
+}
+
+impl From<toml::de::Error> for Error {
+    fn from(e: toml::de::Error) -> Self {
         Self::Parsing(e.to_string())
     }
 }

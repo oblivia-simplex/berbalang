@@ -1,6 +1,9 @@
-use crate::EPOCH_COUNTER;
 use std::io::Write;
 use std::sync::atomic::Ordering;
+
+use chrono::prelude::*;
+
+use crate::EPOCH_COUNTER;
 
 /// This function initializes the Berbalang logger.
 ///
@@ -26,7 +29,7 @@ pub fn init(population_name: &str) {
             time_style
                 .set_color(Color::Rgb(100, 100, 100))
                 .set_bold(false);
-            let time = time_style.value(format!("[{}]", f.timestamp()));
+            let time = time_style.value(format!("[{}]", Local::now().format("%F %T")));
 
             let mut level_style = f.style();
             let color = match record.level() {

@@ -1,72 +1,79 @@
 use std::cmp::{Ordering, PartialOrd};
-use std::collections::BinaryHeap;
 use std::iter;
 use std::sync::Arc;
 
-use rand::{thread_rng, Rng};
+use rand::Rng;
+use rayon::prelude::*;
 
 use crate::configure::Config;
-use crate::evaluator::Evaluate;
+use crate::evolution::population::pier::Pier;
+use crate::evolution::population::trivial_geography::TrivialGeography;
 use crate::evolution::{Genome, Phenome};
 use crate::observer::Observer;
-use crate::EPOCH_COUNTER;
+use crate::ontogenesis::Develop;
+use crate::util::random::hash_seed_rng;
 
-// consider an island-pier structure
-
-pub struct Tournament<E: Evaluate<P>, P: Phenome + 'static> {
-    pub population: BinaryHeap<P>,
-    pub config: Arc<Config>,
-    pub best: Option<P>,
+pub struct Tournament<E: Develop<P>, P: Phenome + 'static> {
+    pub population: TrivialGeography<P>,
+    pub config: Config,
     pub iteration: usize,
     pub observer: Observer<P>,
     pub evaluator: E,
+    pub pier: Arc<Pier<P>>,
 }
 
-impl<E: Evaluate<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
-    pub fn new(config: Config, observer: Observer<P>, evaluator: E) -> Self
+impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
+    pub fn new(config: &Config, observer: Observer<P>, evaluator: E, pier: Arc<Pier<P>>) -> Self
     where
         Self: Sized,
     {
-        let population = iter::repeat(())
-            .map(|()| P::random(&config))
-            .take(config.population_size())
+        let config = config.clone();
+        log::debug!("Initializing population");
+        let mut population: TrivialGeography<P> = (0..config.pop_size)
+            .into_par_iter()
+            .map(|i| {
+                log::debug!("creating phenome {}/{}", i, config.pop_size);
+                P::random(&config, i)
+            })
             .collect();
+        population.set_radius(config.tournament.geographic_radius);
+        log::debug!("population initialized");
 
         Self {
             population,
-            config: Arc::new(config),
-            best: None,
+            config,
             iteration: 0,
             observer,
             evaluator,
+            pier,
         }
     }
-}
 
-impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
     pub fn evolve(self) -> Self {
         // destruct the Epoch
         let Self {
             mut population,
-            mut best,
             observer,
             mut evaluator,
             config,
             iteration,
+            pier,
         } = self;
+        log::debug!(
+            "population size in island {}: {}",
+            config.island_identifier,
+            population.len()
+        );
 
-        EPOCH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut rng = hash_seed_rng(&population);
 
-        let tournament_size = config.tournament.tournament_size;
-        let mut rng = thread_rng();
-        let mut combatants = iter::repeat(())
-            .take(tournament_size)
-            .filter_map(|()| population.pop())
-            .map(|mut e| {
-                e.set_tag(rng.gen::<u64>());
-                e
-            })
-            .map(|e| evaluator.evaluate(e))
+        let combatants: Vec<P> =
+            population.choose_combatants(config.tournament.tournament_size, &mut rng);
+
+        let mut combatants = evaluator
+            .development_pipeline(combatants.into_iter())
+            .into_iter()
+            .map(|p| evaluator.apply_fitness_function(p))
             .map(|e| {
                 observer.observe(e.clone());
                 e
@@ -78,71 +85,89 @@ impl<E: Evaluate<P>, P: Phenome + Genome> Tournament<E, P> {
                 .partial_cmp(&b.fitness())
                 .unwrap_or(Ordering::Equal)
         });
-        // the best are now at the beginning of the vec
-
-        //log::debug!("combatants' fitnesses: {:?}", combatants.iter().map(|c| c.fitness()).collect::<Vec<_>>());
-        best = Self::update_best(best, &combatants[0]);
 
         // kill one off for every offspring to be produced
-        for _ in 0..config.num_offspring() {
+        for _ in 0..config.tournament.num_offspring {
             let _ = combatants.pop();
         }
 
-        // replace the combatants that will neither breed nor die
-        let bystanders = config.tournament.tournament_size - (config.num_offspring() + 2);
-        for _ in 0..bystanders {
-            if let Some(c) = combatants.pop() {
-                population.push(c);
+        let mut survivors = combatants;
+
+        // A generation should be considered to have elapsed once
+        // `pop_size` offspring have been spawned.
+        // For now, only Island 0 can increment the epoch. We can weigh the
+        // pros and cons of letting each island have its own epoch, later.
+        if config.island_identifier == 0
+            && iteration % (config.pop_size / config.tournament.num_offspring) == 0
+        {
+            crate::increment_epoch_counter();
+            log::info!(
+                "New global epoch. Island #{} epoch is {}",
+                config.island_identifier,
+                Self::island_epoch(iteration, &config)
+            );
+        }
+        // NOTE: migration relies on tournaments being at least 1 larger than
+        // the number of parents plus the number of children
+        if survivors.len() > config.tournament.num_parents {
+            let mut migrated = false;
+            if rng.gen_range(0.0, 1.0) < config.tournament.migration_rate {
+                log::debug!("Attempting migration...");
+                let emigrant = survivors.pop().unwrap();
+                if let Err(emigrant) = pier.embark(emigrant) {
+                    log::debug!("Pier full, returning emigrant to population");
+                    survivors.push(emigrant);
+                } else {
+                    migrated = true;
+                }
+            }
+            if !migrated {
+                if let Some(immigrant) = pier.disembark() {
+                    log::debug!(
+                        "{} has arrived from the pier of island {}",
+                        immigrant.name(),
+                        config.island_identifier
+                    );
+                    survivors.push(immigrant);
+                }
             }
         }
-        // TODO implement breeder, similar to observer, etc?
-        //let mother = combatants.pop().unwrap();
-        //let father = combatants.pop().unwrap();
-        let parents = combatants.iter().collect::<Vec<&P>>();
+
+        debug_assert!(survivors.len() >= config.tournament.num_parents);
+
+        let parents = survivors
+            .iter_mut()
+            .take(config.tournament.num_parents)
+            .map(|p| {
+                p.incr_num_offspring(config.tournament.num_offspring);
+                &*p
+            })
+            .collect::<Vec<&P>>();
+
         let offspring: Vec<P> = iter::repeat(())
-            .take(config.num_offspring)
+            .take(config.tournament.num_offspring)
             .map(|()| Genome::mate(&parents, &config))
             .collect::<Vec<_>>();
 
         // return everyone to the population
-        //population.push(mother);
-        //population.push(father);
-        for other_guy in combatants.into_iter() {
-            population.push(other_guy)
+        for other_guy in survivors.into_iter() {
+            population.insert(other_guy).unwrap()
         }
         for child in offspring.into_iter() {
-            population.push(child)
+            population.insert(child).unwrap()
         }
 
-        // put the epoch back together
         Self {
             population,
             config,
-            best,
             iteration: iteration + 1,
             observer,
             evaluator,
+            pier,
         }
     }
 
-    pub fn update_best(best: Option<P>, champ: &P) -> Option<P> {
-        match best {
-            Some(ref best) if champ.scalar_fitness() < best.scalar_fitness() => {
-                log::info!("new champ with fitness {:?}:\n{:?}", champ.fitness(), champ);
-                Some(champ.clone())
-            }
-            None => {
-                log::info!("new champ with fitness {:?}\n{:?}", champ.fitness(), champ);
-                Some(champ.clone())
-            }
-            _ => best,
-        }
+    fn island_epoch(iteration: usize, config: &Config) -> usize {
+        iteration / (config.pop_size / config.tournament.num_offspring)
     }
-
-    // pub fn target_reached(&self, target: &<P as Phenome>::Fitness) -> bool {
-    //     self.best
-    //         .as_ref()
-    //         .and_then(|b| b.fitness())
-    //         .map_or(false, |f| f[0] <= target)
-    // }
 }

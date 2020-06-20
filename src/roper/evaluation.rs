@@ -1,105 +1,235 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use hashbrown::HashMap;
+use hashbrown::HashSet;
 use unicorn::Cpu;
 
+use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
-use crate::evaluator::FitnessFn;
+use crate::fitness::Weighted;
+use crate::ontogenesis::FitnessFn;
 use crate::{
-    configure::Config, emulator::hatchery::Hatchery, evaluator::Evaluate, evolution::Phenome,
-    util::count_min_sketch::DecayingSketch,
+    configure::Config, emulator::hatchery::Hatchery, evolution::Phenome, ontogenesis::Develop,
+    util, util::count_min_sketch::CountMinSketch,
 };
 
 use super::Creature;
 
-pub fn register_pattern_fitness_fn(
-    mut creature: Creature,
-    sketch: &mut DecayingSketch,
-    params: Arc<Config>,
-) -> Creature {
+pub fn code_coverage_ff<'a>(
+    mut creature: Creature<u64>,
+    sketch: &mut Sketches,
+    config: Arc<Config>,
+) -> Creature<u64> {
+    if let Some(ref profile) = creature.profile {
+        let mut addresses_visited = HashSet::new();
+        // TODO: optimize this, maybe parallelize
+        profile.basic_block_path_iterator().for_each(|path| {
+            for block in path {
+                for addr in block.entry..(block.entry + block.size as u64) {
+                    addresses_visited.insert(addr);
+                }
+            }
+        });
+        let mut freq_score = 0.0;
+        for addr in addresses_visited.iter() {
+            sketch.addresses_visited.insert(*addr);
+            freq_score += sketch.addresses_visited.query(*addr);
+        }
+        let num_addr_visit = addresses_visited.len() as f64;
+        let avg_freq = if num_addr_visit < 1.0 {
+            1.0
+        } else {
+            freq_score / num_addr_visit
+        };
+        // might be worth memoizing this call, but it's pretty cheap
+        let code_size = get_static_memory_image().size_of_executable_memory();
+        let code_coverage = 1.0 - num_addr_visit / code_size as f64;
+
+        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        fitness.insert("code_coverage", code_coverage);
+        fitness.insert("code_frequency", avg_freq);
+
+        let gadgets_executed = profile.gadgets_executed.len();
+        fitness.insert("gadgets_executed", gadgets_executed as f64);
+
+        let mem_write_ratio = 1.0 - profile.mem_write_ratio();
+        fitness.insert("mem_write_ratio", mem_write_ratio);
+
+        creature.set_fitness(fitness);
+
+        // TODO: look into how unicorn tracks bbs. might be surprising in the context of ROP
+    }
+
+    creature
+}
+
+pub fn just_novelty_ff<'a>(
+    mut creature: Creature<u64>,
+    sketch: &mut Sketches,
+    config: Arc<Config>,
+) -> Creature<u64> {
+    if let Some(ref profile) = creature.profile {
+        let mut scores = vec![];
+        for reg_state in &profile.registers {
+            for (reg, vals) in reg_state.0.iter() {
+                sketch.register_error.insert((reg, vals));
+                scores.push(sketch.register_error.query((reg, vals)));
+            }
+        }
+        let register_novelty = stats::mean(scores.into_iter());
+        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        fitness.insert("register_novelty", register_novelty);
+        let gadgets_executed = profile.gadgets_executed.len();
+        fitness.insert("gadgets_executed", gadgets_executed as f64);
+        creature.set_fitness(fitness);
+    }
+
+    creature
+}
+
+pub fn register_pattern_ff<'a>(
+    mut creature: Creature<u64>,
+    sketch: &mut Sketches,
+    config: Arc<Config>,
+) -> Creature<u64> {
     // measure fitness
     // for now, let's just handle the register pattern task
     if let Some(ref profile) = creature.profile {
-        sketch.insert(&profile.registers);
+        //sketch.insert(&profile.registers);
         //let reg_freq = sketch.query(&profile.registers);
-        if let Some(pattern) = params.roper.register_pattern() {
+        if let Some(pattern) = config.roper.register_pattern() {
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
-            let writeable_memory = Some(&profile.writeable_memory[0][..]);
-            let mut fitness_vector = pattern.distance(&profile.registers[0], writeable_memory);
-            // FIXME broken // fitness_vector.push(reg_freq);
+            let register_error = pattern.distance_from_register_state(&profile.registers[0]);
+            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
+            weighted_fitness
+                .scores
+                .insert("register_error", register_error);
+
+            // Calculate the novelty of register state errors
+            let iter = profile
+                .registers
+                .iter()
+                .map(|r| pattern.incorrect_register_states(r))
+                .flatten()
+                .map(|p| {
+                    sketch.register_error.insert(p);
+                    sketch.register_error.query(p)
+                });
+
+            let register_novelty = stats::mean(iter);
+            weighted_fitness.insert("register_novelty", register_novelty);
+
+            // Measure write novelty
+            let mem_scores = profile
+                .write_logs
+                .iter()
+                .flatten()
+                .map(|m| {
+                    sketch.memory_writes.insert(m);
+                    sketch.memory_writes.query(m)
+                })
+                .collect::<Vec<f64>>();
+            let mem_write_novelty = if mem_scores.is_empty() {
+                1.0
+            } else {
+                stats::mean(mem_scores.into_iter())
+            };
+            weighted_fitness.insert("mem_write_novelty", mem_write_novelty);
+
+            // // get the number of times a referenced value, aside from 0, has been written
+            // // to memory
+            // let writes_of_referenced_values =
+            //     pattern.count_writes_of_referenced_values(&profile, true);
+            // weighted_fitness.insert("important_writes", writes_of_referenced_values as f64);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
-            fitness_vector.insert("crash_count", crashes);
+            weighted_fitness.insert("crash_count", crashes);
 
-            // let longest_path = profile
-            //     .bb_path_iter()
-            //     .map(|v: &Vec<_>| {
-            //         let mut s = v.clone();
-            //         s.dedup();
-            //         s.len()
-            //     })
-            //     .max()
-            //     .unwrap_or(0) as f64;
-            // fitness_vector.insert("longest_path", -longest_path); // let's see what happens when we use negative val
-            creature.set_fitness(fitness_vector.into()); //vec![register_pattern_distance.iter().sum()]));
-                                                         //log::debug!("fitness: {:?}", creature.fitness());
+            let gadgets_executed = profile.gadgets_executed.len();
+            weighted_fitness.insert("gadgets_executed", gadgets_executed as f64);
+
+            // FIXME: not sure how sound this frequency gauging scheme is.
+            //let gen_freq = creature.query_genetic_frequency(sketch);
+            //creature.record_genetic_frequency(sketch);
+
+            //weighted_fitness.scores.insert("genetic_freq", gen_freq);
+
+            creature.set_fitness(weighted_fitness);
         } else {
             log::error!("No register pattern?");
         }
     }
     creature
 }
-pub struct Evaluator<C: 'static + Cpu<'static>> {
-    params: Arc<Config>,
-    hatchery: Hatchery<C, Creature>,
-    sketch: DecayingSketch,
-    fitness_fn: Box<FitnessFn<Creature, DecayingSketch, Config>>,
+
+pub fn register_conjunction_ff<'a>(
+    mut creature: Creature<u64>,
+    sketch: &mut Sketches,
+    config: Arc<Config>,
+) -> Creature<u64> {
+    if let Some(ref profile) = creature.profile {
+        if let Some(registers) = profile.registers.last() {
+            let word_size = get_static_memory_image().word_size * 8;
+            let mut conj = registers.0.values().fold(!0_u64, |a, b| a & b[0]);
+            let mask: u64 = ((!0_u64) >> word_size) << word_size;
+            debug_assert!(word_size != 64 || mask == 0x0000_0000_0000_0000);
+            debug_assert!(word_size != 32 || mask == 0xFFFF_FFFF_0000_0000);
+            debug_assert!(word_size != 16 || mask == 0xFFFF_FFFF_FFFF_0000);
+            conj |= mask;
+            let score = conj.count_zeros() as f64;
+            // ignore bits outside of the register's word size
+            debug_assert!(score <= word_size as f64);
+            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
+            weighted_fitness.insert("zeroes", score);
+            weighted_fitness.insert("gadgets_executed", profile.gadgets_executed.len() as f64);
+
+            sketch.register_error.insert(registers);
+            let reg_freq = sketch.register_error.query(registers);
+            weighted_fitness.insert("register_novelty", reg_freq);
+
+            let mem_write_ratio = profile.mem_write_ratio();
+            weighted_fitness.insert("mem_write_ratio", mem_write_ratio);
+            creature.set_fitness(weighted_fitness);
+        }
+    }
+    creature
 }
 
-impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
-    type Params = Config;
-    type State = DecayingSketch;
+// test this zero counter for 3+ words
 
-    fn evaluate(&mut self, creature: Creature) -> Creature {
-        let (mut creature, profile) = self
-            .hatchery
-            .execute(creature)
-            .expect("Failed to evaluate creature");
+pub struct Sketches {
+    pub register_error: CountMinSketch,
+    pub memory_writes: CountMinSketch,
+    pub addresses_visited: CountMinSketch,
+}
 
-        creature.profile = Some(profile);
-        creature.tag = rand::random::<u64>(); // TODO: rethink this tag thing
-        (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
+impl Sketches {
+    pub fn new(config: &Config) -> Self {
+        Self {
+            register_error: CountMinSketch::new(config),
+            memory_writes: CountMinSketch::new(config),
+            addresses_visited: CountMinSketch::new(config),
+        }
     }
+}
 
-    fn eval_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
-        &mut self,
-        inbound: I,
-    ) -> Vec<Creature> {
-        self.hatchery
-            .execute_batch(inbound)
-            .expect("execute batch failure")
-            .into_iter()
-            .map(|(mut creature, profile)| {
-                creature.profile = Some(profile);
-                (self.fitness_fn)(creature, &mut self.sketch, self.params.clone())
-            })
-            .collect::<Vec<_>>()
-    }
+pub struct Evaluator<C: 'static + Cpu<'static>> {
+    config: Arc<Config>,
+    hatchery: Hatchery<C, Creature<u64>>,
+    sketches: Sketches,
+    fitness_fn: Box<FitnessFn<Creature<u64>, Sketches, Config>>,
+}
 
-    fn spawn(
-        params: &Self::Params,
-        fitness_fn: FitnessFn<Creature, Self::State, Self::Params>,
-    ) -> Self {
-        let mut params = params.clone();
-        params.roper.parse_register_pattern();
-        let hatch_params = Arc::new(params.roper.clone());
-        let inputs = vec![HashMap::new()]; // TODO: if dealing with data, fill this in
-        let register_pattern = params.roper.register_pattern();
+impl<C: 'static + Cpu<'static>> Evaluator<C> {
+    pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature<u64>, Sketches, Config>) -> Self {
+        let mut config = config.clone();
+        config.roper.parse_register_pattern();
+        let hatch_config = Arc::new(config.roper.clone());
+        let register_pattern = config.roper.register_pattern();
         let output_registers: Vec<Register<C>> = {
-            let mut out_reg: Vec<Register<C>> = params
+            let mut out_reg: Vec<Register<C>> = config
                 .roper
                 .output_registers
                 .iter()
@@ -111,26 +241,104 @@ impl<C: 'static + Cpu<'static>> Evaluate<Creature> for Evaluator<C> {
                 let regs_in_pat = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
                 out_reg.extend_from_slice(&regs_in_pat);
                 out_reg.dedup();
-                // sort alphabetically (lame)
-                // out_reg.sort_by_key(|r| format!("{:?}", r));
                 out_reg
             } else {
-                todo!("implement a conversion method from problem sets to register maps");
-                //out_reg
+                out_reg
+                //todo!("implement a conversion method from problem sets to register maps");
             }
         };
-        let hatchery: Hatchery<C, Creature> = Hatchery::new(
-            hatch_params,
+        let inputs = vec![util::architecture::random_register_state::<u64, C>(
+            &output_registers,
+            config.random_seed,
+        )];
+        let hatchery: Hatchery<C, Creature<u64>> = Hatchery::new(
+            hatch_config,
             Arc::new(inputs),
             Arc::new(output_registers),
             None,
         );
 
+        let sketches = Sketches::new(&config);
         Self {
-            params: Arc::new(params),
+            config: Arc::new(config),
             hatchery,
-            sketch: DecayingSketch::default(), // TODO parameterize
+            sketches,
             fitness_fn: Box::new(fitness_fn),
+        }
+    }
+}
+
+impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>> for Evaluator<C> {
+    fn develop(&self, creature: Creature<u64>) -> Creature<u64> {
+        if creature.profile.is_none() {
+            let (mut creature, profile) = self
+                .hatchery
+                .execute(creature)
+                .expect("Failed to evaluate creature");
+            creature.profile = Some(profile);
+            creature
+        } else {
+            creature
+        }
+    }
+
+    fn apply_fitness_function(&mut self, creature: Creature<u64>) -> Creature<u64> {
+        (self.fitness_fn)(creature, &mut self.sketches, self.config.clone())
+    }
+
+    fn development_pipeline<'b, I: 'static + Iterator<Item = Creature<u64>> + Send>(
+        &self,
+        inbound: I,
+    ) -> Vec<Creature<u64>> {
+        // we need to have the entire sample pass through the count-min sketch
+        // before we can use it to measure the frequency of any individual
+        let (old_meat, fresh_meat): (Vec<Creature<u64>>, _) =
+            inbound.partition(Creature::<u64>::mature);
+        let batch = self
+            .hatchery
+            .execute_batch(fresh_meat.into_iter())
+            .expect("execute batch failure")
+            .into_iter()
+            .map(|(mut creature, profile)| {
+                creature.profile = Some(profile);
+                creature
+            })
+            .chain(old_meat)
+            // NOTE: in progress of decoupling fitness function from development
+            // .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
+            .collect::<Vec<_>>();
+        batch
+    }
+}
+
+pub mod lexi {
+    use crate::emulator::register_pattern::RegisterFeature;
+    use crate::roper::creature::Creature;
+
+    #[derive(Clone, Debug, Hash)]
+    pub enum Task {
+        Reg(RegisterFeature),
+        UniqExec(usize),
+    }
+
+    impl Task {
+        pub fn check_creature(&self, creature: &Creature<u64>) -> bool {
+            match self {
+                Task::Reg(rf) => {
+                    if let Some(ref profile) = creature.profile {
+                        profile.registers.iter().all(|state| rf.check_state(state))
+                    } else {
+                        false
+                    }
+                }
+                Task::UniqExec(n) => {
+                    if let Some(ref profile) = creature.profile {
+                        profile.gadgets_executed.len() >= *n
+                    } else {
+                        false
+                    }
+                }
+            }
         }
     }
 }

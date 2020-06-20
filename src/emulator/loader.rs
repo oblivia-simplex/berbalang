@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::Hash;
 use std::sync::Once;
 
 use capstone::Instructions;
@@ -7,12 +8,13 @@ use goblin::{
     Object,
 };
 use rand::distributions::{Distribution, WeightedIndex};
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use unicorn::Protection;
 
 use crate::disassembler::Disassembler;
-use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
+use crate::util::random::hash_seed_rng;
 
 pub const PAGE_BITS: u64 = 12;
 pub const PAGE_SIZE: u64 = 1 << PAGE_BITS;
@@ -22,6 +24,8 @@ pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
     segs: Vec::new(),
     arch: unicorn::Arch::X86,
     mode: unicorn::Mode::MODE_64,
+    endian: Endian::Little,
+    word_size: 8,
     disasm: None,
 };
 static INIT_MEM_IMAGE: Once = Once::new();
@@ -49,6 +53,8 @@ pub struct MemoryImage {
     pub segs: Vec<Seg>,
     pub arch: unicorn::Arch,
     pub mode: unicorn::Mode,
+    pub endian: Endian,
+    pub word_size: usize,
     pub disasm: Option<Disassembler>,
 }
 
@@ -66,6 +72,22 @@ impl MemoryImage {
                     .as_ref()
                     .and_then(|dis| dis.disas(b, addr, count).ok())
             })
+    }
+
+    pub fn size_of_writeable_memory(&self) -> usize {
+        self.size_of_memory_by_perm(unicorn::Protection::WRITE)
+    }
+
+    pub fn size_of_executable_memory(&self) -> usize {
+        self.size_of_memory_by_perm(Protection::EXEC)
+    }
+
+    pub fn size_of_memory_by_perm(&self, perm: Protection) -> usize {
+        self.segs
+            .iter()
+            .filter(|seg| seg.perm.intersects(perm))
+            .map(Seg::aligned_size)
+            .sum::<usize>()
     }
 
     pub fn first_address(&self) -> u64 {
@@ -119,8 +141,8 @@ impl MemoryImage {
         })
     }
 
-    pub fn random_address(&self, permissions: Option<Protection>) -> u64 {
-        let mut rng = thread_rng();
+    pub fn random_address<H: Hash>(&self, permissions: Option<Protection>, seed: H) -> u64 {
+        let mut rng = hash_seed_rng(&seed);
         let segments = self
             .segments()
             .iter()
@@ -159,8 +181,18 @@ impl MemoryImage {
         }
     }
 
-    pub fn seek_from_random_address(&self, sequence: &[u8]) -> Option<u64> {
-        self.seek(self.random_address(None), sequence, None)
+    pub fn seek_all_segs(&self, sequence: &[u8], extra_segs: Option<&[Seg]>) -> Option<u64> {
+        for seg in self.segments() {
+            let offset = seg.aligned_start();
+            if let Some(res) = self.seek(offset, sequence, extra_segs) {
+                return Some(res);
+            }
+        }
+        None
+    }
+
+    pub fn seek_from_random_address<H: Hash>(&self, sequence: &[u8], seed: H) -> Option<u64> {
+        self.seek(self.random_address(None, seed), sequence, None)
     }
 
     pub fn segments(&self) -> &Vec<Seg> {
@@ -439,11 +471,15 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
 }
 
 fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn::Mode) {
+    let endian = endian(arch, mode);
+    let word_size = word_size_in_bytes(arch, mode);
     unsafe {
         MEM_IMAGE = MemoryImage {
             segs: segments.to_owned(),
             arch,
             mode,
+            endian,
+            word_size,
             disasm: Some(Disassembler::new(arch, mode).expect("Failed to initialize disassembler")),
         }
     }

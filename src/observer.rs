@@ -2,14 +2,11 @@
 // record information on the evolutionary process.
 
 use std::fs;
-use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 
-use deflate::write::GzEncoder;
-use deflate::Compression;
-use hashbrown::HashSet;
+use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use serde::Serialize;
 
@@ -18,13 +15,14 @@ use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 // a hack to make the imports more meaningful
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
-use crate::util::count_min_sketch::DecayingSketch;
-use rand::thread_rng;
+use crate::util::count_min_sketch::CountMinSketch;
+use crate::util::dump::dump;
+use crate::util::random::hash_seed_rng;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
-fn stat_writer(params: &Config) -> csv::Writer<fs::File> {
-    let s = format!("{}/statistics.tsv", params.data_directory());
+fn stat_writer(config: &Config) -> csv::Writer<fs::File> {
+    let s = format!("{}/statistics.tsv", config.data_directory());
     let path = std::path::Path::new(&s);
     let add_headers = !path.exists();
     let file = fs::OpenOptions::new()
@@ -43,7 +41,7 @@ fn stat_writer(params: &Config) -> csv::Writer<fs::File> {
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
-    stop_signal_rx: Receiver<bool>,
+    stop_flag: bool,
 }
 
 pub type ReportFn<T, D> = Box<dyn Fn(&Window<T, D>, usize, &Config) -> () + Sync + Send + 'static>;
@@ -52,18 +50,18 @@ pub type ReportFn<T, D> = Box<dyn Fn(&Window<T, D>, usize, &Config) -> () + Sync
 pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
     window: &Window<P, D>,
     counter: usize,
-    _params: &Config,
+    config: &Config,
 ) {
     let frame = &window.frame;
     log::info!("default report function");
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-    let mut sketch = DecayingSketch::default();
+    let mut sketch = CountMinSketch::new(config);
     for g in frame {
         g.record_genetic_frequency(&mut sketch);
     }
     let avg_freq = frame
         .iter()
-        .map(|g| g.measure_genetic_frequency(&sketch))
+        .map(|g| g.query_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
     let avg_fit: f64 =
@@ -80,55 +78,67 @@ pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
 
 pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     pub frame: Vec<O>,
-    pub params: Arc<Config>,
+    pub config: Arc<Config>,
     counter: usize,
     report_every: usize,
     i: usize,
     window_size: usize,
     report_fn: ReportFn<O, D>,
     pub best: Option<O>,
+    pub champion: Option<O>,
+    // priority fitness best
     pub archive: Vec<O>,
+    #[allow(dead_code)] // TODO: re-establish pareto archive as optional
     dominance_order: D,
     stat_writer: Arc<Mutex<csv::Writer<fs::File>>>,
-    stop_signal_tx: Sender<bool>,
 }
 
 impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
-    fn new(
-        report_fn: ReportFn<O, D>,
-        params: Arc<Config>,
-        dominance_order: D,
-        stop_signal_tx: Sender<bool>,
-    ) -> Self {
-        let window_size = params.observer.window_size;
-        let report_every = params.observer.report_every;
+    fn new(report_fn: ReportFn<O, D>, config: Arc<Config>, dominance_order: D) -> Self {
+        let window_size = config.observer.window_size;
+        let report_every = config.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
         assert!(report_every > 0, "report_every must be > 0");
-        let stat_writer = Arc::new(Mutex::new(stat_writer(&params)));
+        let stat_writer = Arc::new(Mutex::new(stat_writer(&config)));
         Self {
             frame: Vec::with_capacity(window_size),
-            params,
+            config,
             counter: 0,
             i: 0,
             window_size,
             report_every,
             report_fn,
             best: None,
+            champion: None,
             archive: vec![],
             stat_writer,
             dominance_order,
-            stop_signal_tx,
         }
     }
 
-    pub fn stop_evolution(&self) {
-        log::info!("Target condition reached. Halting the evolution...");
-        if let Err(e) = self.stop_signal_tx.send(true) {
-            log::error!("Error sending stop signal: {:?}", e);
+    pub fn is_halting_condition_reached(&self) {
+        // This is how you check for an unweighted fitness value.
+        // This shows the advantage of having Weighted fitness as
+        // as distinct type, which returns its scalar value through
+        // a method -- the components are easily retrievable in their
+        // raw state.
+
+        let epoch_limit_reached =
+            self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter();
+        if epoch_limit_reached {
+            log::debug!("epoch limit reached");
+            crate::stop_everything(self.config.island_identifier, false);
+        }
+
+        if let Some(ref champion) = self.champion {
+            if champion.is_goal_reached(&self.config) {
+                crate::stop_everything(self.config.island_identifier, true);
+            }
         }
     }
 
     fn insert(&mut self, thing: O) {
+        // Update the "best" seen so far, using scalar fitness measures
         match &self.best {
             None => self.best = Some(thing.clone()),
             Some(champ) => {
@@ -141,45 +151,127 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                 }
             }
         }
-        self.counter += 1;
+        // insert the incoming thing into the observation window
         self.i = (self.i + 1) % self.window_size;
         if self.frame.len() < self.window_size {
             self.frame.push(thing)
         } else {
             self.frame[self.i] = thing;
         }
-        if self.counter % self.params.pop_size == 0 {
-            self.update_archive();
+
+        // Perform various periodic tasks
+        self.counter += 1;
+        if self.counter % self.config.observer.dump_every == 0 {
+            self.dump_soup();
+            self.dump_population();
+        }
+        if self.counter % self.config.pop_size == 0 {
+            // UNCOMMENT FOR PARETO FIXME // self.update_archive();
+            self.update_best();
+            self.update_champion();
         }
         if self.counter % self.report_every == 0 {
             self.report();
         }
+
+        self.is_halting_condition_reached();
     }
 
+    fn update_best(&mut self) {
+        let mut updated = false;
+        for specimen in self.frame.iter() {
+            if let Some(f) = specimen.scalar_fitness() {
+                match self.best.as_ref() {
+                    None => {
+                        updated = true;
+                        self.best = Some(specimen.clone())
+                    }
+                    Some(champ) => {
+                        if f < champ.scalar_fitness().unwrap() {
+                            updated = true;
+                            self.best = Some(specimen.clone())
+                        }
+                    }
+                }
+            }
+        }
+
+        if updated {
+            log::info!(
+                "Island {}: new best:\n{:#?}",
+                self.config.island_identifier,
+                self.best.as_ref().unwrap()
+            );
+        }
+    }
+
+    fn update_champion(&mut self) {
+        let mut updated = false;
+        for specimen in self.frame.iter() {
+            if let Some(f) = specimen.priority_fitness(&self.config) {
+                match self.champion.as_ref() {
+                    None => {
+                        updated = true;
+                        self.champion = Some(specimen.clone())
+                    }
+                    Some(champ) => {
+                        if f < champ.priority_fitness(&self.config).unwrap() {
+                            updated = true;
+                            self.champion = Some(specimen.clone())
+                        }
+                    }
+                }
+            }
+        }
+
+        if updated {
+            if let Some(ref mut champion) = self.champion {
+                champion.generate_description();
+                log::info!(
+                    "Island {}: new champion:\n{:#?}",
+                    self.config.island_identifier,
+                    champion
+                );
+                // dump the champion
+                let path = format!(
+                    "{}/champions/champion_{}.json.gz",
+                    self.config.data_directory(),
+                    self.counter,
+                );
+                log::info!("Dumping new champion to {}", path);
+                dump(champion, &path).expect("Failed to dump champion");
+            }
+        }
+    }
+
+    #[allow(dead_code)] // TODO re-establish as optional
     fn update_archive(&mut self) {
         // TODO: optimize this. it's quite bad.
 
         let arena = self
             .archive
             .iter()
+            //.chain(self.frame.iter().filter(|g| g.front() == Some(0)))
             .chain(self.frame.iter())
             .cloned() // trouble non_dom sorting refs
             .collect::<Vec<O>>();
-        //log::info!("sorting");
+
+        // arena.sort_by(|a, b| {
+        //     a.fitness()
+        //         .partial_cmp(&b.fitness())
+        //         .unwrap_or(Ordering::Equal)
+        // });
+
         let front = non_dominated_sort(&arena, &self.dominance_order);
-        //log::info!("sorted");
         let sample = front
             .current_front_indices()
-            .choose_multiple(&mut thread_rng(), self.params.pop_size);
+            .choose_multiple(&mut hash_seed_rng(&arena), self.config.pop_size);
 
-        self.archive = sample
-            .into_iter()
-            .map(|i| arena[*i].clone())
-            .collect::<Vec<O>>();
+        self.archive = sample.map(|i| arena[*i].clone()).collect::<Vec<O>>();
     }
 
     fn report(&self) {
-        (self.report_fn)(&self, self.counter, &self.params);
+        (self.report_fn)(&self, self.counter, &self.config);
     }
 
     pub fn log_record<S: Serialize>(&self, record: S) {
@@ -197,44 +289,40 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
     }
 
     pub fn dump_population(&self) {
-        if !self.params.observer.dump_population {
+        if !self.config.observer.dump_population {
             log::debug!("Not dumping population");
             return;
         }
         let path = format!(
             "{}/population/population_{}.json.gz",
-            self.params.data_directory(),
+            self.config.data_directory(),
             self.counter,
         );
-        if let Ok(mut population_file) = fs::File::create(&path)
-            .map_err(|e| log::error!("Failed to create population file: {:?}", e))
-        {
-            let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
-            let _ = serde_json::to_writer(&mut gz, &self.frame)
-                .map_err(|e| log::error!("Failed to compress serialized population: {:?}", e));
-            let compressed_population_data = gz.finish().expect("Failed to finish Gzip encoding");
-            let _ = population_file
-                .write_all(&compressed_population_data)
-                .map_err(|e| log::error!("Failed to write population file: {:?}", e));
-            log::info!("Population dumped to {}", path);
-        };
+        dump(&self.frame, &path).expect("Failed to dump population");
     }
 
-    pub fn dump_soup(&self) {
-        if !self.params.observer.dump_soup {
-            log::debug!("Not dumping soup");
-            return;
-        }
-        let mut soup = self
-            .frame
+    pub fn soup(&self) -> HashMap<<O as Genome>::Allele, usize> {
+        let mut map: HashMap<<O as Genome>::Allele, usize> = HashMap::new();
+        self.frame
             .iter()
             .map(|g| g.chromosome())
             .flatten()
             .cloned()
-            .collect::<HashSet<_>>();
+            .for_each(|a| {
+                *map.entry(a).or_insert(0) += 1;
+            });
+        map
+    }
+
+    pub fn dump_soup(&self) {
+        if !self.config.observer.dump_soup {
+            log::debug!("Not dumping soup");
+            return;
+        }
+        let mut soup = self.soup();
         let path = format!(
             "{}/soup/soup_{}.json",
-            self.params.data_directory(),
+            self.config.data_directory(),
             self.counter,
         );
         if let Ok(mut soup_file) =
@@ -242,7 +330,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         {
             let soup_vec = soup.drain().collect::<Vec<_>>();
             serde_json::to_writer(&mut soup_file, &soup_vec).expect("Failed to dump soup!");
-            log::info!("Soup dumped to {}", path);
+            log::debug!("Soup dumped to {}", path);
         }
     }
 }
@@ -255,17 +343,15 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
     }
 
     pub fn spawn<D: 'static + DominanceOrd<O> + Send>(
-        params: &Config,
+        config: &Config,
         report_fn: ReportFn<O, D>,
         dominance_order: D,
     ) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
-        let (window_tx, stop_signal_rx): (Sender<bool>, Receiver<bool>) = channel();
 
-        let params = Arc::new(params.clone());
+        let config = Arc::new(config.clone());
         let handle: JoinHandle<()> = spawn(move || {
-            let mut window: Window<O, D> =
-                Window::new(report_fn, params.clone(), dominance_order, window_tx);
+            let mut window: Window<O, D> = Window::new(report_fn, config.clone(), dominance_order);
             for observable in rx {
                 window.insert(observable);
             }
@@ -274,15 +360,11 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
         Observer {
             handle,
             tx,
-            stop_signal_rx,
+            stop_flag: false,
         }
     }
 
-    pub fn keep_going(&self) -> bool {
-        if let Ok(true) = self.stop_signal_rx.try_recv() {
-            false
-        } else {
-            true
-        }
+    pub fn stop_evolution(&mut self) {
+        self.stop_flag = true
     }
 }

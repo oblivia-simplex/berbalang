@@ -1,5 +1,6 @@
+use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant};
@@ -19,6 +20,7 @@ use crate::emulator::loader::Seg;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::{Profile, Profiler};
 use crate::emulator::register_pattern::Register;
+use crate::error::Error;
 
 //use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -41,7 +43,7 @@ pub type EmuPrepFn<C> = Box<
 pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
     emu_pool: Arc<Pool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
-    params: Arc<HatcheryParams>,
+    config: Arc<HatcheryParams>,
     memory: Arc<Option<Pin<Vec<Seg>>>>,
     tx: SyncSender<X>,
     rx: Receiver<(X, Profile)>,
@@ -56,7 +58,7 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
         let Self {
             emu_pool,
             thread_pool: _thread_pool,
-            params: _params,
+            config: _config,
             memory,
             tx: _tx,
             rx: _rx,
@@ -89,49 +91,18 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
     }
 }
 
-#[derive(Debug)]
-pub enum Error {
-    Unicorn(unicorn::Error),
-    Channel(String),
-    Loader(loader::Error),
-}
-
-impl From<loader::Error> for Error {
-    fn from(e: loader::Error) -> Error {
-        Error::Loader(e)
-    }
-}
-
-impl From<unicorn::Error> for Error {
-    fn from(e: unicorn::Error) -> Error {
-        Error::Unicorn(e)
-    }
-}
-
-impl<T> From<SendError<T>> for Error {
-    fn from(e: SendError<T>) -> Error {
-        Error::Channel(format!("SendError: {:?}", e))
-    }
-}
-
-impl From<RecvError> for Error {
-    fn from(e: RecvError) -> Error {
-        Error::Channel(format!("RecvError: {:?}", e))
-    }
-}
-
 // TODO: Here is where you'll do the ELF loading.
 fn init_emu<C: Cpu<'static>>(
-    params: &HatcheryParams,
+    config: &HatcheryParams,
     memory: &Option<Pin<Vec<Seg>>>,
 ) -> Result<C, Error> {
-    let mut emu = C::new(params.mode)?;
+    let mut emu = C::new(config.mode)?;
     if let Some(segments) = memory {
         //notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
         let mut results = Vec::new();
         // First, map the non-writeable segments to memory. These can be shared.
         segments.iter().for_each(|s| {
-            log::info!(
+            log::debug!(
                 "Mapping segment 0x{:x} - 0x{:x} [{:?}]",
                 s.aligned_start(),
                 s.aligned_end(),
@@ -161,7 +132,7 @@ fn init_emu<C: Cpu<'static>>(
             .collect::<Result<Vec<_>, unicorn::Error>>()?;
     };
     emu.mem_regions()?.iter().for_each(|rgn| {
-        log::info!(
+        log::debug!(
             "Mapped region: 0x{:x} - 0x{:x} [{:?}]",
             rgn.begin,
             rgn.end,
@@ -201,54 +172,54 @@ fn wait_for_emu<C: Cpu<'static>>(
 type InboundChannel<T> = (SyncSender<T>, Receiver<T>);
 type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
 
-impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery<C, X> {
+impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
     pub fn new(
-        params: Arc<HatcheryParams>,
+        config: Arc<HatcheryParams>,
         inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: Option<EmuPrepFn<C>>,
     ) -> Self {
         let disassembler = Arc::new(
-            Disassembler::new(params.arch, params.mode).expect("Failed to build disassembler"),
+            Disassembler::new(config.arch, config.mode).expect("Failed to build disassembler"),
         );
-        let (tx, our_rx): InboundChannel<X> = sync_channel(params.num_workers);
-        let (our_tx, rx): OutboundChannel<X> = sync_channel(params.num_workers);
+        let (tx, our_rx): InboundChannel<X> = sync_channel(config.num_workers);
+        let (our_tx, rx): OutboundChannel<X> = sync_channel(config.num_workers);
 
         let static_memory = loader::get_static_memory_image();
 
         let memory = Arc::new(Some(Pin::new(
             loader::load_from_path(
-                &params.binary_path,
-                params.emulator_stack_size,
-                params.arch,
-                params.mode,
+                &config.binary_path,
+                config.emulator_stack_size,
+                config.arch,
+                config.mode,
             )
             .expect("Failed to load binary from path"),
         )));
 
-        let emu_pool = Arc::new(Pool::new(params.num_workers, || {
-            init_emu(&params, &memory).expect("failed to initialize emulator")
+        let emu_pool = Arc::new(Pool::new(config.num_workers, || {
+            init_emu(&config, &memory).expect("failed to initialize emulator")
         }));
-        let thread_pool = Arc::new(Mutex::new(ThreadPool::new(params.num_workers)));
+        let thread_pool = Arc::new(Mutex::new(ThreadPool::new(config.num_workers)));
 
         let emu_prep_fn = Arc::new(emu_prep_fn.unwrap_or_else(|| Box::new(hooking::emu_prep_fn)));
-        let wait_limit = params.wait_limit;
-        let mode = params.mode;
-        let millisecond_timeout = params.millisecond_timeout.unwrap_or(0);
-        let max_emu_steps = params.max_emu_steps.unwrap_or(0);
-        let word_size = crate::util::architecture::word_size_in_bytes(params.arch, params.mode);
-        let endian = crate::util::architecture::endian(params.arch, params.mode);
+        let wait_limit = config.wait_limit;
+        let mode = config.mode;
+        let millisecond_timeout = config.millisecond_timeout.unwrap_or(0);
+        let max_emu_steps = config.max_emu_steps.unwrap_or(0);
+        let word_size = crate::util::architecture::word_size_in_bytes(config.arch, config.mode);
+        let endian = crate::util::architecture::endian(config.arch, config.mode);
 
         let e_pool = emu_pool.clone();
         let t_pool = thread_pool.clone();
-        let parameters = params.clone();
+        let parameters = config.clone();
         let mem = memory.clone();
         let disas = disassembler.clone();
         let handle = spawn(move || {
             for payload in our_rx.iter() {
                 let emu_prep_fn = emu_prep_fn.clone();
-                let params = parameters.clone();
+                let config = parameters.clone();
                 let our_tx = our_tx.clone();
                 let output_registers = output_registers.clone();
                 let thread_pool = t_pool.lock().expect("Failed to unlock thread_pool mutex");
@@ -261,41 +232,36 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                         // Acquire an emulator from the pool.
                         let mut emu: Reusable<'_, C> = wait_for_emu(&emulator_pool, wait_limit, mode);
                         // Initialize the profiler
-                        let mut profiler = Profiler::new(&output_registers);
+                        let mut profiler = Profiler::new(&output_registers, &input);
                         // Save the register context
                         let context: Context = (*emu).context_save().expect("Failed to save context");
 
-                        if params.record_basic_blocks {
-                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &profiler)
-                                .expect("Failed to install basic_block_hook");
+                        if config.record_basic_blocks {
+                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
                         }
 
-                        // track gadget entry execution
-                        let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
-                            .expect("Failed to install address tracking hook");
+                        // track gadget entry execution // NO, this has a loophole in overlapping gadgets
+                        // let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
+                        //     .expect("Failed to install address tracking hook");
 
-                        if cfg!(debug_assertions) {
+                        if cfg!(feature = "disassemble_trace") {
                             // install the disassembler hook
-                            let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone())
-                                .expect("Failed to install tracer hook");
+                            let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone()).expect("Failed to install tracer hook");
                         }
 
-                        let _hook = hooking::install_syscall_hook(&mut (*emu), params.arch, params.mode);
-                        // if params.record_memory_writes {
-                        //     let _hooks = util::install_mem_write_hook(&mut (*emu), &profiler)
-                        //         .expect("Failed to install mem_write_hook");
-                        // }
+                        let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
+                        if config.record_memory_writes {
+                            let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler).expect("Failed to install mem_write_hook");
+                        }
                         // Prepare the emulator with the user-supplied preparation function.
                         // This function will generally be used to load the payload and install
                         // callbacks, which should be able to write to the Profiler instance.
                         let code = payload.pack(word_size, endian);
-                        let start_addr = emu_prep_fn(&mut emu, &params, &code, &profiler)
-                            .expect("Failure in the emulator preparation function.");
+                        let start_addr = emu_prep_fn(&mut emu, &config, &code, &profiler).expect("Failure in the emulator preparation function.");
                         // load the inputs
                         // TODO refactor into separate method
                         for (reg, val) in input.iter() {
-                            emu.reg_write(*reg, *val)
-                                .expect("Failed to load registers");
+                            emu.reg_write(*reg, *val).expect("Failed to load registers");
                         }
                         // If the preparation was successful, launch the emulator and execute
                         // the payload. We want to hang onto the exit code of this task.
@@ -306,23 +272,19 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                             millisecond_timeout * unicorn::MILLISECOND_SCALE,
                             max_emu_steps,
                         );
-                        profiler.computation_time = start_time.elapsed();
+                        profiler.emulation_time = start_time.elapsed();
                         if let Err(error_code) = result {
                             profiler.set_error(error_code)
                         };
                         profiler.read_registers(&mut emu);
 
                         // TODO : add this to the profiler
-                        let written_memory = tools::read_writeable_memory(&(*emu))
-                            .expect("Failed to read writeable memory")
-                            .into_par_iter()
-                            .filter(|seg| {
-                                // bit of a space/time tradeoff here. see how it goes.
-                                let stat = static_memory.try_dereference(seg.addr, None).unwrap();
-                                debug_assert_eq!(stat.len(), seg.data.len());
-                                stat != seg.data.as_slice()
-                            })
-                            .collect::<Vec<Seg>>();
+                        let written_memory = tools::read_writeable_memory(&(*emu)).expect("Failed to read writeable memory").into_par_iter().filter(|seg| {
+                            // bit of a space/time tradeoff here. see how it goes.
+                            let stat = static_memory.try_dereference(seg.addr, None).unwrap();
+                            debug_assert_eq!(stat.len(), seg.data.len());
+                            stat != seg.data.as_slice()
+                        }).collect::<Vec<Seg>>();
                         // could some sort of COW structure help here?
                         // TODO consider defining a data structure that looks, from the
                         // outside, like a vector, but which is actually composed of an
@@ -336,8 +298,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
 
                         // cleanup
                         emu.remove_all_hooks().expect("Failed to clean up hooks");
-                        emu.context_restore(&context)
-                            .expect("Failed to restore context");
+                        emu.context_restore(&context).expect("Failed to restore context");
                         // clean up writeable memory
                         // there will never be *too* many segments, so iterating over them is cheap.
                         if let Some(memory) = memory.as_ref() {
@@ -352,19 +313,17 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + 'static> Hatchery
                             });
                         }
                         profiler
-                    }).collect::<Vec<Profiler<C>>>().into();
+                    }).collect::<Vec<Profiler<C>>>().into(); // into Profile
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
-                    our_tx.send((payload, profile))
-                        .map_err(Error::from)
-                        .expect("TX Failure in pipeline");
+                    our_tx.send((payload, profile)).map_err(Error::from).expect("TX Failure in pipeline");
                 });
             }
         });
         Self {
             emu_pool,
             thread_pool,
-            params,
+            config,
             memory,
             tx,
             rx,
@@ -436,12 +395,12 @@ pub mod tools {
 }
 
 pub mod hooking {
-    use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use capstone::Insn;
+    use hashbrown::HashSet;
     use unicorn::{CodeHookType, MemHookType, MemType, Protection};
 
     use crate::emulator::profiler::{Block, MemLogEntry};
-    use crate::util::architecture::{endian, word_size_in_bytes, Endian};
+    use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
 
     use super::*;
 
@@ -465,19 +424,13 @@ pub mod hooking {
     ) -> Result<unicorn::uc_hook, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
 
-        let callback = move |engine: &unicorn::Unicorn<'_>, a| {
+        let callback = move |engine: &unicorn::Unicorn<'_>, _a| {
             // TODO log the errors
             if let Ok(address) = engine.reg_read(pc) {
                 let memory = loader::get_static_memory_image();
                 if let Some(insts) = memory.disassemble(address, 64, Some(1)) {
                     if let Some(inst) = insts.iter().next() {
                         if is_syscall(arch, mode, &inst) {
-                            log::error!(
-                                "INTERRUPT address 0x{:x}, arg: 0x{:x}, disasm:\n{:x?}",
-                                address,
-                                a,
-                                inst
-                            );
                             engine.emu_stop().expect("Failed to stop engine!");
                         }
                     }
@@ -507,12 +460,7 @@ pub mod hooking {
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let gadget_log = profiler.gadget_log.clone();
 
-        let callback = move |_engine, address, _insn_len| {
-            gadget_log
-                .write()
-                .expect("poisoned lock on gadget_log")
-                .push(address)
-        };
+        let callback = move |_engine, address, _insn_len| gadget_log.push(address);
 
         addresses
             .iter()
@@ -522,7 +470,7 @@ pub mod hooking {
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        _params: &HatcheryParams,
+        _config: &HatcheryParams,
         code: &[u8],
         _profiler: &Profiler<C>,
     ) -> Result<u64, Error> {
@@ -534,33 +482,38 @@ pub mod hooking {
         // now "pop" the stack into the program counter
         let word_size = word_size_in_bytes(emu.arch(), emu.mode());
         let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
-        let address = match endian(emu.arch(), emu.mode()) {
-            Endian::Big => BigEndian::read_u64(&a_bytes),
-            Endian::Little => LittleEndian::read_u64(&a_bytes),
-        };
-        emu.write_stack_pointer(sp + word_size as u64)?;
+        let endian = endian(emu.arch(), emu.mode());
+        if let Some(address) = read_integer(&a_bytes, endian, word_size) {
+            emu.write_stack_pointer(sp + word_size as u64)?;
 
-        Ok(address)
+            Ok(address)
+        } else {
+            Err(Error::Misc("Failed to initialize stack pointer".into()))
+        }
     }
 
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        profiler: &Profiler<C>,
+        profiler: &mut Profiler<C>,
+        gadget_addrs: &Vec<u64>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+        let gadget_addrs: Arc<HashSet<u64>> = Arc::new(gadget_addrs.iter().cloned().collect());
         let block_log = profiler.block_log.clone();
+        let gadget_log = profiler.gadget_log.clone();
         //let ret_log = profiler.ret_log.clone();
         let bb_callback = move |_engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
+
+            if gadget_addrs.contains(&entry) {
+                gadget_log.push(entry);
+            }
 
             // If the code ends with a return, log it in the ret log.
             // but how to make this platform-generic? We could define a
             // return_insn method on the trait, like we did for the special
             // registers. TODO: low priority
             let block = Block { entry, size };
-            block_log
-                .write()
-                .expect("Poisoned mutex in bb_callback")
-                .push(block);
+            block_log.push(block);
         };
 
         let hooks = code_hook_all(emu, CodeHookType::BLOCK, bb_callback)?;
@@ -568,26 +521,25 @@ pub mod hooking {
         Ok(hooks)
     }
 
-    // NOTE: Currently disabled.
     pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        _profiler: &Profiler<C>,
+        profiler: &Profiler<C>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
-        //let write_log = profiler.write_log.clone();
+        let write_log = profiler.write_log.clone();
         let mem_write_callback =
+            // TODO: we might want to track the # of unique addresses written to instead.
             move |engine: &unicorn::Unicorn<'_>, mem_type, address, num_bytes_written, value| {
                 //log::trace!("Inside memory hook!");
                 if let MemType::WRITE = mem_type {
                     let program_counter = engine.reg_read(pc).expect("Failed to read PC register");
-                    let _entry = MemLogEntry {
+                    let entry = MemLogEntry {
                         program_counter,
-                        mem_address: address,
+                        address,
                         num_bytes_written,
-                        value,
+                        value: value as u64,
                     };
-                    // let mut write_log = write_log.write().expect("Poisoned mutex in callback");
-                    // write_log.push(entry);
+                    write_log.push(entry);
                     true // NOTE: I'm not really sure what this return value means, here.
                 } else {
                     false
@@ -668,7 +620,6 @@ mod test {
     use unicorn::{CpuX86, RegisterX86};
 
     use crate::hashmap;
-
     use crate::util::architecture::{endian, word_size_in_bytes, Endian};
 
     use super::*;
@@ -676,11 +627,13 @@ mod test {
     mod example {
         use byteorder::{BigEndian, LittleEndian};
 
+        use crate::util::architecture::read_integer;
+
         use super::*;
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
             emu: &mut C,
-            _params: &HatcheryParams,
+            _config: &HatcheryParams,
             code: &[u8],
             _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
@@ -692,18 +645,18 @@ mod test {
             // now "pop" the stack into the program counter
             let word_size = word_size_in_bytes(emu.arch(), emu.mode());
             let a_bytes = emu.mem_read_as_vec(sp, word_size)?;
-            let address = match endian(emu.arch(), emu.mode()) {
-                Endian::Big => BigEndian::read_u64(&a_bytes),
-                Endian::Little => LittleEndian::read_u64(&a_bytes),
-            };
-            emu.write_stack_pointer(sp + word_size as u64)?;
-
-            Ok(address)
+            let endian = endian(emu.arch(), emu.mode());
+            if let Some(address) = read_integer(&a_bytes, endian, word_size) {
+                emu.write_stack_pointer(sp + word_size as u64)?;
+                Ok(address)
+            } else {
+                Err(Error::Misc("Failed to initialize stack pointer".into()))
+            }
         }
     }
 
     #[test]
-    fn test_params() {
+    fn test_config() {
         let config = r#"
             num_workers = 8
             wait_limit = 150
@@ -715,9 +668,9 @@ mod test {
             binary_path = "/bin/sh"
         "#;
 
-        let params: HatcheryParams = toml::from_str(config).unwrap();
+        let config: HatcheryParams = toml::from_str(config).unwrap();
         assert_eq!(
-            params,
+            config,
             HatcheryParams {
                 gadget_file: None,
                 num_workers: 8,
@@ -741,7 +694,7 @@ mod test {
     // FIXME - currently broken for want for full Pack impl for Vec<u8> #[test]
     fn test_hatchery() {
         env_logger::init();
-        let params = HatcheryParams {
+        let config = HatcheryParams {
             gadget_file: None,
             num_workers: 500,
             num_emulators: 510,
@@ -780,7 +733,7 @@ mod test {
             inputs.push(hashmap! { RCX => rand::random(), RAX => rand::random() });
         }
         let hatchery: Hatchery<CpuX86<'_>, Code> =
-            Hatchery::new(Arc::new(params), Arc::new(inputs), output_registers, None);
+            Hatchery::new(Arc::new(config), Arc::new(inputs), output_registers, None);
 
         let results = hatchery.execute_batch(code_iterator);
         for (_code, profile) in results.expect("boo") {
