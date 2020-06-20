@@ -170,7 +170,6 @@ impl<P: Hash + Send> FromParallelIterator<P> for TrivialGeography<P> {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use rand::prelude::SliceRandom;
 
     use crate::util::random::hash_seed_rng;
@@ -204,7 +203,7 @@ mod test {
 
             let mut counts = vec![0; size];
 
-            for i in 0..100_000 {
+            for _ in 0..100_000 {
                 let mut range = geo.get_range(&mut rng);
                 range.sort();
                 //println!("range = {:?}", range);
