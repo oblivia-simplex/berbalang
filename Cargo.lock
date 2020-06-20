@@ -639,6 +639,7 @@ checksum = "3baa92041a6fec78c687fa0cc2b3fae8884f743d672cf551bed1d6dac6988d0f"
 [[package]]
 name = "libunicorn-sys"
 version = "0.9.0"
+source = "git+https://github.com/oblivia-simplex/unicorn-rs?branch=development#47e74b642292d6b40d56ab88d965e10535827acf"
 dependencies = [
  "bitflags",
  "build-helper",
@@ -716,6 +717,7 @@ checksum = "cf51a729ecf40266a2368ad335a5fdde43471f545a967109cd62146ecf8b66ff"
 [[package]]
 name = "non-dominated-sort"
 version = "0.3.1"
+source = "git+https://github.com/oblivia-simplex/non-dominated-sort-rs#52f2b04659c802d8305931e10aef91eb57c503b6"
 
 [[package]]
 name = "num-bigint"
@@ -1332,6 +1334,7 @@ checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 [[package]]
 name = "unicorn"
 version = "0.9.0"
+source = "git+https://github.com/oblivia-simplex/unicorn-rs?branch=development#47e74b642292d6b40d56ab88d965e10535827acf"
 dependencies = [
  "bitflags",
  "enum-utils",

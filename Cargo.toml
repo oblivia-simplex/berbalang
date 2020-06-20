@@ -68,9 +68,9 @@ procinfo = "0.4"
 toml = "0.5"
 unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "development" }
 
-[patch."https://github.com/oblivia-simplex/unicorn-rs".unicorn]
-path = "../unicorn-rs/"
-paste = "0.1"
+#[patch."https://github.com/oblivia-simplex/unicorn-rs".unicorn]
+#path = "../unicorn-rs/"
+#paste = "0.1"
 
-[patch."https://github.com/oblivia-simplex/non-dominated-sort-rs".non-dominated-sort]
-path = "../non-dominated-sort-rs"
+#[patch."https://github.com/oblivia-simplex/non-dominated-sort-rs".non-dominated-sort]
+#path = "../non-dominated-sort-rs"

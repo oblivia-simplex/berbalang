@@ -26,8 +26,11 @@ def figure_out_data_dir(iteration, data_root, population_name, date=None):
 
 def sequential_runs(config_paths, num_trials, data_root):
     for config in config_paths:
+        if not config.endswith(".toml"):
+            continue
         parsed = toml.load(config)
-        name = parsed['population_name']
+        name = parsed['population_name'] if 'population_name' in parsed else \
+            config.split('.')[0]
         for i in range(0, num_trials):
             population_name, data_dir = figure_out_data_dir(i, data_root, name)
             print(f"Running trial for {population_name}")
