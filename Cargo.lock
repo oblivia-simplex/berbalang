@@ -31,6 +31,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ansi-colors"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093232fe8aaab7c69de6d88bd8abdfad2086d25e5c4cc84a49409955f2cb4f0b"
+
+[[package]]
 name = "atomig"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -76,6 +82,7 @@ checksum = "53d1ccbaf7d9ec9537465a97bf19edc1a4e158ecb49fc16178202238c569cc42"
 name = "berbalang"
 version = "0.1.0"
 dependencies = [
+ "ansi-colors",
  "atomig",
  "bson",
  "byte-slice-cast",

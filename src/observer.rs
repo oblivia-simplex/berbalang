@@ -127,12 +127,12 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter();
         if epoch_limit_reached {
             log::debug!("epoch limit reached");
-            crate::stop_everything();
+            crate::stop_everything(self.config.island_identifier, true);
         }
 
         if let Some(ref champion) = self.champion {
             if champion.is_goal_reached(&self.config) {
-                crate::stop_everything();
+                crate::stop_everything(self.config.island_identifier, false);
             }
         }
     }

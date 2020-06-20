@@ -104,7 +104,6 @@ pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
                     while crate::keep_going() {
                         world = world.evolve();
                     }
-                    log::info!("Evolution completed on island {}.", i);
                 });
                 handles.push(h);
             }

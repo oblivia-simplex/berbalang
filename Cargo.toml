@@ -19,6 +19,7 @@ debug = true
 #codegen-units = 1
 
 [dependencies]
+ansi-colors = "0.3"
 atomig = "0.1" # TODO: replace Mutexed cached scalar with atomig f64
 bson = "0.15"
 byteorder = "1.2"

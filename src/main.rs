@@ -29,14 +29,30 @@ mod util;
 
 pub static EPOCH_COUNTER: AtomicUsize = AtomicUsize::new(0);
 pub static KEEP_GOING: AtomicBool = AtomicBool::new(true);
+pub static WINNING_ISLAND: AtomicUsize = AtomicUsize::new(0xbaad_f00d);
 
 pub fn keep_going() -> bool {
     KEEP_GOING.load(atomic::Ordering::Relaxed)
 }
 
-pub fn stop_everything() {
-    log::warn!("Stopping everything...");
-    KEEP_GOING.store(false, atomic::Ordering::Relaxed);
+pub fn stop_everything(island: usize, champion: bool) {
+    let prior = KEEP_GOING.swap(false, atomic::Ordering::Relaxed);
+    if prior {
+        if champion {
+            let msg = format!("Island {} has produced a champion!", island);
+            let mut msg = ansi_colors::ColouredStr::new(&msg);
+            msg.bold();
+            msg.light_blue();
+            println!("{}", msg);
+            WINNING_ISLAND.store(island, atomic::Ordering::Relaxed);
+        } else {
+            let msg = format!("Evolution completed on Island {}.", island);
+            let mut msg = ansi_colors::ColouredStr::new(&msg);
+            msg.bold();
+            msg.blue();
+            println!("{}", msg);
+        }
+    };
 }
 
 pub fn get_epoch_counter() -> usize {
@@ -53,8 +69,8 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| "./config.toml".to_string());
     let population_name = std::env::args().nth(2);
-    let config =
-        Config::from_path(config_file, population_name).expect("Failed to generate Config");
+    let config = Config::from_path(&config_file, population_name)
+        .unwrap_or_else(|e| panic!("Failed to generate Config from {:?}: {:?}", &config_file, e));
 
     logger::init(&config.observer.population_name);
 
