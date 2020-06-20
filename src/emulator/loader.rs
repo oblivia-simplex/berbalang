@@ -485,6 +485,14 @@ fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn:
     }
 }
 
+pub fn try_to_get_static_memory_image() -> Option<&'static MemoryImage> {
+    if INIT_MEM_IMAGE.is_completed() {
+        unsafe { Some(&MEM_IMAGE) }
+    } else {
+        None
+    }
+}
+
 pub fn get_static_memory_image() -> &'static MemoryImage {
     if INIT_MEM_IMAGE.is_completed() {
         unsafe { &MEM_IMAGE }

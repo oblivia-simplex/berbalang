@@ -358,11 +358,17 @@ impl RegisterState {
     ) -> HashMap<String, Vec<u64>> {
         const MAX_SPIDER_STEPS: usize = 10;
         let mut map = HashMap::new();
-        let memory = loader::get_static_memory_image();
-        for (k, v) in registers.iter() {
-            let path = memory.deref_chain(*v, MAX_SPIDER_STEPS, extra_segs);
-            let reg_name = format!("{:?}", k);
-            map.insert(reg_name, path);
+        if let Some(memory) = loader::try_to_get_static_memory_image() {
+            for (k, v) in registers.iter() {
+                let path = memory.deref_chain(*v, MAX_SPIDER_STEPS, extra_segs);
+                let reg_name = format!("{:?}", k);
+                map.insert(reg_name, path);
+            }
+        } else {
+            for (k, v) in registers.iter() {
+                let reg_name = format!("{:?}", k);
+                map.insert(reg_name, vec![*v]);
+            }
         }
         map
     }
