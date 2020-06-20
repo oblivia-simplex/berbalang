@@ -47,6 +47,7 @@ pub struct Config {
     pub island_identifier: usize,
     pub crossover_period: f64,
     pub crossover_rate: f32,
+    #[serde(default)]
     pub data: DataConfig,
     pub max_init_len: usize,
     pub max_length: usize,
@@ -70,6 +71,7 @@ pub struct Config {
     pub fitness: FitnessConfig,
     #[serde(default = "default_random_seed")]
     pub random_seed: u64,
+    #[serde(default)]
     pub push_vm: PushVm,
 }
 
