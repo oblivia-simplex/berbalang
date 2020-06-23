@@ -6,7 +6,6 @@ use crate::fitness::MapFit;
 use crate::get_epoch_counter;
 use crate::observer::Window;
 use crate::roper::creature::Creature;
-use crate::util::count_min_sketch::CountMinSketch;
 
 use super::CreatureDominanceOrd;
 
@@ -14,57 +13,80 @@ use super::CreatureDominanceOrd;
 pub struct StatRecord {
     pub counter: usize,
     pub epoch: usize,
-    // #[serde(flatten)]
-    // Fitness scores // TODO find a way to make this more flexible
-    // TODO: how to report on fitness vectors?
-    // now the best's attributes
-    // pub avg_crash_count: f64,
-    // pub avg_place_error: f64,
-    // pub avg_value_error: f64,
-    //pub avg_genetic_freq_by_gen: f64,
-    pub avg_exec_ratio: f64,
-    pub avg_genetic_freq_by_window: f64,
-    pub avg_len: f64,
-    pub avg_register_error: f64,
-    pub avg_scalar_fitness: f64,
-    pub avg_uniq_exec_count: f64,
-    pub avg_ratio_written: f64,
-    pub avg_emulation_time: f64,
 
-    pub best_exec_ratio: f64,
-    pub best_genetic_freq_by_window: f64,
-    pub best_len: f64,
-    pub best_register_error: f64,
-    pub best_scalar_fitness: f64,
-    pub best_uniq_exec_count: f64,
-    pub best_ratio_written: f64,
-
-    pub immigrant_ratio: f64,
-    pub soup_len: f64,
-    // NOTE duplication here. maybe define a struct that is used for both
-    // average and best, and a func that derives it
+    pub exec_ratio: f64,
+    pub length: f64,
+    pub register_error: f64,
+    pub scalar_fitness: f64,
+    pub priority_fitness: f64,
+    pub uniq_exec_count: f64,
+    pub ratio_written: f64,
+    pub emulation_time: f64,
 }
 
 impl StatRecord {
-    fn from_window<'a>(
+    fn for_specimen<'a>(
+        window: &Window<Creature<u64>, CreatureDominanceOrd>,
+        specimen: &Creature<u64>,
+        counter: usize,
+        epoch: usize,
+    ) -> Self {
+        let specimen_exec_ratio = specimen.execution_ratio();
+        let specimen_scalar_fitness = specimen.scalar_fitness().unwrap();
+        let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap();
+        let specimen_register_error = specimen
+            .fitness
+            .as_ref()
+            .unwrap()
+            .scores
+            .get("register_error")
+            .cloned()
+            .unwrap_or_default();
+        let specimen_len = specimen.len() as f64;
+        let specimen_uniq_exec_count = specimen.num_uniq_alleles_executed() as f64;
+        let specimen_ratio_written = specimen
+            .fitness
+            .as_ref()
+            .unwrap()
+            .scores
+            .get("mem_write_ratio")
+            .cloned()
+            .unwrap_or_default();
+        let specimen_emulation_time = specimen
+            .profile
+            .as_ref()
+            .map(|p| p.avg_emulation_micros())
+            .unwrap_or(0.0);
+
+        Self {
+            counter,
+            epoch,
+            exec_ratio: specimen_exec_ratio,
+            length: specimen_len,
+            register_error: specimen_register_error,
+            scalar_fitness: specimen_scalar_fitness,
+            priority_fitness: specimen_priority_fitness,
+            uniq_exec_count: specimen_uniq_exec_count,
+            ratio_written: specimen_ratio_written,
+            emulation_time: specimen_emulation_time,
+        }
+    }
+
+    fn mean_from_window<'a>(
         window: &Window<Creature<u64>, CreatureDominanceOrd>,
         counter: usize,
     ) -> Self {
         let frame = &window.frame;
-        let best = window.best.as_ref().unwrap();
-        let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
-        let mut sketch = CountMinSketch::new(&window.config);
-        for g in frame.iter() {
-            g.record_genetic_frequency(&mut sketch);
-        }
-        best.record_genetic_frequency(&mut sketch);
-        let avg_genetic_freq = frame
+
+        let length = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
+
+        let scalar_fitness: f64 =
+            frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+        let priority_fitness: f64 = frame
             .iter()
-            .map(|g| g.query_genetic_frequency(&sketch))
+            .filter_map(|g| g.priority_fitness(&window.config))
             .sum::<f64>()
             / frame.len() as f64;
-        let avg_scalar_fitness: f64 =
-            frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
         let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();
         let fit_vec = MapFit::average(&fitnesses);
 
@@ -73,74 +95,26 @@ impl StatRecord {
             .map(|g| g.num_uniq_alleles_executed() as f64)
             .sum::<f64>()
             / frame.len() as f64;
-        let avg_exec_ratio: f64 =
+        let exec_ratio: f64 =
             frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
 
-        let avg_emulation_time = frame
+        let emulation_time = frame
             .iter()
-            .filter_map(|g| g.profile.as_ref().map(|p| p.avg_emulation_millis()))
+            .filter_map(|g| g.profile.as_ref().map(|p| p.avg_emulation_micros()))
             .sum::<f64>()
             / frame.len() as f64;
-
-        let immigrant_ratio = frame
-            .iter()
-            .filter(|g| g.native_island != window.config.island_identifier)
-            .count() as f64
-            / frame.len() as f64;
-
-        let best_genetic_freq_by_window = best.query_genetic_frequency(&sketch);
-        let best_exec_ratio = best.execution_ratio();
-        let best_scalar_fitness = best.scalar_fitness().unwrap();
-        let best_register_error = best
-            .fitness
-            .as_ref()
-            .unwrap()
-            .scores
-            .get("register_error")
-            .cloned()
-            .unwrap_or_default();
-        let best_len = best.len() as f64;
-        let best_uniq_exec_count = best.num_uniq_alleles_executed() as f64;
-        let best_ratio_written = best
-            .fitness
-            .as_ref()
-            .unwrap()
-            .scores
-            .get("mem_write_ratio")
-            .cloned()
-            .unwrap_or_default();
-
-        let soup = window.soup();
-        let soup_len = soup.len() as f64;
 
         StatRecord {
             counter,
             epoch: get_epoch_counter(),
-            avg_len,
-            avg_genetic_freq_by_window: avg_genetic_freq,
-            avg_scalar_fitness,
-            avg_uniq_exec_count: avg_exec_count,
-            avg_exec_ratio,
-            // fitness scores
-            // TODO: it would be nice if this were less hard-coded
-            // avg_place_error: fit_vec["place_error"],
-            // avg_value_error: fit_vec["value_error"],
-            // avg_crash_count: fit_vec["crash_count"],
-            avg_register_error: fit_vec.get("register_error").unwrap_or_default(),
-            avg_ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
-            avg_emulation_time,
-            //avg_genetic_freq_by_gen: fit_vec["genetic_frequency"],
-            best_genetic_freq_by_window,
-            best_scalar_fitness,
-            best_exec_ratio,
-            best_register_error,
-            best_len,
-            best_uniq_exec_count,
-            best_ratio_written,
-
-            immigrant_ratio,
-
-            soup_len,
+            length,
+            scalar_fitness,
+            priority_fitness,
+            uniq_exec_count: avg_exec_count,
+            exec_ratio,
+            register_error: fit_vec.get("register_error").unwrap_or_default(),
+            ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
+            emulation_time,
         }
     }
 }
@@ -171,13 +145,25 @@ pub fn report_fn<'a>(
     counter: usize,
     config: &Config,
 ) {
-    let record = StatRecord::from_window(window, counter);
+    let epoch = get_epoch_counter();
 
+    let record = StatRecord::mean_from_window(window, counter);
     log::info!(
         "Island #{island} {record:#?}",
         island = config.island_identifier,
         record = record,
     );
+    window.log_record(record, "mean");
+
+    if let Some(ref best) = window.best {
+        let best_record = StatRecord::for_specimen(&window, best, counter, epoch);
+        window.log_record(best_record, "best");
+    }
+
+    if let Some(ref champion) = window.champion {
+        let champion_record = StatRecord::for_specimen(&window, champion, counter, epoch);
+        window.log_record(champion_record, "champion");
+    }
 
     log::info!(
         "Island #{island} Best: {best:#?}\nIsland #{island} Champion: {champion:#?}",
@@ -185,15 +171,6 @@ pub fn report_fn<'a>(
         best = window.best,
         champion = window.champion,
     );
-
-    window.log_record(record);
-
-    // let total = window.archive.len();
-    // log::info!("Current Pareto front contains {} specimens:", total);
-    // for (i, specimen) in window.archive.iter().enumerate() {
-    //     log::info!("Specimen #{}: {:#?}", i, specimen);
-    //     break;
-    // }
 
     if let Ok(stat) = procinfo::pid::statm_self() {
         log::debug!("Memory status: {:#x?}", stat);

@@ -3,10 +3,85 @@ use std::hash::Hash;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use hashbrown::HashMap;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use unicorn::{Arch, Cpu, Mode};
+
+use bitflags::bitflags;
 
 use crate::emulator::register_pattern::Register;
 use crate::util::random::hash_seed_rng;
+
+// TODO: Define berbalang-specific Arch and Mode, and translate
+//unicorn, capstone, goblin, and falcon types to this with intos
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// pub enum Arch {
+//     X86,
+//     Arm,
+//     Sparc,
+//     Ppc,
+//     Mips,
+//     M68k,
+// }
+//
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// pub enum Mode {
+//     Mode16,
+//     Mode32,
+//     Mode64,
+//     Arm,
+//     Thumb,
+// }
+
+bitflags! {
+    #[derive(Deserialize, Serialize)]
+    pub struct Perms: u8 {
+        const NONE    = 0b000;
+        const READ    = 0b001;
+        const WRITE   = 0b010;
+        const EXEC    = 0b100;
+        const ALL     = 0b111;
+    }
+}
+
+impl From<unicorn::Protection> for Perms {
+    fn from(p: unicorn::Protection) -> Self {
+        Perms::from_bits_truncate(p.bits() as u8)
+    }
+}
+
+impl Into<unicorn::Protection> for Perms {
+    fn into(self) -> unicorn::Protection {
+        unicorn::Protection::from_bits_truncate(self.bits() as u32)
+    }
+}
+
+impl From<falcon::memory::MemoryPermissions> for Perms {
+    fn from(p: falcon::memory::MemoryPermissions) -> Self {
+        Perms::from_bits_truncate(p.bits() as u8)
+    }
+}
+
+impl Into<falcon::memory::MemoryPermissions> for Perms {
+    fn into(self) -> falcon::memory::MemoryPermissions {
+        falcon::memory::MemoryPermissions::from_bits_truncate(self.bits() as u32)
+    }
+}
+
+impl From<&goblin::elf::ProgramHeader> for Perms {
+    fn from(phdr: &goblin::elf::ProgramHeader) -> Self {
+        let mut perm = Perms::NONE;
+        if phdr.is_executable() {
+            perm |= Perms::EXEC
+        };
+        if phdr.is_write() {
+            perm |= Perms::WRITE
+        };
+        if phdr.is_read() {
+            perm |= Perms::READ
+        };
+        perm
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endian {

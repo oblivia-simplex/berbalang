@@ -165,8 +165,8 @@ impl Profile {
         }
     }
 
-    pub fn avg_emulation_millis(&self) -> f64 {
-        self.emulation_times.iter().sum::<Duration>().as_millis() as f64
+    pub fn avg_emulation_micros(&self) -> f64 {
+        self.emulation_times.iter().sum::<Duration>().as_micros() as f64
             / self.emulation_times.len() as f64
     }
 

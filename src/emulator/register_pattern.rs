@@ -457,6 +457,8 @@ mod test {
     use crate::hashmap;
 
     use super::*;
+    use crate::configure::RoperConfig;
+    use unicorn::{Arch, Mode};
 
     #[derive(Debug, Clone, Deserialize)]
     struct Conf {
@@ -464,12 +466,27 @@ mod test {
     }
 
     fn initialize_mem_image() {
-        let _ = loader::load_from_path(
-            "./binaries/X86/MODE_64/bash",
-            0x1000,
-            unicorn::Arch::X86,
-            unicorn::Mode::MODE_64,
-        );
+        let config = RoperConfig {
+            gadget_file: None,
+            output_registers: vec![],
+            register_pattern: None,
+            parsed_register_pattern: None,
+            soup: None,
+            soup_size: None,
+            arch: Arch::X86,
+            mode: Mode::MODE_64,
+            num_workers: 0,
+            num_emulators: 0,
+            wait_limit: 0,
+            max_emu_steps: None,
+            millisecond_timeout: None,
+            record_basic_blocks: false,
+            record_memory_writes: false,
+            emulator_stack_size: 0x1000,
+            binary_path: "/bin/sh".to_string(),
+            ld_paths: None,
+        };
+        let _ = loader::load_from_path(&config, true);
     }
 
     #[test]

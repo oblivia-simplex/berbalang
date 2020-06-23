@@ -4,6 +4,7 @@ pub mod count_min_sketch;
 pub mod distance;
 pub mod dump;
 pub mod five_letter_words;
+pub mod ldd;
 pub mod levy_flight;
 pub mod name;
 pub mod random;

@@ -69,7 +69,7 @@ def plot_hexbin(data, col_1, col_2):
 
 def plot_pleasures(data, col_1, col_2, population_name=None, title=None):
     if title is None:
-        title = f"{col_2} by {col_1}, {population_name} population"
+        title = f"{col_2} by {col_1}\n{population_name} population"
     fig, axes = joypy.joyplot(data,
                               by=col_1,
                               column=col_2,
@@ -82,6 +82,7 @@ def plot_pleasures(data, col_1, col_2, population_name=None, title=None):
                               bins=40,
                               ylabels=False,
                               overlap=0.9,
+                              figsize=(8, 10.5),
                               fill=True,
                               kind="counts",
                               # The Unknown Pleasures colour scheme is set here:
@@ -159,3 +160,12 @@ def unknown_pleasures_fitness_by_generation(pop_name, island=None):
                               color='k')
     #plot.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return data, fig, axes
+
+
+######
+
+def get_champions_for_population(population):
+    champions = glob.glob(f"{population}/island_*/champions/champion*.json.gz")
+    return [load_population(c) for c in champions]
+
+

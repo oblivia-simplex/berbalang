@@ -24,16 +24,17 @@ min_init_len = 10
 # and a minimal limit set.
 pop_size = 0x300
 max_length = 100
-num_epochs = 150 # = infinite
+num_epochs = 200 # = infinite
 # season length is only used by 
 # SeasonalSketch, which I don't
 # think actually works
 # add this:
 
 [fitness]
-#function = "register_pattern"
-function = "register_conjunction"
-priority = "zeroes" # could this be set by the ff?
+function = "register_pattern"
+#function = "register_conjunction"
+#priority = "zeroes" # could this be set by the ff?
+priority = "register_error"
 #function = "code_coverage"
 target = 0
 eval_by_case = false
@@ -52,13 +53,12 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 #important_writes = "100 - min(100, x*50)"
 #gadgets_executed = "10*(5 - min(5, x))/E" # / ((1+E)/ 20)" #"-1 * min(3, x)"
 gadgets_executed = "0" #(5 - min(5,x))"
-register_error = "0"
-register_novelty = "1000 * x"
-mem_write_ratio = "0"
+register_error = "x"
+register_novelty = "0" #1000 * x"
+mem_write_ratio = "0" #1.0 - x"
 #code_frequency = "x"
 #code_coverage = "100 * x"
 #genetic_freq = "0" #"min(2, x * 50)"
-#mem_write_ratio ="x" 
 #crash_count = "0"
 zeroes = "x"
 #code_frequency = "10*x" #x/2"
@@ -100,8 +100,8 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-arch = "X86"
-mode = "MODE_32"
+#arch = "X86"
+#mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
 binary_path = "./binaries/X86/MODE_32/sshd"
@@ -117,10 +117,10 @@ record_memory_writes = true
 #output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
 output_registers= ["EAX", "EBX", "ECX", "EDX"]
   [roper.register_pattern] 
-  #EAX = "0xb"
-  #EBX = "&'/bin"
-  #ECX = "&0"
-  #EDX = "0"
+  EAX = "0xb"
+  EBX = "&'/bin"
+  ECX = "&0"
+  EDX = "0"
 
 #  RAX = "0x3b"                   # execve syscall number
 #  RSI = "&&0"                  # an empty argv array

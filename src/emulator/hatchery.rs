@@ -115,14 +115,14 @@ fn init_emu<C: Cpu<'static>>(
                     let res = emu.mem_map_const_ptr(
                         s.aligned_start(),
                         s.aligned_size(),
-                        s.perm,
+                        s.perm.into(),
                         s.data.as_ptr(),
                     );
                     results.push(res);
                 }
             } else {
                 // Next, map the writeable segments
-                let res = emu.mem_map(s.aligned_start(), s.aligned_size(), s.perm);
+                let res = emu.mem_map(s.aligned_start(), s.aligned_size(), s.perm.into());
                 results.push(res);
             }
         });
@@ -188,15 +188,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
 
         let static_memory = loader::get_static_memory_image();
 
-        let memory = Arc::new(Some(Pin::new(
-            loader::load_from_path(
-                &config.binary_path,
-                config.emulator_stack_size,
-                config.arch,
-                config.mode,
-            )
-            .expect("Failed to load binary from path"),
-        )));
+        let memory = Some(Pin::new(static_memory.segments().clone()));
 
         let emu_pool = Arc::new(Pool::new(config.num_workers, || {
             init_emu(&config, &memory).expect("failed to initialize emulator")
@@ -240,10 +232,6 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                             let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
                         }
 
-                        // track gadget entry execution // NO, this has a loophole in overlapping gadgets
-                        // let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
-                        //     .expect("Failed to install address tracking hook");
-
                         if cfg!(feature = "disassemble_trace") {
                             // install the disassembler hook
                             let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone()).expect("Failed to install tracer hook");
@@ -266,12 +254,14 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                         // If the preparation was successful, launch the emulator and execute
                         // the payload. We want to hang onto the exit code of this task.
                         let start_time = Instant::now();
+                        /*******************************************************************/
                         let result = emu.emu_start(
                             start_addr,
                             0,
                             millisecond_timeout * unicorn::MILLISECOND_SCALE,
                             max_emu_steps,
                         );
+                        /*******************************************************************/
                         profiler.emulation_time = start_time.elapsed();
                         if let Err(error_code) = result {
                             profiler.set_error(error_code)
@@ -324,7 +314,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
             emu_pool,
             thread_pool,
             config,
-            memory,
+            memory: Arc::new(memory),
             tx,
             rx,
             handle,
@@ -424,9 +414,10 @@ pub mod hooking {
     ) -> Result<unicorn::uc_hook, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
 
-        let callback = move |engine: &unicorn::Unicorn<'_>, _a| {
+        let callback = move |engine: &unicorn::Unicorn<'_>, a| {
             // TODO log the errors
             if let Ok(address) = engine.reg_read(pc) {
+                log::trace!("Interrupt at address 0x{:x}. a = {:?}", pc, a);
                 let memory = loader::get_static_memory_image();
                 if let Some(insts) = memory.disassemble(address, 64, Some(1)) {
                     if let Some(inst) = insts.iter().next() {

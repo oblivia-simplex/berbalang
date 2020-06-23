@@ -12,6 +12,8 @@ pub enum Error {
     NoVacancy,
     Misc(String),
     Unicorn(unicorn::Error),
+    Falcon(falcon::error::Error),
+    Goblin(goblin::error::Error),
 }
 
 macro_rules! impl_error_from {
@@ -24,6 +26,8 @@ macro_rules! impl_error_from {
     };
 }
 
+impl_error_from!(goblin::error::Error, Goblin);
+impl_error_from!(falcon::error::Error, Falcon);
 impl_error_from!(std::io::Error, IO);
 impl_error_from!(fasteval::error::Error, Eval);
 impl_error_from!(std::num::ParseIntError, ParseInt);
@@ -54,6 +58,12 @@ impl From<unicorn::Error> for Error {
 
 impl From<toml::de::Error> for Error {
     fn from(e: toml::de::Error) -> Self {
+        Self::Parsing(e.to_string())
+    }
+}
+
+impl From<std::str::Utf8Error> for Error {
+    fn from(e: std::str::Utf8Error) -> Self {
         Self::Parsing(e.to_string())
     }
 }
