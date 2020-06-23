@@ -181,7 +181,7 @@ fn word_distance(w1: u64, w2: u64) -> f64 {
 // TODO: write some integration tests for this. there's a LOT of room for error!
 impl RegisterPattern {
     pub fn distance_from_register_state(&self, register_state: &RegisterState) -> f64 {
-        const WRONG_REG_PENALTY: f64 = 1.0;
+        const WRONG_REG_PENALTY: f64 = 5.0;
 
         let summed_dist = self
             .0
@@ -374,7 +374,7 @@ impl RegisterState {
     }
 
     fn distance_from_register_val(&self, reg: &str, r_val: &RegisterValue) -> Result<f64, Error> {
-        const POS_DIST_SCALE: f64 = 1.0;
+        const POS_DIST_SCALE: f64 = 10.0;
         fn pos_distance(pos: usize, target: usize) -> f64 {
             //(pos as i32 - target as i32).abs() as f64
             // It's much easier to shunt a register forward along its

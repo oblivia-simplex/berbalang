@@ -150,7 +150,9 @@ impl Profile {
             computation_times.push(emulation_time);
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
-            writeable_memory_regions.push(written_memory);
+            // NOTE: I don't think we really need to hold onto the written memory, once the
+            // spidered register states are generated. This should save us a lot of RAM.
+            //writeable_memory_regions.push(written_memory);
             write_logs.push(segqueue_to_vec(write_log));
         }
 
