@@ -20,6 +20,11 @@ use crate::util::bitwise::nybble;
 
 pub type Register<C> = <C as Cpu<'static>>::Reg;
 
+// TODO:
+// A dereferenced value should only count as "close" to the target if:
+// - it contains the head or tail of the target (so that sliding it along may find the target)
+// - it points to writeable address. then look at hamming distance.
+
 /// For example, if EAX <- 0xdeadbeef, then EAX holds
 /// `RegisterValue { val: 0xdeadbeef, deref: 0 }`.
 /// But if EAX <- 0x12345678 <- 0xdeadbeef, then we have
@@ -178,10 +183,14 @@ fn word_distance(w1: u64, w2: u64) -> f64 {
     (w1 ^ w2).count_ones() as f64
 }
 
+fn max_word_distance() -> f64 {
+    get_static_memory_image().word_size as f64 * 8.0
+}
+
 // TODO: write some integration tests for this. there's a LOT of room for error!
 impl RegisterPattern {
     pub fn distance_from_register_state(&self, register_state: &RegisterState) -> f64 {
-        const WRONG_REG_PENALTY: f64 = 1.0;
+        const WRONG_REG_PENALTY: f64 = 5.0;
 
         let summed_dist = self
             .0
@@ -374,46 +383,50 @@ impl RegisterState {
     }
 
     fn distance_from_register_val(&self, reg: &str, r_val: &RegisterValue) -> Result<f64, Error> {
-        const POS_DIST_SCALE: f64 = 1.0;
         fn pos_distance(pos: usize, target: usize) -> f64 {
-            //(pos as i32 - target as i32).abs() as f64
-            // It's much easier to shunt a register forward along its
-            // referential path than backward. TODO: verify
-            // so, suppose we want &&x. then target = 2.
-            // suppose we find x at 0. pos - target = -2
-            // but suppose we find x at &&x, pos 2, but
-            // target is 0. easy to bring it in. pos - target = +2
-            let forward_dist = pos as i32 - target as i32;
-            forward_dist.abs() as f64
-            // if forward_dist > 0 {
-            //     forward_dist as f64
-            // } else {
-            //     -4.0 * forward_dist as f64
-            // }
+            let pos_dist_scale: f64 = 4.0 * get_static_memory_image().word_size as f64;
+            let dist = pos as i32 - target as i32;
+            dist.abs() as f64 * pos_dist_scale
         }
+
+        fn is_mutable(i: usize, vals: &[u64]) -> bool {
+            // a value is mutable iff i == 0 (register) or vals[i-1] points
+            // to writeable memory.
+            let memory = get_static_memory_image();
+            if i == 0 {
+                true
+            } else {
+                memory
+                    .perm_of_addr(vals[i - 1])
+                    .map(|p| p.intersects(util::architecture::Perms::WRITE))
+                    .unwrap_or(false)
+            }
+        }
+
         log::debug!("want {:x?}", r_val);
         if let Some(vals) = self.0.get(reg) {
-            let target_val = r_val.val;
-            let target_pos = r_val.deref;
-            let least_distance = vals
-                .iter()
-                .enumerate()
-                .map(|(pos, val)| {
-                    let pos_dist = pos_distance(pos, target_pos);
-                    let word_dist = word_distance(*val, target_val);
-                    log::debug!(
-                        "{} val 0x{:x}: word_dist {} + pos_dist {} = {}",
-                        reg,
-                        val,
-                        word_dist,
-                        pos_dist,
-                        word_dist + pos_dist
-                    );
-                    word_dist + pos_dist * POS_DIST_SCALE
-                })
-                .fold(std::f64::MAX, |a, b| a.min(b));
-            log::debug!("{} least_distance = {}", reg, least_distance);
-            Ok(least_distance)
+            let distance = if r_val.deref == 0 {
+                // Immediate values
+                word_distance(vals[0], r_val.val)
+            } else {
+                // dereferenced values
+                vals.iter()
+                    .enumerate()
+                    .map(|(i, val)| {
+                        if is_mutable(i, &vals) {
+                            word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
+                        } else {
+                            if *val == r_val.val {
+                                0.0 + pos_distance(i, r_val.deref)
+                            } else {
+                                2.0 * word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
+                            }
+                        }
+                    })
+                    .fold1(|a, b| a.min(b))
+                    .unwrap()
+            };
+            Ok(distance)
         } else {
             Err(Error::MissingKey(reg.to_string()))
         }
@@ -434,10 +447,14 @@ impl fmt::Debug for RegisterState {
                     r,
                     m.iter()
                         .map(|v| format!(
-                            "0x{:x}{}",
+                            "0x{:x}{}{}",
                             v,
+                            memory
+                                .perm_of_addr(*v)
+                                .map(|p| format!(" {}", p))
+                                .unwrap_or("".to_string()),
                             util::bitwise::try_word_as_string(*v, endian)
-                                .map(|s| format!(" ({})", s))
+                                .map(|s| format!(" \"{}\"", s))
                                 .unwrap_or("".to_string())
                         ))
                         .collect::<Vec<_>>()
@@ -452,7 +469,9 @@ impl fmt::Debug for RegisterState {
 #[cfg(test)]
 mod test {
     use serde_derive::Deserialize;
+    use unicorn::{Arch, Mode};
 
+    use crate::configure::RoperConfig;
     use crate::emulator::register_pattern::{RegisterPattern, RegisterValue};
     use crate::hashmap;
 
@@ -464,12 +483,28 @@ mod test {
     }
 
     fn initialize_mem_image() {
-        let _ = loader::load_from_path(
-            "./binaries/X86/MODE_64/bash",
-            0x1000,
-            unicorn::Arch::X86,
-            unicorn::Mode::MODE_64,
-        );
+        let config = RoperConfig {
+            gadget_file: None,
+            output_registers: vec![],
+            randomize_registers: false,
+            register_pattern: None,
+            parsed_register_pattern: None,
+            soup: None,
+            soup_size: None,
+            arch: Arch::X86,
+            mode: Mode::MODE_64,
+            num_workers: 0,
+            num_emulators: 0,
+            wait_limit: 0,
+            max_emu_steps: None,
+            millisecond_timeout: None,
+            record_basic_blocks: false,
+            record_memory_writes: false,
+            emulator_stack_size: 0x1000,
+            binary_path: "/bin/sh".to_string(),
+            ld_paths: None,
+        };
+        let _ = loader::load_from_path(&config, true);
     }
 
     #[test]

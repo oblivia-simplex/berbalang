@@ -12,17 +12,18 @@ use serde::Serialize;
 
 use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 
-// a hack to make the imports more meaningful
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
+use crate::hashmap;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::dump::dump;
 use crate::util::random::hash_seed_rng;
+use std::path::Path;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
-fn stat_writer(config: &Config) -> csv::Writer<fs::File> {
-    let s = format!("{}/statistics.tsv", config.data_directory());
+fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
+    let s = format!("{}/{}_statistics.tsv", config.data_directory(), name);
     let path = std::path::Path::new(&s);
     let add_headers = !path.exists();
     let file = fs::OpenOptions::new()
@@ -90,7 +91,7 @@ pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
     pub archive: Vec<O>,
     #[allow(dead_code)] // TODO: re-establish pareto archive as optional
     dominance_order: D,
-    stat_writer: Arc<Mutex<csv::Writer<fs::File>>>,
+    stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
 }
 
 impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
@@ -99,7 +100,14 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         let report_every = config.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
         assert!(report_every > 0, "report_every must be > 0");
-        let stat_writer = Arc::new(Mutex::new(stat_writer(&config)));
+        let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
+        let best_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "best")));
+        let champion_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "champion")));
+        let stat_writers = hashmap! {
+            "mean" => mean_stat_writer,
+            "best" => best_stat_writer,
+            "champion" => champion_stat_writer
+        };
         Self {
             frame: Vec::with_capacity(window_size),
             config,
@@ -111,7 +119,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             best: None,
             champion: None,
             archive: vec![],
-            stat_writer,
+            stat_writers,
             dominance_order,
         }
     }
@@ -132,6 +140,9 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
 
         if let Some(ref champion) = self.champion {
             if champion.is_goal_reached(&self.config) {
+                let path = format!("{}/winning_champion.json.gz", self.config.data_directory());
+                log::info!("dumping winning champion to {}", path);
+                dump(champion, &path).expect("failed to dump champion");
                 crate::stop_everything(self.config.island_identifier, true);
             }
         }
@@ -240,6 +251,15 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                 );
                 log::info!("Dumping new champion to {}", path);
                 dump(champion, &path).expect("Failed to dump champion");
+                let latest = format!(
+                    "{}/champions/latest_champion.json.gz",
+                    self.config.data_directory()
+                );
+                let latest = Path::new(&latest);
+                if latest.exists() {
+                    fs::remove_file(latest).expect("failed to remove old symlink");
+                }
+                std::os::unix::fs::symlink(path, latest).expect("Failed to make symlink");
             }
         }
     }
@@ -274,14 +294,14 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
         (self.report_fn)(&self, self.counter, &self.config);
     }
 
-    pub fn log_record<S: Serialize>(&self, record: S) {
-        self.stat_writer
+    pub fn log_record<S: Serialize>(&self, record: S, name: &str) {
+        self.stat_writers[name]
             .lock()
             .expect("poisoned lock on window's logger")
             .serialize(record)
             .map_err(|e| log::error!("Error logging record: {:?}", e))
             .expect("Failed to log record!");
-        self.stat_writer
+        self.stat_writers[name]
             .lock()
             .expect("poisoned lock on window's logger")
             .flush()

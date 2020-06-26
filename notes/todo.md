@@ -37,15 +37,23 @@ ideally, this is somethign you should be able to set in the config.toml
 - new task: write a given string somewhere in memory
 - 2nd stage: point to it with a register
 
-- trial harness for experimental runs
 - dockerize
+-- started this. having some issues with the network. trouble accessing github in the rust build. troubleshoot this. 
+
+- data scraping and processing tools for results. plot graphs automatically. populate visdom, maybe.
+
+
 - get it cloud ready
 
 - Add support for *staged* objectives, or sub-tasks. There's a fair bit of GP lit on this, I think. Take a look. Look at what Malcom did with the soccer task, e.g.
 
 - for exacting tasks, run n evaluations with different (constant) randomized states
 
-# Tomorrow:
-## Graphing! We really need graphing. Top priority.
+## System call constraints
+structural features as fitness attributes
+see the thread in the slack with peli about this
+
+- improve the loader by forking some code from falcon
+the falcon elf loader is very nice and easily usable 
  
  

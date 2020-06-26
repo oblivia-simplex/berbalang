@@ -102,7 +102,7 @@ impl Profile {
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
         let mut gadgets_executed = HashSet::new();
-        let mut writeable_memory_regions = Vec::new();
+        let writeable_memory_regions = Vec::new();
         let mut write_logs = Vec::new();
 
         // Commented this out. It didn't seem to work, so no need to spend the time.
@@ -150,7 +150,9 @@ impl Profile {
             computation_times.push(emulation_time);
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
-            writeable_memory_regions.push(written_memory);
+            // NOTE: I don't think we really need to hold onto the written memory, once the
+            // spidered register states are generated. This should save us a lot of RAM.
+            //writeable_memory_regions.push(written_memory);
             write_logs.push(segqueue_to_vec(write_log));
         }
 
@@ -165,8 +167,8 @@ impl Profile {
         }
     }
 
-    pub fn avg_emulation_millis(&self) -> f64 {
-        self.emulation_times.iter().sum::<Duration>().as_millis() as f64
+    pub fn avg_emulation_micros(&self) -> f64 {
+        self.emulation_times.iter().sum::<Duration>().as_micros() as f64
             / self.emulation_times.len() as f64
     }
 
@@ -294,9 +296,9 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
 
 #[cfg(test)]
 mod test {
+    use unicorn::CpuX86;
 
     use super::*;
-    use unicorn::CpuX86;
 
     macro_rules! segqueue {
         ($($x:expr,)*) => {

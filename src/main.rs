@@ -63,14 +63,33 @@ pub fn increment_epoch_counter() {
     EPOCH_COUNTER.fetch_add(1, atomic::Ordering::Relaxed);
 }
 
+pub fn limit_threads(threads: usize, config: &mut Config) {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+        .unwrap();
+    config.num_islands = threads;
+    config.roper.num_emulators = threads;
+    config.roper.num_workers = threads;
+}
+
 fn main() {
     // TODO add standard cli
     let config_file = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./config.toml".to_string());
     let population_name = std::env::args().nth(2);
-    let config = Config::from_path(&config_file, population_name)
+    let mut config = Config::from_path(&config_file, population_name)
         .unwrap_or_else(|e| panic!("Failed to generate Config from {:?}: {:?}", &config_file, e));
+    if let Ok(n) = std::env::var("BERBALANG_LIMIT_THREADS") {
+        limit_threads(
+            n.parse()
+                .expect("Invalid value for BERBALANG_LIMIT_THREADS"),
+            &mut config,
+        );
+    } else if cfg!(feature = "disassemble_trace") {
+        limit_threads(1, &mut config);
+    }
 
     logger::init(&config.observer.population_name);
 
@@ -82,17 +101,7 @@ fn main() {
             hello_world::run(config);
         }
         Job::Roper => {
-            use unicorn::Arch::*;
-
-            match config.roper.arch {
-                X86 => roper::run::<unicorn::CpuX86<'_>>(config),
-                ARM => roper::run::<unicorn::CpuARM<'_>>(config),
-                ARM64 => roper::run::<unicorn::CpuARM64<'_>>(config),
-                MIPS => roper::run::<unicorn::CpuMIPS<'_>>(config),
-                SPARC => roper::run::<unicorn::CpuSPARC<'_>>(config),
-                M68K => roper::run::<unicorn::CpuM68K<'_>>(config),
-                _ => unimplemented!("architecture unimplemented"),
-            }
+            roper::run(config);
         }
     }
 

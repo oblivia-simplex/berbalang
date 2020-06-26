@@ -36,6 +36,10 @@ fn default_random_seed() -> u64 {
     rand::random::<u64>()
 }
 
+fn default_one() -> f64 {
+    1.0
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub job: Job,
@@ -53,6 +57,11 @@ pub struct Config {
     pub max_length: usize,
     pub min_init_len: usize,
     // See the comments in util::levy_flight for an explanation
+    // There is a mutation_rate chance, per genome, that
+    // a levy-flight pointwise decision process will be applied, per-gene,
+    // using mutation_exponent as its lambda parameter.
+    #[serde(default = "default_one")]
+    pub mutation_rate: f64,
     pub mutation_exponent: f64,
     pub observer: ObserverConfig,
     pub pop_size: usize,
@@ -213,18 +222,31 @@ pub struct LinearGpConfig {
     pub return_registers: Option<usize>,
 }
 
+fn default_arch() -> unicorn::Arch {
+    unicorn::Arch::X86
+}
+
+fn default_mode() -> unicorn::Mode {
+    unicorn::Mode::MODE_32
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
     pub gadget_file: Option<String>,
     #[serde(default)]
     pub output_registers: Vec<String>,
+    #[serde(default)]
+    pub randomize_registers: bool,
     pub register_pattern: Option<RegisterPatternConfig>,
     #[serde(skip)]
     pub parsed_register_pattern: Option<RegisterPattern>,
     #[serde(default = "Default::default")]
     pub soup: Option<Vec<u64>>,
-    pub soup_size: Option<usize>, // if no gadget file given
+    pub soup_size: Option<usize>,
+    // if no gadget file given
+    #[serde(default = "default_arch")]
     pub arch: unicorn::Arch,
+    #[serde(default = "default_mode")]
     pub mode: unicorn::Mode,
     #[serde(default = "default_num_workers")]
     pub num_workers: usize,
@@ -241,6 +263,8 @@ pub struct RoperConfig {
     #[serde(default = "default_stack_size")]
     pub emulator_stack_size: usize,
     pub binary_path: String,
+    #[serde(default)]
+    pub ld_paths: Option<Vec<String>>,
 }
 
 impl RoperConfig {
@@ -271,6 +295,7 @@ impl Default for RoperConfig {
         Self {
             gadget_file: None,
             output_registers: vec![],
+            randomize_registers: false,
             register_pattern: None,
             parsed_register_pattern: None,
             soup: None,
@@ -286,6 +311,7 @@ impl Default for RoperConfig {
             record_memory_writes: false,
             emulator_stack_size: 0x1000,
             binary_path: "/bin/sh".to_string(),
+            ld_paths: None,
         }
     }
 }

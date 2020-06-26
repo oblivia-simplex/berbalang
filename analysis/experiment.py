@@ -1,31 +1,40 @@
 #! /usr/bin/env python3
 
-import glob
-import sys
 import fire
-import toml
+import glob
 import os
-from datetime import datetime
 import pytz
+import sys
+import toml
+from datetime import datetime
 
 
+# TODO: for each run, save a gzipped copy of the executable used.
+# this will make things very easy to replicate
+# or better, create an archive of versions used, md5summed, and
+# symlinked to the relevant log directories
 
 def figure_out_data_dir(iteration, data_root, population_name, date=None):
     if date is None:
         tz = pytz.timezone("America/Halifax")
         date = datetime.now(tz).strftime("%Y/%m/%d")
     # TODO Make this more flexible if need be
-    population_name = f"{population_name}-{iteration}"
-    dir = f"{data_root}/berbalang/Roper/Tournament/{date}/{population_name}"
-    while os.path.exists(dir):
-        population_name += "x"
-        dir += "x"
-    return (population_name, dir)
+    data_root = os.path.expanduser(data_root)
+    data_root = os.path.abspath(data_root)
+    dir = ""
+    base_name = population_name
+    iteration -= 1
+    while dir == "" or os.path.exists(dir):
+        iteration += 1
+        population_name = f"{base_name}-{iteration}"
+        dir = f"{data_root}/berbalang/Roper/Tournament/{date}/{population_name}"
+    return population_name, dir
 
 
 def base(path):
     f, _ = os.path.splitext(path)
     return os.path.basename(f)
+
 
 def sequential_runs(config_paths, num_trials, data_root):
     for config in config_paths:

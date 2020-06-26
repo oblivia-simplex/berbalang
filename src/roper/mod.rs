@@ -50,6 +50,7 @@ fn prepare<'a, C: 'static + Cpu<'static>>(
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
+            "register_entropy" => Box::new(evaluation::register_entropy_ff),
             "code_coverage" => Box::new(evaluation::code_coverage_ff),
             "just_novelty" => Box::new(evaluation::just_novelty_ff),
             s => unimplemented!("No such fitness function as {}", s),
@@ -71,16 +72,24 @@ impl DominanceOrd<Creature<u64>> for CreatureDominanceOrd {
 
 impl DominanceOrd<&Creature<u64>> for CreatureDominanceOrd {}
 
-pub fn run<C: 'static + Cpu<'static>>(mut config: Config) {
-    let _ = loader::load_from_path(
-        &config.roper.binary_path,
-        0x1000,
-        config.roper.arch,
-        config.roper.mode,
-    )
-    .expect("Failed to load binary image");
+pub fn run(mut config: Config) {
+    let _ = loader::falcon_loader::load_from_path(&mut config.roper, true)
+        .expect("Failed to load binary image");
     init_soup(&mut config).expect("Failed to initialize the soup");
 
+    use unicorn::Arch::*;
+    match config.roper.arch {
+        X86 => launch::<unicorn::CpuX86<'_>>(config),
+        ARM => launch::<unicorn::CpuARM<'_>>(config),
+        ARM64 => launch::<unicorn::CpuARM64<'_>>(config),
+        MIPS => launch::<unicorn::CpuMIPS<'_>>(config),
+        SPARC => launch::<unicorn::CpuSPARC<'_>>(config),
+        M68K => launch::<unicorn::CpuM68K<'_>>(config),
+        _ => unimplemented!("architecture unimplemented"),
+    }
+}
+
+pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
     match config.selection {
         Selection::Tournament => {
             // first, crude shot at islands...

@@ -2,7 +2,7 @@ use hashbrown::HashMap;
 
 use crate::configure::Config;
 use crate::emulator::loader::get_static_memory_image;
-use crate::util::architecture::{read_integer, write_integer};
+use crate::util::architecture::{read_integer, write_integer, Perms};
 
 pub type Stack<T> = Vec<T>;
 
@@ -171,22 +171,22 @@ impl Op {
             WordReadable(a) => {
                 if let Word(a) = mach.pop(a) {
                     let memory = get_static_memory_image();
-                    let perm = memory.perm_of_addr(a).unwrap_or(unicorn::Protection::NONE);
-                    mach.push(Bool(perm.intersects(unicorn::Protection::READ)))
+                    let perm = memory.perm_of_addr(a).unwrap_or(Perms::NONE);
+                    mach.push(Bool(perm.intersects(Perms::READ)))
                 }
             }
             WordWriteable(a) => {
                 if let Word(a) = mach.pop(a) {
                     let memory = get_static_memory_image();
-                    let perm = memory.perm_of_addr(a).unwrap_or(unicorn::Protection::NONE);
-                    mach.push(Bool(perm.intersects(unicorn::Protection::WRITE)))
+                    let perm = memory.perm_of_addr(a).unwrap_or(Perms::NONE);
+                    mach.push(Bool(perm.intersects(Perms::WRITE)))
                 }
             }
             WordExecutable(a) => {
                 if let Word(a) = mach.pop(a) {
                     let memory = get_static_memory_image();
-                    let perm = memory.perm_of_addr(a).unwrap_or(unicorn::Protection::NONE);
-                    mach.push(Bool(perm.intersects(unicorn::Protection::EXEC)))
+                    let perm = memory.perm_of_addr(a).unwrap_or(Perms::NONE);
+                    mach.push(Bool(perm.intersects(Perms::EXEC)))
                 }
             }
             FloatLog(a) => {

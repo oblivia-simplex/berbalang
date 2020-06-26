@@ -8,6 +8,7 @@ use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::fitness::Weighted;
 use crate::ontogenesis::FitnessFn;
+use crate::util::entropy::Entropy;
 use crate::{
     configure::Config, emulator::hatchery::Hatchery, evolution::Phenome, ontogenesis::Develop,
     util, util::count_min_sketch::CountMinSketch,
@@ -173,10 +174,12 @@ pub fn register_conjunction_ff<'a>(
         if let Some(registers) = profile.registers.last() {
             let word_size = get_static_memory_image().word_size * 8;
             let mut conj = registers.0.values().fold(!0_u64, |a, b| a & b[0]);
-            let mask: u64 = ((!0_u64) >> word_size) << word_size;
-            debug_assert!(word_size != 64 || mask == 0x0000_0000_0000_0000);
-            debug_assert!(word_size != 32 || mask == 0xFFFF_FFFF_0000_0000);
-            debug_assert!(word_size != 16 || mask == 0xFFFF_FFFF_FFFF_0000);
+            let mask = match word_size {
+                64 => 0x0000_0000_0000_0000,
+                32 => 0xFFFF_FFFF_0000_0000,
+                16 => 0xFFFF_FFFF_FFFF_0000,
+                _ => unreachable!("not a size"),
+            };
             conj |= mask;
             let score = conj.count_zeros() as f64;
             // ignore bits outside of the register's word size
@@ -191,6 +194,31 @@ pub fn register_conjunction_ff<'a>(
 
             let mem_write_ratio = profile.mem_write_ratio();
             weighted_fitness.insert("mem_write_ratio", mem_write_ratio);
+            creature.set_fitness(weighted_fitness);
+        }
+    }
+    creature
+}
+
+pub fn register_entropy_ff(
+    mut creature: Creature<u64>,
+    sketch: &mut Sketches,
+    config: Arc<Config>,
+) -> Creature<u64> {
+    if let Some(ref profile) = creature.profile {
+        if let Some(registers) = profile.registers.last() {
+            let just_regs = registers.0.values().map(|v| v[0]).collect::<Vec<u64>>();
+            let entropy = just_regs.entropy();
+            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
+            weighted_fitness.insert("register_entropy", entropy);
+            log::debug!("registers = {:x?}\n1/entropy = {}", just_regs, entropy);
+
+            sketch.register_error.insert(&just_regs);
+            let reg_freq = sketch.register_error.query(&just_regs);
+            weighted_fitness.insert("register_novelty", reg_freq);
+
+            weighted_fitness.insert("gadgets_executed", profile.gadgets_executed.len() as f64);
+
             creature.set_fitness(weighted_fitness);
         }
     }
@@ -247,10 +275,17 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
                 //todo!("implement a conversion method from problem sets to register maps");
             }
         };
-        let inputs = vec![util::architecture::random_register_state::<u64, C>(
-            &output_registers,
-            config.random_seed,
-        )];
+        let inputs = if config.roper.randomize_registers {
+            vec![util::architecture::random_register_state::<u64, C>(
+                &output_registers,
+                config.random_seed,
+            )]
+        } else {
+            vec![util::architecture::constant_register_state::<C>(
+                &output_registers,
+                1_u64,
+            )]
+        };
         let hatchery: Hatchery<C, Creature<u64>> = Hatchery::new(
             hatch_config,
             Arc::new(inputs),

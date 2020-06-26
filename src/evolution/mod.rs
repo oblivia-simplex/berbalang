@@ -86,7 +86,10 @@ pub trait Genome: Debug + Hash {
         let mut child = Self::crossover(parents, config);
         // the mutate method should check the mutation rate or exponent and
         // make the mutation decisions internally
-        child.mutate(&config);
+        let mut rng = hash_seed_rng(&parents);
+        if rng.gen_range(0.0, 1.0) < config.mutation_rate {
+            child.mutate(&config);
+        }
         child
     }
 

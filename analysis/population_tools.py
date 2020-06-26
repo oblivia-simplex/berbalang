@@ -8,7 +8,6 @@ import seaborn as sns
 
 
 def load_population(path):
-    print(f"Decompressing and deserializing {path}")
     try:
         with gzip.open(path) as f:
             return json.load(f)
@@ -16,12 +15,20 @@ def load_population(path):
         print(f"Failed to read population from {path}: {e}")
         return []
 
+
+def load_soup(path):
+    with open(path) as f:
+        return pd.DataFrame(json.load(f), columns=["word", "count"])
+
+
 def fitness_of_creature(creature):
     return creature['fitness']['cached_scalar'] if 'fitness' in creature and \
-            'cached_scalar' in creature['fitness'] else None
+                                                   'cached_scalar' in creature['fitness'] else None
+
 
 def generation_of_creature(creature):
     return creature['generation']
+
 
 def mem_write_ratio_of_creature(creature):
     return creature['fitness']['scores']['mem_write_ratio']
@@ -69,7 +76,7 @@ def plot_hexbin(data, col_1, col_2):
 
 def plot_pleasures(data, col_1, col_2, population_name=None, title=None):
     if title is None:
-        title = f"{col_2} by {col_1}, {population_name} population"
+        title = f"{col_2} by {col_1}\n{population_name} population"
     fig, axes = joypy.joyplot(data,
                               by=col_1,
                               column=col_2,
@@ -82,6 +89,7 @@ def plot_pleasures(data, col_1, col_2, population_name=None, title=None):
                               bins=40,
                               ylabels=False,
                               overlap=0.9,
+                              figsize=(8, 10.5),
                               fill=True,
                               kind="counts",
                               # The Unknown Pleasures colour scheme is set here:
@@ -159,3 +167,12 @@ def unknown_pleasures_fitness_by_generation(pop_name, island=None):
                               color='k')
     #plot.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return data, fig, axes
+
+
+######
+
+def get_champions_for_population(population):
+    champions = glob.glob(f"{population}/island_*/champions/champion*.json.gz")
+    return [load_population(c) for c in champions]
+
+

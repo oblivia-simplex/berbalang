@@ -10,10 +10,11 @@ use goblin::{
 use rand::distributions::{Distribution, WeightedIndex};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use unicorn::Protection;
 
+use crate::configure::RoperConfig;
 use crate::disassembler::Disassembler;
-use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian};
+use crate::error::Error;
+use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Endian, Perms};
 use crate::util::random::hash_seed_rng;
 
 pub const PAGE_BITS: u64 = 12;
@@ -27,26 +28,9 @@ pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
     endian: Endian::Little,
     word_size: 8,
     disasm: None,
+    linker: None,
 };
 static INIT_MEM_IMAGE: Once = Once::new();
-
-#[derive(Debug)]
-pub enum Error {
-    ParsingFailure(goblin::error::Error),
-    IO(std::io::Error),
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Self::IO(e)
-    }
-}
-
-impl From<goblin::error::Error> for Error {
-    fn from(e: goblin::error::Error) -> Self {
-        Error::ParsingFailure(e)
-    }
-}
 
 #[derive(Debug)]
 pub struct MemoryImage {
@@ -56,6 +40,7 @@ pub struct MemoryImage {
     pub endian: Endian,
     pub word_size: usize,
     pub disasm: Option<Disassembler>,
+    pub linker: Option<falcon::loader::ElfLinker>,
 }
 
 impl MemoryImage {
@@ -75,14 +60,14 @@ impl MemoryImage {
     }
 
     pub fn size_of_writeable_memory(&self) -> usize {
-        self.size_of_memory_by_perm(unicorn::Protection::WRITE)
+        self.size_of_memory_by_perm(Perms::WRITE)
     }
 
     pub fn size_of_executable_memory(&self) -> usize {
-        self.size_of_memory_by_perm(Protection::EXEC)
+        self.size_of_memory_by_perm(Perms::EXEC)
     }
 
-    pub fn size_of_memory_by_perm(&self, perm: Protection) -> usize {
+    pub fn size_of_memory_by_perm(&self, perm: Perms) -> usize {
         self.segs
             .iter()
             .filter(|seg| seg.perm.intersects(perm))
@@ -116,7 +101,7 @@ impl MemoryImage {
         None
     }
 
-    pub fn perm_of_addr(&self, addr: u64) -> Option<Protection> {
+    pub fn perm_of_addr(&self, addr: u64) -> Option<Perms> {
         self.containing_seg(addr, None).map(|a| a.perm)
     }
 
@@ -141,7 +126,7 @@ impl MemoryImage {
         })
     }
 
-    pub fn random_address<H: Hash>(&self, permissions: Option<Protection>, seed: H) -> u64 {
+    pub fn random_address<H: Hash>(&self, permissions: Option<Perms>, seed: H) -> u64 {
         let mut rng = hash_seed_rng(&seed);
         let segments = self
             .segments()
@@ -231,7 +216,7 @@ impl MemoryImage {
 pub struct Seg {
     pub addr: u64,
     pub memsz: usize,
-    pub perm: Protection,
+    pub perm: Perms,
     pub segtype: SegType,
     pub data: Vec<u8>,
 }
@@ -261,23 +246,15 @@ impl Seg {
         Self {
             addr: reg.begin,
             memsz: (reg.end - reg.begin) as usize,
-            perm: reg.perms,
-            segtype: SegType::Null, // FIXME
+            perm: reg.perms.into(),
+            segtype: SegType::Load, // FIXME
             data,
         }
     }
 
     pub fn from_phdr(phdr: &elf::ProgramHeader) -> Self {
-        let mut uc_perm = unicorn::Protection::NONE;
-        if phdr.is_executable() {
-            uc_perm |= Protection::EXEC
-        };
-        if phdr.is_write() {
-            uc_perm |= Protection::WRITE
-        };
-        if phdr.is_read() {
-            uc_perm |= Protection::READ
-        };
+        let perm: Perms = phdr.into();
+
         let addr = phdr.vm_range().start as u64;
         let memsz = (phdr.vm_range().end - phdr.vm_range().start) as usize;
         let size = Self::intern_aligned_size(addr, memsz);
@@ -285,7 +262,7 @@ impl Seg {
         Self {
             addr,
             memsz,
-            perm: uc_perm,
+            perm,
             segtype: SegType::new(phdr.p_type),
             data,
         }
@@ -298,17 +275,17 @@ impl Seg {
 
     #[inline]
     pub fn is_executable(&self) -> bool {
-        self.perm.intersects(Protection::EXEC)
+        self.perm.intersects(Perms::EXEC)
     }
 
     #[inline]
     pub fn is_writeable(&self) -> bool {
-        self.perm.intersects(Protection::WRITE)
+        self.perm.intersects(Perms::WRITE)
     }
 
     #[inline]
     pub fn is_readable(&self) -> bool {
-        self.perm.intersects(Protection::READ)
+        self.perm.intersects(Perms::READ)
     }
 
     #[inline]
@@ -394,40 +371,35 @@ impl SegType {
 }
 
 fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
-    let mut segs: Vec<Seg> = Vec::new();
-    let mut page_one = false;
+    //let mut page_one = false;
     let shdrs = &elf.section_headers;
     let phdrs = &elf.program_headers;
-    for phdr in phdrs {
-        let seg = Seg::from_phdr(&phdr);
-        if seg.loadable() {
-            let start = seg.aligned_start() as usize;
-            if start == 0 {
-                page_one = true
-            };
-            segs.push(seg);
-        }
-    }
+
+    let mut segs = phdrs
+        .iter()
+        .map(Seg::from_phdr)
+        .filter(Seg::loadable)
+        .collect::<Vec<Seg>>();
     /* Low memory */
-    // NOTE: I can't remember why I put this here.
-    // Maybe it's important. Better leave it for now.
-    if !page_one {
-        segs.push(Seg {
-            addr: 0,
-            memsz: 0x1000,
-            perm: Protection::READ,
-            segtype: SegType::Load,
-            data: vec![0; 0x1000],
-        });
-    };
+    // I placed this here so that address 0x0 would always resolve, and
+    // so that 0 could be used as a stopping address.
+    // if !page_one {
+    //     segs.push(Seg {
+    //         addr: 0,
+    //         memsz: 0x1000,
+    //         perm: Perms::READ,
+    //         segtype: SegType::Load,
+    //         data: vec![0; 0x1000],
+    //     });
+    // };
 
     for shdr in shdrs {
         let (i, j) = (
             shdr.sh_offset as usize,
             (shdr.sh_offset + shdr.sh_size) as usize,
         );
-        let aj = usize::min(j, code_buffer.len());
-        let sdata = code_buffer[i..aj].to_vec();
+        let end = usize::min(j, code_buffer.len());
+        let sdata = &code_buffer[i..end];
         /* find the appropriate segment */
 
         for seg in segs.iter_mut() {
@@ -442,7 +414,7 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
                         );
                         break;
                     };
-                    seg.data[v_off] = byte;
+                    seg.data[v_off] = *byte;
                     v_off += 1;
                 }
                 break;
@@ -462,7 +434,7 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
 
     segs.push(Seg {
         addr: bottom,
-        perm: Protection::READ | Protection::WRITE,
+        perm: Perms::READ | Perms::WRITE,
         segtype: SegType::Load,
         memsz: stack_size,
         data: vec![0; stack_size],
@@ -470,7 +442,12 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
     segs
 }
 
-fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn::Mode) {
+fn initialize_memory_image(
+    segments: &[Seg],
+    arch: unicorn::Arch,
+    mode: unicorn::Mode,
+    elf: Option<falcon::loader::ElfLinker>,
+) {
     let endian = endian(arch, mode);
     let word_size = word_size_in_bytes(arch, mode);
     unsafe {
@@ -481,6 +458,7 @@ fn initialize_memory_image(segments: &[Seg], arch: unicorn::Arch, mode: unicorn:
             endian,
             word_size,
             disasm: Some(Disassembler::new(arch, mode).expect("Failed to initialize disassembler")),
+            linker: elf,
         }
     }
 }
@@ -506,6 +484,7 @@ pub fn load(
     stack_size: usize,
     arch: unicorn::Arch,
     mode: unicorn::Mode,
+    init: bool,
 ) -> Result<Vec<Seg>, Error> {
     if INIT_MEM_IMAGE.is_completed() {
         unsafe { Ok(MEM_IMAGE.segments().clone()) }
@@ -521,38 +500,155 @@ pub fn load(
         }
 
         // Cache the memory image as a globally accessible static
-        INIT_MEM_IMAGE.call_once(|| initialize_memory_image(&segs, arch, mode));
+        if init {
+            INIT_MEM_IMAGE.call_once(|| initialize_memory_image(&segs, arch, mode, None));
+        }
 
         Ok(segs)
     }
 }
 
-pub fn load_from_path(
-    path: &str,
-    stack_size: usize,
-    arch: unicorn::Arch,
-    mode: unicorn::Mode,
-) -> Result<Vec<Seg>, Error> {
-    load(&std::fs::read(path)?, stack_size, arch, mode)
+pub fn load_from_path(config: &RoperConfig, init: bool) -> Result<Vec<Seg>, Error> {
+    //falcon_loader::load_from_path(config)
+    let path = &config.binary_path;
+    let stack_size = config.emulator_stack_size;
+    let arch = config.arch;
+    let mode = config.mode;
+    load(&std::fs::read(path)?, stack_size, arch, mode, init)
+}
+
+pub mod falcon_loader {
+    use falcon::loader::{ElfLinker, ElfLinkerBuilder, Loader};
+    use falcon::memory::MemoryPermissions;
+    use unicorn::{Arch, Mode};
+
+    use crate::util;
+
+    // A wrapper around falcon's loader.
+    use super::*;
+
+    fn arch_mode_from_linker(linker: &ElfLinker) -> (Arch, Mode) {
+        match linker.architecture().name() {
+            "amd64" => (Arch::X86, Mode::MODE_64),
+            "x86" => (Arch::X86, Mode::MODE_32),
+            s => unimplemented!("the falcon-based loader doesn't yet support {}", s),
+        }
+    }
+
+    pub fn load_from_path(config: &mut RoperConfig, init: bool) -> Result<Vec<Seg>, Error> {
+        if INIT_MEM_IMAGE.is_completed() {
+            unsafe { Ok(MEM_IMAGE.segments().clone()) }
+        } else {
+            log::info!("Using falcon loader");
+            let path = &config.binary_path;
+            if config.ld_paths.is_none() {
+                log::warn!(
+                    "No ld_paths supplied. Attempting to complete using `ldd {}`.",
+                    path
+                );
+                config.ld_paths = util::ldd::ld_paths(&path).ok();
+            }
+            println!("ld_paths = {:#?}", config.ld_paths);
+            //let elf = Elf::from_file_with_base_address(path, base_address)?;
+            let linker = ElfLinkerBuilder::new(path.into())
+                .do_relocations(false) // Not yet well-supported
+                .ld_paths(config.ld_paths.clone())
+                .link()?;
+
+            //let program = elf.program()?;
+            let mut memory = linker.memory()?;
+            // figure out where the stack should go
+            let stack_position = memory
+                .sections()
+                .iter()
+                .map(|(&addr, sec)| addr + sec.data().len() as u64)
+                .max()
+                .expect("Could not find maximum address");
+            // initialize empty memory for the stack
+            let stack_data = vec![0; config.emulator_stack_size];
+            // insert the stack into memory
+            memory.set_memory(
+                stack_position,
+                stack_data,
+                MemoryPermissions::READ | MemoryPermissions::WRITE,
+            );
+
+            let mut segs = memory
+                .sections()
+                .iter()
+                .map(|(&addr, sec)| {
+                    let memsz = sec.data().len();
+                    let data = sec.data().to_vec();
+                    let perm = sec.permissions().into();
+                    Seg {
+                        addr,
+                        memsz,
+                        perm,
+                        segtype: SegType::Load,
+                        data,
+                    }
+                })
+                .collect::<Vec<Seg>>();
+            for seg in segs.iter_mut() {
+                seg.ensure_data_alignment()
+            }
+
+            let (arch, mode) = arch_mode_from_linker(&linker);
+            config.arch = arch;
+            config.mode = mode;
+            // FIXME: derive the arch and mode
+            if init {
+                INIT_MEM_IMAGE
+                    .call_once(|| initialize_memory_image(&segs, arch, mode, Some(linker)));
+            }
+            Ok(segs)
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use unicorn::{Arch, Mode};
+
     use super::*;
 
     #[test]
     fn test_loader() {
         //pretty_env_logger::init();
-        let res = load_from_path(
-            "/bin/sh",
-            0x1000,
-            unicorn::Arch::X86,
-            unicorn::Mode::MODE_64,
-        )
-        .expect("Failed to load /bin/sh");
-        for s in res {
-            log::info!("Segment: {}", s);
+        let mut config = RoperConfig {
+            gadget_file: None,
+            output_registers: vec![],
+            randomize_registers: false,
+            register_pattern: None,
+            parsed_register_pattern: None,
+            soup: None,
+            soup_size: None,
+            arch: Arch::X86,
+            mode: Mode::MODE_64,
+            num_workers: 0,
+            num_emulators: 0,
+            wait_limit: 0,
+            max_emu_steps: None,
+            millisecond_timeout: None,
+            record_basic_blocks: false,
+            record_memory_writes: false,
+            emulator_stack_size: 0x1000,
+            binary_path: "/bin/sh".into(), // "./binaries/X86/MODE_32/sshd".to_string(),
+            ld_paths: None,
+        };
+        let res = load_from_path(&config, false).expect("Failed to load /bin/sh");
+        println!("With legacy loader");
+        for s in res.iter() {
+            println!("Segment: {}", s);
         }
+        let res2 = falcon_loader::load_from_path(&mut config, false).expect("Failed to load");
+        println!("With falcon loader");
+        for s in res2.iter() {
+            println!("Segment: {}", s);
+        }
+        // for (s1, s2) in res.iter().zip(res2.iter()) {
+        //     assert_eq!(s1, s2);
+        // }
     }
 }
 

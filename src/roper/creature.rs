@@ -4,12 +4,10 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use hashbrown::HashMap;
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use rand_distr::{Distribution, Standard};
 use serde::{Deserialize, Serialize};
-use unicorn::Protection;
 
 use crate::configure::Config;
 use crate::emulator::loader;
@@ -20,7 +18,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::{HasScalar, MapFit};
 use crate::roper::evaluation::lexi;
 use crate::roper::Fitness;
-use crate::util::architecture::{read_integer, write_integer};
+use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
@@ -72,7 +70,7 @@ impl Creature<u64> {
             .filter(|a| {
                 memory
                     .perm_of_addr(**a)
-                    .map(|p| p.intersects(Protection::EXEC))
+                    .map(|p| p.intersects(Perms::EXEC))
                     .unwrap_or(false)
             })
             .collect::<Vec<_>>();
@@ -114,7 +112,7 @@ impl Pack for Creature<u64> {
             .filter(|a| {
                 memory
                     .perm_of_addr(**a)
-                    .map(|p| p.intersects(Protection::EXEC))
+                    .map(|p| p.intersects(Perms::EXEC))
                     .unwrap_or(false)
             })
             .cloned()
@@ -191,8 +189,7 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
 
         if gadget_file.ends_with(".json") {
             log::info!("Deserializing soup from {}", gadget_file);
-            let map: HashMap<u64, usize> = serde_json::from_reader(reader)?;
-            soup = map.keys().copied().collect::<Vec<u64>>();
+            soup = serde_json::from_reader(reader)?;
         } else {
             log::info!("Parsing soup from {}", gadget_file);
             for line in reader.lines() {
@@ -207,7 +204,7 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
             i.hash(&mut hasher);
             config.random_seed.hash(&mut hasher);
             let seed = hasher.finish();
-            memory.random_address(Some(Protection::EXEC), seed)
+            memory.random_address(Some(Perms::EXEC), seed)
         }) {
             soup.push(addr)
         }
@@ -218,10 +215,6 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
 
 impl Genome for Creature<u64> {
     type Allele = u64;
-
-    fn incr_num_offspring(&mut self, n: usize) {
-        self.num_offspring += n
-    }
 
     fn chromosome(&self) -> &[Self::Allele] {
         &self.chromosome
@@ -324,6 +317,7 @@ impl Genome for Creature<u64> {
                 continue;
             }
             let mutation = rand::random::<Mutation>();
+            // TODO: add a mutation that picks a random address from the soup
             match mutation {
                 Mutation::Dereference => {
                     if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
@@ -358,6 +352,10 @@ impl Genome for Creature<u64> {
                 }
             }
         }
+    }
+
+    fn incr_num_offspring(&mut self, n: usize) {
+        self.num_offspring += n
     }
 }
 

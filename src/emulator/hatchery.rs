@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use threadpool::ThreadPool;
 use unicorn::{Context, Cpu, Mode};
 
-pub use crate::configure::RoperConfig as HatcheryParams;
+pub use crate::configure::RoperConfig;
 use crate::disassembler::Disassembler;
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
@@ -27,7 +27,7 @@ use crate::error::Error;
 type Code = Vec<u8>;
 pub type Address = u64;
 pub type EmuPrepFn<C> = Box<
-    dyn Fn(&mut C, &HatcheryParams, &[u8], &Profiler<C>) -> Result<Address, Error>
+    dyn Fn(&mut C, &RoperConfig, &[u8], &Profiler<C>) -> Result<Address, Error>
         + 'static
         + Send
         + Sync,
@@ -43,7 +43,7 @@ pub type EmuPrepFn<C> = Box<
 pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
     emu_pool: Arc<Pool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
-    config: Arc<HatcheryParams>,
+    config: Arc<RoperConfig>,
     memory: Arc<Option<Pin<Vec<Seg>>>>,
     tx: SyncSender<X>,
     rx: Receiver<(X, Profile)>,
@@ -91,9 +91,8 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
     }
 }
 
-// TODO: Here is where you'll do the ELF loading.
 fn init_emu<C: Cpu<'static>>(
-    config: &HatcheryParams,
+    config: &RoperConfig,
     memory: &Option<Pin<Vec<Seg>>>,
 ) -> Result<C, Error> {
     let mut emu = C::new(config.mode)?;
@@ -115,14 +114,14 @@ fn init_emu<C: Cpu<'static>>(
                     let res = emu.mem_map_const_ptr(
                         s.aligned_start(),
                         s.aligned_size(),
-                        s.perm,
+                        s.perm.into(),
                         s.data.as_ptr(),
                     );
                     results.push(res);
                 }
             } else {
                 // Next, map the writeable segments
-                let res = emu.mem_map(s.aligned_start(), s.aligned_size(), s.perm);
+                let res = emu.mem_map(s.aligned_start(), s.aligned_size(), s.perm.into());
                 results.push(res);
             }
         });
@@ -174,7 +173,7 @@ type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
 
 impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
     pub fn new(
-        config: Arc<HatcheryParams>,
+        config: Arc<RoperConfig>,
         inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
@@ -188,15 +187,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
 
         let static_memory = loader::get_static_memory_image();
 
-        let memory = Arc::new(Some(Pin::new(
-            loader::load_from_path(
-                &config.binary_path,
-                config.emulator_stack_size,
-                config.arch,
-                config.mode,
-            )
-            .expect("Failed to load binary from path"),
-        )));
+        let memory = Some(Pin::new(static_memory.segments().clone()));
 
         let emu_pool = Arc::new(Pool::new(config.num_workers, || {
             init_emu(&config, &memory).expect("failed to initialize emulator")
@@ -240,38 +231,35 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                             let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
                         }
 
-                        // track gadget entry execution // NO, this has a loophole in overlapping gadgets
-                        // let _hook = hooking::install_address_tracking_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian))
-                        //     .expect("Failed to install address tracking hook");
-
                         if cfg!(feature = "disassemble_trace") {
                             // install the disassembler hook
-                            let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone()).expect("Failed to install tracer hook");
+                            let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone(), output_registers.clone()).expect("Failed to install tracer hook");
                         }
 
                         let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
                         if config.record_memory_writes {
                             let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler).expect("Failed to install mem_write_hook");
                         }
-                        // Prepare the emulator with the user-supplied preparation function.
-                        // This function will generally be used to load the payload and install
-                        // callbacks, which should be able to write to the Profiler instance.
                         let code = payload.pack(word_size, endian);
-                        let start_addr = emu_prep_fn(&mut emu, &config, &code, &profiler).expect("Failure in the emulator preparation function.");
                         // load the inputs
-                        // TODO refactor into separate method
                         for (reg, val) in input.iter() {
                             emu.reg_write(*reg, *val).expect("Failed to load registers");
                         }
+                        // Prepare the emulator with the user-supplied preparation function.
+                        // This function will generally be used to load the payload and install
+                        // callbacks, which should be able to write to the Profiler instance.
+                        let start_addr = emu_prep_fn(&mut emu, &config, &code, &profiler).expect("Failure in the emulator preparation function.");
                         // If the preparation was successful, launch the emulator and execute
                         // the payload. We want to hang onto the exit code of this task.
                         let start_time = Instant::now();
+                        /*******************************************************************/
                         let result = emu.emu_start(
                             start_addr,
                             0,
                             millisecond_timeout * unicorn::MILLISECOND_SCALE,
                             max_emu_steps,
                         );
+                        /*******************************************************************/
                         profiler.emulation_time = start_time.elapsed();
                         if let Err(error_code) = result {
                             profiler.set_error(error_code)
@@ -324,7 +312,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
             emu_pool,
             thread_pool,
             config,
-            memory,
+            memory: Arc::new(memory),
             tx,
             rx,
             handle,
@@ -424,9 +412,10 @@ pub mod hooking {
     ) -> Result<unicorn::uc_hook, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
 
-        let callback = move |engine: &unicorn::Unicorn<'_>, _a| {
+        let callback = move |engine: &unicorn::Unicorn<'_>, a| {
             // TODO log the errors
             if let Ok(address) = engine.reg_read(pc) {
+                log::trace!("Interrupt at address 0x{:x}. a = {:?}", pc, a);
                 let memory = loader::get_static_memory_image();
                 if let Some(insts) = memory.disassemble(address, 64, Some(1)) {
                     if let Some(inst) = insts.iter().next() {
@@ -443,13 +432,26 @@ pub mod hooking {
     pub fn install_disas_tracer_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         disassembler: Arc<Disassembler>,
+        output_registers: Arc<Vec<Register<C>>>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
-        let callback = move |_engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
+        let callback = move |engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
             let disas = disassembler
                 .disas_from_mem_image(address, block_length as usize)
                 .expect("Failed to disassemble block");
-            log::trace!("\n{}", disas);
+
+            let registers: String = output_registers
+                .iter()
+                .map(|reg| {
+                    let reg_i = (*reg).into();
+                    let val = engine.reg_read(reg_i).expect("Failed to read register");
+                    format!("{:?}: 0x{:x}", reg, val)
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+
+            log::trace!("\n{}\n{}", registers, disas);
         };
+        // TODO: print registers
         code_hook_all(emu, CodeHookType::BLOCK, callback)
     }
 
@@ -470,7 +472,7 @@ pub mod hooking {
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        _config: &HatcheryParams,
+        _config: &RoperConfig,
         code: &[u8],
         _profiler: &Profiler<C>,
     ) -> Result<u64, Error> {
@@ -625,14 +627,13 @@ mod test {
     use super::*;
 
     mod example {
-
         use crate::util::architecture::read_integer;
 
         use super::*;
 
         pub fn simple_emu_prep_fn<C: 'static + Cpu<'static>>(
             emu: &mut C,
-            _config: &HatcheryParams,
+            _config: &RoperConfig,
             code: &[u8],
             _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
@@ -667,10 +668,10 @@ mod test {
             binary_path = "/bin/sh"
         "#;
 
-        let config: HatcheryParams = toml::from_str(config).unwrap();
+        let config: RoperConfig = toml::from_str(config).unwrap();
         assert_eq!(
             config,
-            HatcheryParams {
+            RoperConfig {
                 gadget_file: None,
                 num_workers: 8,
                 num_emulators: 8,
@@ -693,7 +694,7 @@ mod test {
     // FIXME - currently broken for want for full Pack impl for Vec<u8> #[test]
     fn test_hatchery() {
         env_logger::init();
-        let config = HatcheryParams {
+        let config = RoperConfig {
             gadget_file: None,
             num_workers: 500,
             num_emulators: 510,

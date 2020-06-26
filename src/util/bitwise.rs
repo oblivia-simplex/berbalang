@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 
+use crate::emulator::loader::{get_static_memory_image, try_to_get_static_memory_image};
 use crate::util::architecture::Endian;
 
 pub fn bit(n: u64, bit: usize) -> bool {
@@ -23,6 +24,9 @@ pub fn ham_rat(a: u64, b: u64) -> f64 {
 }
 
 pub fn try_word_as_string(w: u64, endian: Endian) -> Option<String> {
+    let word_size = try_to_get_static_memory_image()
+        .map(|m| m.word_size)
+        .unwrap_or(8);
     let mut buf = [0_u8; 8];
     let mut s = String::new();
     let mut max_ch_count = 0;
@@ -35,7 +39,7 @@ pub fn try_word_as_string(w: u64, endian: Endian) -> Option<String> {
             BigEndian::write_u64(&mut buf, w);
         }
     }
-    for byte in buf.iter() {
+    for byte in buf.iter().take(word_size) {
         if 0x20 <= *byte && *byte < 0x7f {
             let ch = *byte as char;
             s.push(ch);
