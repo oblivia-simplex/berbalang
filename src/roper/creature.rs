@@ -216,10 +216,6 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
 impl Genome for Creature<u64> {
     type Allele = u64;
 
-    fn incr_num_offspring(&mut self, n: usize) {
-        self.num_offspring += n
-    }
-
     fn chromosome(&self) -> &[Self::Allele] {
         &self.chromosome
     }
@@ -356,6 +352,10 @@ impl Genome for Creature<u64> {
                 }
             }
         }
+    }
+
+    fn incr_num_offspring(&mut self, n: usize) {
+        self.num_offspring += n
     }
 }
 

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::hash::Hash;
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
@@ -40,6 +41,22 @@ bitflags! {
         const WRITE   = 0b010;
         const EXEC    = 0b100;
         const ALL     = 0b111;
+    }
+}
+
+impl fmt::Display for Perms {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = String::new();
+        if self.intersects(Perms::READ) {
+            s.push('R');
+        }
+        if self.intersects(Perms::WRITE) {
+            s.push('W');
+        }
+        if self.intersects(Perms::EXEC) {
+            s.push('X');
+        }
+        write!(f, "{}", s)
     }
 }
 
@@ -126,6 +143,17 @@ pub fn random_register_state<H: Hash, C: 'static + Cpu<'static>>(
     let mut rng = hash_seed_rng(&seed);
     for reg in registers.iter() {
         map.insert(reg.clone(), rng.gen::<u64>());
+    }
+    map
+}
+
+pub fn constant_register_state<C: 'static + Cpu<'static>>(
+    registers: &[Register<C>],
+    constant: u64,
+) -> HashMap<Register<C>, u64> {
+    let mut map = HashMap::new();
+    for reg in registers.iter() {
+        map.insert(reg.clone(), constant);
     }
     map
 }

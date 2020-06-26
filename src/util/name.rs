@@ -1,4 +1,4 @@
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 
 use rand::Rng;
 
@@ -27,11 +27,12 @@ pub fn random_syllables<H: Hash>(syllables: usize, seed: H) -> String {
 }
 
 pub fn random_words<H: Hash>(words: usize, seed: H) -> String {
-    let mut rng = hash_seed_rng(&seed);
+    let mut index = hash(seed);
     let mut s = String::new();
     let n = WORDS.len();
     for i in 0..words {
-        s.push_str(WORDS[rng.gen_range(0, n)]);
+        s.push_str(WORDS[index % n]);
+        index = hash(index);
         if i + 1 < words {
             s.push_str("-")
         }
@@ -41,4 +42,10 @@ pub fn random_words<H: Hash>(words: usize, seed: H) -> String {
 
 pub fn random<H: Hash>(parts: usize, seed: H) -> String {
     random_words(parts, seed)
+}
+
+fn hash<H: Hash>(thing: H) -> usize {
+    let mut h = fnv::FnvHasher::default();
+    thing.hash(&mut h);
+    h.finish() as usize
 }

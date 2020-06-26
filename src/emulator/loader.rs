@@ -618,6 +618,7 @@ mod test {
         let mut config = RoperConfig {
             gadget_file: None,
             output_registers: vec![],
+            randomize_registers: false,
             register_pattern: None,
             parsed_register_pattern: None,
             soup: None,

@@ -8,7 +8,6 @@ import seaborn as sns
 
 
 def load_population(path):
-    print(f"Decompressing and deserializing {path}")
     try:
         with gzip.open(path) as f:
             return json.load(f)
@@ -16,12 +15,20 @@ def load_population(path):
         print(f"Failed to read population from {path}: {e}")
         return []
 
+
+def load_soup(path):
+    with open(path) as f:
+        return pd.DataFrame(json.load(f), columns=["word", "count"])
+
+
 def fitness_of_creature(creature):
     return creature['fitness']['cached_scalar'] if 'fitness' in creature and \
-            'cached_scalar' in creature['fitness'] else None
+                                                   'cached_scalar' in creature['fitness'] else None
+
 
 def generation_of_creature(creature):
     return creature['generation']
+
 
 def mem_write_ratio_of_creature(creature):
     return creature['fitness']['scores']['mem_write_ratio']

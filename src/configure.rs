@@ -235,12 +235,15 @@ pub struct RoperConfig {
     pub gadget_file: Option<String>,
     #[serde(default)]
     pub output_registers: Vec<String>,
+    #[serde(default)]
+    pub randomize_registers: bool,
     pub register_pattern: Option<RegisterPatternConfig>,
     #[serde(skip)]
     pub parsed_register_pattern: Option<RegisterPattern>,
     #[serde(default = "Default::default")]
     pub soup: Option<Vec<u64>>,
-    pub soup_size: Option<usize>, // if no gadget file given
+    pub soup_size: Option<usize>,
+    // if no gadget file given
     #[serde(default = "default_arch")]
     pub arch: unicorn::Arch,
     #[serde(default = "default_mode")]
@@ -292,6 +295,7 @@ impl Default for RoperConfig {
         Self {
             gadget_file: None,
             output_registers: vec![],
+            randomize_registers: false,
             register_pattern: None,
             parsed_register_pattern: None,
             soup: None,

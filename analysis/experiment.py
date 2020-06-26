@@ -1,12 +1,13 @@
 #! /usr/bin/env python3
 
-import glob
-import sys
 import fire
-import toml
+import glob
 import os
-from datetime import datetime
 import pytz
+import sys
+import toml
+from datetime import datetime
+
 
 # TODO: for each run, save a gzipped copy of the executable used.
 # this will make things very easy to replicate
@@ -18,6 +19,8 @@ def figure_out_data_dir(iteration, data_root, population_name, date=None):
         tz = pytz.timezone("America/Halifax")
         date = datetime.now(tz).strftime("%Y/%m/%d")
     # TODO Make this more flexible if need be
+    data_root = os.path.expanduser(data_root)
+    data_root = os.path.abspath(data_root)
     dir = ""
     base_name = population_name
     iteration -= 1

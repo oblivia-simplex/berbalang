@@ -1,6 +1,7 @@
-use crate::error::Error;
 use std::path::PathBuf;
 use std::process::Command;
+
+use crate::error::Error;
 
 pub fn ldd(path: &str) -> Result<Vec<String>, Error> {
     let output = Command::new("ldd").arg(path).output()?.stdout;
@@ -14,7 +15,7 @@ pub fn ldd(path: &str) -> Result<Vec<String>, Error> {
 
 pub fn ld_paths(path: &str) -> Result<Vec<String>, Error> {
     let ldd_out = ldd(path)?;
-    let dirs = ldd_out
+    let mut dirs = ldd_out
         .into_iter()
         .map(PathBuf::from)
         .map(|mut p| {
@@ -23,6 +24,7 @@ pub fn ld_paths(path: &str) -> Result<Vec<String>, Error> {
         })
         .map(|s| s.to_string_lossy().into())
         .collect::<Vec<String>>();
+    dirs.dedup();
     Ok(dirs)
 }
 

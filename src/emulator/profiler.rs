@@ -102,7 +102,7 @@ impl Profile {
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
         let mut gadgets_executed = HashSet::new();
-        let mut writeable_memory_regions = Vec::new();
+        let writeable_memory_regions = Vec::new();
         let mut write_logs = Vec::new();
 
         // Commented this out. It didn't seem to work, so no need to spend the time.
@@ -296,9 +296,9 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
 
 #[cfg(test)]
 mod test {
+    use unicorn::CpuX86;
 
     use super::*;
-    use unicorn::CpuX86;
 
     macro_rules! segqueue {
         ($($x:expr,)*) => {

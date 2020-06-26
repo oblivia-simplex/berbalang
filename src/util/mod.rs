@@ -3,6 +3,7 @@ pub mod bitwise;
 pub mod count_min_sketch;
 pub mod distance;
 pub mod dump;
+pub mod entropy;
 pub mod five_letter_words;
 pub mod ldd;
 pub mod levy_flight;

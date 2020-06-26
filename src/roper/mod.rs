@@ -50,6 +50,7 @@ fn prepare<'a, C: 'static + Cpu<'static>>(
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
+            "register_entropy" => Box::new(evaluation::register_entropy_ff),
             "code_coverage" => Box::new(evaluation::code_coverage_ff),
             "just_novelty" => Box::new(evaluation::just_novelty_ff),
             s => unimplemented!("No such fitness function as {}", s),
