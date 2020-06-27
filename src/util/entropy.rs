@@ -1,20 +1,24 @@
-/// Calculates the Shannon entropy of a byte string.
-/// (Code borrowed from the shannon_entropy crate.
-pub fn shannon_entropy(bytes: &[u8]) -> f64 {
-    let mut counts = [0; 256];
+/// Calculates the Shannon entropy of a byte slice.
+#[inline]
+fn protected_log(n: f64) -> f64 {
+    if n <= 0.0 {
+        0.0
+    } else {
+        n.log(2.0)
+    }
+}
+
+#[inline]
+fn shannon_entropy(bytes: &[u8]) -> f64 {
+    let mut counts = [0.0; 256];
 
     for &b in bytes {
-        counts[b as usize] += 1;
+        counts[b as usize] += 1.0;
     }
 
-    let len = bytes.len() as f64;
-
-    counts
-        .iter()
-        .filter(|&&n| n > 0)
-        .map(|&n| n as f64 / len)
-        .map(|p| -(p * p.log(2.0)))
-        .sum()
+    let s: f64 = counts.iter().sum();
+    let l: f64 = counts.iter().copied().map(|c| c * protected_log(c)).sum();
+    s.log(2.0) - l / s
 }
 
 pub fn metric_entropy(bytes: &[u8]) -> f64 {
@@ -28,6 +32,7 @@ pub trait Entropy {
 
 impl Entropy for [u8] {
     fn entropy(&self) -> f64 {
+        assert!(!self.is_empty());
         shannon_entropy(self)
     }
 
@@ -71,23 +76,17 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_entropy_empty() {
-        let h = b"".entropy();
-        assert!(h <= std::f64::EPSILON);
-    }
-
-    #[test]
     fn test_entropy_a() {
-        let h = shannon_entropy(b"a");
+        let h = b"a".entropy();
         assert!(h <= std::f64::EPSILON);
     }
 
     #[test]
     fn test_entropy_aaaaaaaa() {
-        let h = shannon_entropy(b"AAAAAAAA");
+        let h = b"AAAAAAAA".entropy();
         assert!(h <= std::f64::EPSILON);
         let bytes: [u8; 8] = [0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41];
-        let h = shannon_entropy(&bytes);
+        let h = bytes.entropy();
         assert!(h <= std::f64::EPSILON);
     }
 
@@ -99,13 +98,13 @@ mod test {
 
     #[test]
     fn test_entropy_ab() {
-        let h = shannon_entropy(b"ab");
+        let h = b"ab".entropy();
         assert!(h - 1.0 <= std::f64::EPSILON);
     }
 
     #[test]
     fn test_entropy_aab() {
-        let h = shannon_entropy(b"aab");
+        let h = b"aab".entropy();
         assert!(h - 0.9182958340544896 <= std::f64::EPSILON);
     }
 
@@ -115,7 +114,7 @@ mod test {
         for i in 0..256 {
             bytes[i] = i as u8;
         }
-        let h = shannon_entropy(&bytes);
+        let h = bytes.entropy();
         assert_close_f64!(h, 8.0);
     }
 
@@ -125,13 +124,13 @@ mod test {
         for i in 0..256 * 2 {
             bytes[i] = (i % 256) as u8;
         }
-        let h = shannon_entropy(&bytes);
+        let h = bytes.entropy();
         assert_close_f64!(h, 8.0);
     }
 
     #[test]
     fn test_entropy_helloworld() {
-        let h = shannon_entropy(b"hello, world");
+        let h = b"hello, world".entropy();
         assert_close_f64!(h, 3.0220552088742005);
     }
 

@@ -49,6 +49,8 @@ ideally, this is somethign you should be able to set in the config.toml
 
 - for exacting tasks, run n evaluations with different (constant) randomized states
 
+- plot histograms centered on the mean fitness
+
 ## System call constraints
 structural features as fitness attributes
 see the thread in the slack with peli about this

@@ -107,7 +107,7 @@ path = "./data/iris.tsv"
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "/bin/sh" #"./binaries/X86/MODE_32/sshd"
+binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 num_workers = 70
 num_emulators = 60
@@ -119,7 +119,7 @@ record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
 #output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
 output_registers= ["RAX"]
-randomize_registers = false
+randomize_registers = true
   [roper.register_pattern] 
   #EAX = "0xb"
   #EBX = "&'/bin"
