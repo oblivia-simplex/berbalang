@@ -415,12 +415,10 @@ impl RegisterState {
                     .map(|(i, val)| {
                         if is_mutable(i, &vals) {
                             word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
+                        } else if *val == r_val.val {
+                            0.0 + pos_distance(i, r_val.deref)
                         } else {
-                            if *val == r_val.val {
-                                0.0 + pos_distance(i, r_val.deref)
-                            } else {
-                                2.0 * word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
-                            }
+                            2.0 * word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
                         }
                     })
                     .fold1(|a, b| a.min(b))
@@ -452,10 +450,10 @@ impl fmt::Debug for RegisterState {
                             memory
                                 .perm_of_addr(*v)
                                 .map(|p| format!(" {}", p))
-                                .unwrap_or("".to_string()),
+                                .unwrap_or_else(String::new),
                             util::bitwise::try_word_as_string(*v, endian)
                                 .map(|s| format!(" \"{}\"", s))
-                                .unwrap_or("".to_string())
+                                .unwrap_or_else(String::new)
                         ))
                         .collect::<Vec<_>>()
                         .join(" -> ")

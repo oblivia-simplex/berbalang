@@ -1,7 +1,4 @@
-export PATH="$cargo/bin"
+#! /bin/sh
 
-mkdir $out
+nix-shell --command "rustup default stable && cargo build --release"
 
-cd $src
-
-cargo

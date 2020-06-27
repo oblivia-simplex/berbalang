@@ -1,22 +1,19 @@
-FROM rust:1.40 as builder
+FROM nixos/nix
 
 WORKDIR /usr/src/berbalang
 COPY . .
-RUN cargo install --path .
+RUN ./builder.sh
 
 
-FROM debian:buster-slim
-RUN apt-get update && apt-get install -y extra-runtime-dependencies libcapstone2 libcapstone-dev
-
-COPY --from=builder /usr/local/cargo/bin/berbalang /usr/local/bin/berbalang
+FROM nixos/nix
 
 WORKDIR /berbalang/
-
-COPY ./experiments/ .
+RUN nix-env -i unicorn-emulator
+COPY --from=0 /usr/src/berbalang/target/release/berbalang ./berbalang
+ 
 COPY ./start.sh .
 COPY ./trials.sh .
 COPY ./analysis .
-COPY ./binaries .
 COPY ./config.toml .
 
 CMD ["./start.sh"]

@@ -4,9 +4,9 @@ export BERBALANG_LOG
 
 [ -n "$BUILD" ] || BUILD="--release"
 
-if [ -f "/usr/local/bin/berbalang" ]; then
+if [ -f "./berbalang" ]; then
   # only makes sense inside of docker
-  /usr/local/bin/berbalang $*
+  ./berbalang $*
 else
   export RUST_BACKTRACE=1
   export RUSTFLAGS="--emit=asm"

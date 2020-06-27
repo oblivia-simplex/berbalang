@@ -43,3 +43,10 @@ macro_rules! lexical {
         vec![$( $v, )*]
     }
 }
+
+#[macro_export]
+macro_rules! assert_close_f64 {
+    ($a:expr, $b:expr) => {
+        assert!(($a - $b).abs() <= std::f64::EPSILON)
+    };
+}

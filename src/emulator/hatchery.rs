@@ -497,7 +497,7 @@ pub mod hooking {
     pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         profiler: &mut Profiler<C>,
-        gadget_addrs: &Vec<u64>,
+        gadget_addrs: &[u64],
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let gadget_addrs: Arc<HashSet<u64>> = Arc::new(gadget_addrs.iter().cloned().collect());
         let block_log = profiler.block_log.clone();

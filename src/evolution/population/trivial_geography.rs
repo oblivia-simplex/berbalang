@@ -86,7 +86,7 @@ impl<P: Hash> TrivialGeography<P> {
         range
     }
 
-    fn choose_with_range<R: Rng>(&mut self, range: &Vec<usize>, n: usize, rng: &mut R) -> Vec<P> {
+    fn choose_with_range<R: Rng>(&mut self, range: &[usize], n: usize, rng: &mut R) -> Vec<P> {
         range
             .choose_multiple(rng, n)
             .filter_map(|i| {
@@ -141,7 +141,7 @@ impl<P: Hash> FromIterator<P> for TrivialGeography<P> {
             .collect::<Vec<Option<P>>>();
         Self {
             radius: deme.len(),
-            deme: deme,
+            deme,
             vacancies: vec![],
         }
     }
@@ -162,7 +162,7 @@ impl<P: Hash + Send> FromParallelIterator<P> for TrivialGeography<P> {
         deme.sort_by_key(|p| p.as_ref().map(hash_seed));
         Self {
             radius: deme.len(),
-            deme: deme,
+            deme,
             vacancies: vec![],
         }
     }
@@ -195,7 +195,7 @@ mod test {
         let size = 256;
         for radius in vec![size, size / 2, size / 4, size / 8].into_iter() {
             let geo = TrivialGeography {
-                radius: radius,
+                radius,
                 deme: (0..size).map(Option::Some).collect::<Vec<Option<usize>>>(),
                 vacancies: vec![],
             };
@@ -215,7 +215,7 @@ mod test {
             let std_dev = stats::stddev(counts.into_iter());
             println!("With radius = {}, Standard deviation: {}", radius, std_dev);
             if radius == size {
-                assert_eq!(std_dev, 0.0);
+                assert!(std_dev <= std::f64::EPSILON);
             }
             //assert_eq!(std_dev, 0.0);
         }

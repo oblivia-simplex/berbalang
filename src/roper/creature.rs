@@ -152,7 +152,7 @@ impl fmt::Debug for Creature<u64> {
                 if was_it_executed { " *" } else { "" },
                 mutation
                     .map(|m| format!("{:?}", m))
-                    .unwrap_or("".to_string()),
+                    .unwrap_or_else(String::new),
             )?;
         }
         if let Some(ref profile) = self.profile {
@@ -262,7 +262,7 @@ impl Genome for Creature<u64> {
         }
     }
 
-    fn crossover(mates: &Vec<&Self>, config: &Config) -> Self
+    fn crossover(mates: &[&Self], config: &Config) -> Self
     where
         Self: Sized,
         // note code duplication between this and linear_gp TODO
@@ -273,7 +273,7 @@ impl Genome for Creature<u64> {
         let distribution =
             rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
-        let mut rng = hash_seed_rng(mates);
+        let mut rng = hash_seed_rng(&mates[0]);
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
             if rng.gen_range(0.0, 1.0) < config.crossover_rate {

@@ -78,7 +78,7 @@ impl Op {
             }
             Dup(t) => {
                 if let Some(a) = mach.pop_opt(t) {
-                    mach.push(a.clone());
+                    mach.push(a);
                     mach.push(a);
                 }
             }
@@ -284,7 +284,7 @@ pub struct MachineState(HashMap<Type, Stack<Val>>);
 impl MachineState {
     pub fn load_args(&mut self, args: &[Val]) {
         for arg in args {
-            self.push(arg.clone())
+            self.push(*arg)
         }
     }
 
@@ -319,7 +319,7 @@ impl MachineState {
         self.load_args(args);
         // Load the exec stack
         for op in code {
-            self.push(Val::Exec(op.clone()))
+            self.push(Val::Exec(*op))
         }
 
         let mut counter = config.push_vm.max_steps;

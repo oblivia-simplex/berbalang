@@ -2,6 +2,7 @@
 // record information on the evolutionary process.
 
 use std::fs;
+use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -18,12 +19,11 @@ use crate::hashmap;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::dump::dump;
 use crate::util::random::hash_seed_rng;
-use std::path::Path;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
 fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
-    let s = format!("{}/{}_statistics.tsv", config.data_directory(), name);
+    let s = format!("{}/{}_statistics.csv", config.data_directory(), name);
     let path = std::path::Path::new(&s);
     let add_headers = !path.exists();
     let file = fs::OpenOptions::new()
@@ -33,7 +33,7 @@ fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
         .map_err(|e| log::error!("Error opening statistics file at {:?}: {:?}", path, e))
         .expect("Failed to open statistics file");
     csv::WriterBuilder::new()
-        .delimiter(b'\t')
+        .delimiter(b',')
         .terminator(csv::Terminator::Any(b'\n'))
         .has_headers(add_headers)
         .from_writer(file)
@@ -135,6 +135,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             self.config.num_epochs != 0 && self.config.num_epochs <= crate::get_epoch_counter();
         if epoch_limit_reached {
             log::debug!("epoch limit reached");
+            self.report();
             crate::stop_everything(self.config.island_identifier, false);
         }
 
@@ -143,6 +144,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                 let path = format!("{}/winning_champion.json.gz", self.config.data_directory());
                 log::info!("dumping winning champion to {}", path);
                 dump(champion, &path).expect("failed to dump champion");
+                self.report();
                 crate::stop_everything(self.config.island_identifier, true);
             }
         }

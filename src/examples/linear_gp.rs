@@ -312,7 +312,7 @@ impl Debug for Creature {
                 inst,
                 mutation
                     .map(|m| format!(" (mutation {:?})", m))
-                    .unwrap_or("".to_string()),
+                    .unwrap_or_else(String::new)
             )?;
         }
         writeln!(f, "Fitness: {:#?}", self.fitness)
@@ -421,11 +421,11 @@ impl Genome for Creature {
         }
     }
 
-    fn crossover(mates: &Vec<&Self>, config: &Config) -> Self {
+    fn crossover(mates: &[&Self], config: &Config) -> Self {
         let distribution = rand_distr::Exp::new(config.crossover_period)
             .expect("Failed to create random distribution");
         let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
-        let mut rng = hash_seed_rng(mates);
+        let mut rng = hash_seed_rng(&mates[0]);
         let (chromosome, chromosome_parentage, parent_names) =
             // Check to see if we're performing a crossover or just cloning
             if rng.gen_range(0.0, 1.0) < config.crossover_rate {

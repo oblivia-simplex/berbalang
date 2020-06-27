@@ -30,17 +30,17 @@ pub trait Genome: Debug + Hash {
     where
         Self: Sized;
 
-    fn crossover(parents: &Vec<&Self>, config: &Config) -> Self
+    fn crossover(parents: &[&Self], config: &Config) -> Self
     where
         Self: Sized;
 
     fn crossover_by_distribution<D: rand_distr::Distribution<f64>>(
         distribution: &D,
-        parents: &Vec<&[Self::Allele]>,
+        parents: &[&[Self::Allele]],
     ) -> (Vec<Self::Allele>, Vec<usize>) {
         let mut chromosome = Vec::new();
         let mut parentage = Vec::new();
-        let mut rng = hash_seed_rng(parents);
+        let mut rng = hash_seed_rng(&parents[0]);
         let mut ptrs = vec![0_usize; parents.len()];
         let switch = |rng: &mut Prng| rng.gen_range(0, parents.len());
         let sample = |rng: &mut Prng| distribution.sample(rng).round() as usize + 1;
@@ -79,7 +79,7 @@ pub trait Genome: Debug + Hash {
 
     fn mutate(&mut self, config: &Config);
 
-    fn mate(parents: &Vec<&Self>, config: &Config) -> Self
+    fn mate(parents: &[&Self], config: &Config) -> Self
     where
         Self: Sized,
     {
@@ -96,7 +96,7 @@ pub trait Genome: Debug + Hash {
     fn digrams(&self) -> Box<dyn Iterator<Item = (Self::Allele, Self::Allele)> + '_> {
         if self.chromosome().len() == 1 {
             // FIXME: i don't like this edge case.
-            return Box::new(self.chromosome().iter().map(|x| (x.clone(), x.clone())));
+            return Box::new(self.chromosome().iter().map(|x| (*x, *x)));
         }
         Box::new(
             self.chromosome()
