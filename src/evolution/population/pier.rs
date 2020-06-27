@@ -41,7 +41,7 @@ impl<P> Pier<P> {
     }
 
     pub fn disembark(&self) -> Option<P> {
-        if let Some(p) = self.q.pop().ok() {
+        if let Ok(p) = self.q.pop() {
             let len = self.decr_count();
             log::debug!("Immigrant disembarked from pier. Holding {}", len - 1);
             Some(p)

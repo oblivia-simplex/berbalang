@@ -25,7 +25,7 @@ pub struct StatRecord {
 }
 
 impl StatRecord {
-    fn for_specimen<'a>(
+    fn for_specimen(
         window: &Window<Creature<u64>, CreatureDominanceOrd>,
         specimen: &Creature<u64>,
         counter: usize,
@@ -72,7 +72,7 @@ impl StatRecord {
         }
     }
 
-    fn mean_from_window<'a>(
+    fn mean_from_window(
         window: &Window<Creature<u64>, CreatureDominanceOrd>,
         counter: usize,
     ) -> Self {
@@ -140,7 +140,7 @@ mod test {
     }
 }
 
-pub fn report_fn<'a>(
+pub fn report_fn(
     window: &Window<Creature<u64>, super::CreatureDominanceOrd>,
     counter: usize,
     config: &Config,
@@ -180,7 +180,7 @@ pub fn report_fn<'a>(
 pub mod lexicase {
     use super::*;
 
-    pub fn report_fn<'a>(
+    pub fn report_fn(
         window: &Window<Creature<u64>, super::CreatureDominanceOrd>,
         _counter: usize,
         _config: &Config,

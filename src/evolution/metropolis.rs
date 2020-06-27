@@ -49,7 +49,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Metropolis<E, P> {
         } else {
             specimen
         };
-        let variation = Genome::mate(&vec![&specimen, &specimen], &config);
+        let variation = Genome::mate(&[&specimen, &specimen], &config);
         let variation = evaluator.develop(variation);
 
         let mut rng = hash_seed_rng(&specimen);

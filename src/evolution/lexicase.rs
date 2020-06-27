@@ -48,9 +48,7 @@ impl<Q: Hash + Debug, E: Develop<P>, P: Phenome<Problem = Q> + Genome + 'static>
         let population: ShufflingHeap<P> = womb
             .development_pipeline((0..pop_size).map(move |i| {
                 log::debug!("creating phenome {}/{}", i, pop_size);
-                let phenome = P::random(&conf, i);
-
-                phenome
+                P::random(&conf, i)
             }))
             .into_iter()
             .map(|phenome| {

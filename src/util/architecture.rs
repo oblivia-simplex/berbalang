@@ -142,7 +142,7 @@ pub fn random_register_state<H: Hash, C: 'static + Cpu<'static>>(
     let mut map = HashMap::new();
     let mut rng = hash_seed_rng(&seed);
     for reg in registers.iter() {
-        map.insert(reg.clone(), rng.gen::<u64>());
+        map.insert(*reg, rng.gen::<u64>());
     }
     map
 }
@@ -153,7 +153,7 @@ pub fn constant_register_state<C: 'static + Cpu<'static>>(
 ) -> HashMap<Register<C>, u64> {
     let mut map = HashMap::new();
     for reg in registers.iter() {
-        map.insert(reg.clone(), constant);
+        map.insert(*reg, constant);
     }
     map
 }

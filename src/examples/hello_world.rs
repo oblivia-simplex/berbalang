@@ -133,8 +133,8 @@ impl Genome for Genotype {
         }
     }
 
-    fn crossover(mates: &Vec<&Self>, _config: &Config) -> Self {
-        let mut rng = hash_seed_rng(mates);
+    fn crossover(mates: &[&Self], _config: &Config) -> Self {
+        let mut rng = hash_seed_rng(&mates[0]);
         let father = &mates[0];
         let mother = &mates[1];
         let split_m: usize = rng.gen::<usize>() % mother.len();

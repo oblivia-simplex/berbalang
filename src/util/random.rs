@@ -1,7 +1,6 @@
 use std::hash::{Hash, Hasher};
 
 use rand::SeedableRng;
-use rand_xoshiro;
 use rand_xoshiro::Xoroshiro64Star;
 
 pub type Prng = Xoroshiro64Star;
@@ -10,8 +9,7 @@ pub type Prng = Xoroshiro64Star;
 /// value's hash.
 pub fn hash_seed_rng<H: Hash>(thing: &H) -> Prng {
     let seed = hash_seed(thing);
-    let rng = rand_xoshiro::Xoroshiro64Star::from_seed(seed);
-    rng
+    rand_xoshiro::Xoroshiro64Star::from_seed(seed)
 }
 
 pub fn hash_seed<H: Hash>(thing: &H) -> [u8; 8] {

@@ -16,7 +16,7 @@ use crate::{
 
 use super::Creature;
 
-pub fn code_coverage_ff<'a>(
+pub fn code_coverage_ff(
     mut creature: Creature<u64>,
     sketch: &mut Sketches,
     config: Arc<Config>,
@@ -64,7 +64,7 @@ pub fn code_coverage_ff<'a>(
     creature
 }
 
-pub fn just_novelty_ff<'a>(
+pub fn just_novelty_ff(
     mut creature: Creature<u64>,
     sketch: &mut Sketches,
     config: Arc<Config>,
@@ -88,7 +88,7 @@ pub fn just_novelty_ff<'a>(
     creature
 }
 
-pub fn register_pattern_ff<'a>(
+pub fn register_pattern_ff(
     mut creature: Creature<u64>,
     sketch: &mut Sketches,
     config: Arc<Config>,
@@ -165,7 +165,7 @@ pub fn register_pattern_ff<'a>(
     creature
 }
 
-pub fn register_conjunction_ff<'a>(
+pub fn register_conjunction_ff(
     mut creature: Creature<u64>,
     sketch: &mut Sketches,
     config: Arc<Config>,
@@ -329,8 +329,7 @@ impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>> for Evaluator<C> {
         // before we can use it to measure the frequency of any individual
         let (old_meat, fresh_meat): (Vec<Creature<u64>>, _) =
             inbound.partition(Creature::<u64>::mature);
-        let batch = self
-            .hatchery
+        self.hatchery
             .execute_batch(fresh_meat.into_iter())
             .expect("execute batch failure")
             .into_iter()
@@ -341,8 +340,7 @@ impl<'a, C: 'static + Cpu<'static>> Develop<Creature<u64>> for Evaluator<C> {
             .chain(old_meat)
             // NOTE: in progress of decoupling fitness function from development
             // .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
-            .collect::<Vec<_>>();
-        batch
+            .collect::<Vec<_>>()
     }
 }
 

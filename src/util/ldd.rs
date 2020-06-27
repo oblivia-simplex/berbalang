@@ -8,7 +8,7 @@ pub fn ldd(path: &str) -> Result<Vec<String>, Error> {
     Ok(std::str::from_utf8(&output)?
         .lines()
         .filter_map(|s| s.split(" => ").nth(1))
-        .filter_map(|s: &str| s.split(" ").nth(0))
+        .filter_map(|s: &str| s.split(' ').next())
         .map(String::from)
         .collect::<Vec<String>>())
 }

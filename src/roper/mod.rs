@@ -43,7 +43,7 @@ mod push;
 
 type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
-fn prepare<'a, C: 'static + Cpu<'static>>(
+fn prepare<C: 'static + Cpu<'static>>(
     config: &Config,
 ) -> (Observer<Creature<u64>>, evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<Creature<u64>, Sketches, Config> =
