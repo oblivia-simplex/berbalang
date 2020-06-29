@@ -148,3 +148,75 @@ of migration that it induces, relies, to some extent, on the thread scheduler.
 
 # Results
 
+Even with this simple task, the impact of incorporating a novelty incentive has been dramatic. 
+The effects of incorporating an additional pressure to encourage the sequential execution
+of multiple gadgets, however, have been more or less negligible. The champion specimens, in
+fact, mostly tended to execute only one, single gadget, and devote the rest of their genome
+to hold data, which they would usually just pop into the four observed registers. Since no
+selective penalty was imposed on individuals that crashed (i.e., which threw a CPU exception, 
+a segmentation fault, for instance, in the emulator), quick and dirty methods tended to be
+favoured.
+
+![best scores](./zeroes/Plots/champion_report.png)
+
+The impact of the novelty pressures can be seen most clearly, I think, when we look at the
+distribution of fitness (focussing, here, exclusively on the zero-bit counts) by generation.
+Here, we define the *generation* of an individual to be the length of their longest
+ancestral chain. That is to say, we set the generation of each individual in the seed population
+to 0, and define the generation of each child to be the maximum generation of their parents, 
+plus one. 
+
+
+What we see here appears to be a tendency for populations to get "stuck"
+in local optima, in the absence of a novelty pressure. Where a novelty pressure is involve, 
+the distribution of fitnesses describes a more "rugged" landscape, often favouring exploration
+at the cost of exploitation. 
+
+Additonal plots can from this experiment can be found [here](./zeroes/Plots).
+
+## Random Soup
+
+### Zero Count
+
+![zero count](./zeroes/Plots/just-zeroes-0_pleasures.png)
+![zero count](./zeroes/Plots/just-zeroes-1_pleasures.png)
+![zero count](./zeroes/Plots/just-zeroes-2_pleasures.png)
+![zero count](./zeroes/Plots/just-zeroes-3_pleasures.png)
+
+### With Novelty
+
+![with novelty](./zeroes/Plots/count-zero-novelty-0_pleasures.png)
+![with novelty](./zeroes/Plots/count-zero-novelty-1_pleasures.png)
+![with novelty](./zeroes/Plots/count-zero-novelty-2_pleasures.png)
+![with novelty](./zeroes/Plots/count-zero-novelty-3_pleasures.png)
+
+### With Novelty and Unique Execution Count
+
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-0_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-1_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-2_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-3_pleasures.png)
+
+## ROPGadget Harvest
+
+
+### Zero Count
+
+![zero count](./zeroes/Plots/rg-just-zeroes-0_pleasures.png)
+![zero count](./zeroes/Plots/rg-just-zeroes-1_pleasures.png)
+![zero count](./zeroes/Plots/rg-just-zeroes-2_pleasures.png)
+![zero count](./zeroes/Plots/rg-just-zeroes-3_pleasures.png)
+
+### With Novelty
+
+![with novelty](./zeroes/Plots/rg-novelty-0_pleasures.png)
+![with novelty](./zeroes/Plots/rg-novelty-1_pleasures.png)
+![with novelty](./zeroes/Plots/rg-novelty-2_pleasures.png)
+![with novelty](./zeroes/Plots/rg-novelty-3_pleasures.png)
+
+### With Novelty and Unique Execution Count
+
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-0_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-1_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-2_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-3_pleasures.png)
