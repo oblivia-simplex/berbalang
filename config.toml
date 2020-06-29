@@ -92,7 +92,7 @@ dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
 window_size  = 1000
-report_every = 4000
+report_every = 1000
 dump_every = 1000
 
 [data]
@@ -107,7 +107,7 @@ path = "./data/iris.tsv"
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "./binaries/X86/MODE_32/sshd"
+binary_path = "./target/release/berbalang"
 #binary_path = "/tmp/ldconfig"
 num_workers = 70
 num_emulators = 60

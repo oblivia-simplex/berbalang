@@ -10,14 +10,17 @@ fn protected_log(n: f64) -> f64 {
 
 #[inline]
 fn shannon_entropy(bytes: &[u8]) -> f64 {
-    let mut counts = [0.0; 256];
+    let mut counts = [0_usize; 256];
 
     for &b in bytes {
-        counts[b as usize] += 1.0;
+        counts[b as usize] += 1;
     }
 
-    let s: f64 = counts.iter().sum();
-    let l: f64 = counts.iter().copied().map(|c| c * protected_log(c)).sum();
+    let s: f64 = counts.iter().sum::<usize>() as f64;
+    let l: f64 = counts
+        .iter()
+        .map(|&c| c as f64 * protected_log(c as f64))
+        .sum();
     s.log(2.0) - l / s
 }
 

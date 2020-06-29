@@ -59,8 +59,6 @@ pub trait Genome: Debug + Hash {
                 chromosome.push(parents[src][i % len])
             }
 
-            //let slice = &parents[src][take_from..take_to];
-            //chromosome.extend_from_slice(slice);
             for _ in 0..(take_to - take_from) {
                 parentage.push(src)
             }
