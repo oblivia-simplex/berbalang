@@ -155,7 +155,11 @@ fact, mostly tended to execute only one, single gadget, and devote the rest of t
 to hold data, which they would usually just pop into the four observed registers. Since no
 selective penalty was imposed on individuals that crashed (i.e., which threw a CPU exception, 
 a segmentation fault, for instance, in the emulator), quick and dirty methods tended to be
-favoured.
+favoured. This may also go some way towards explaining why there appears
+to have been no benefit whatsoever gained by seeding the "genetic soup" with
+ROPGadget's harvest set, rather than a spray of random addresses. The
+populations showed little interest in preserving control flow -- a license
+granted by the simplicity of this particular task. 
 
 ![best scores](./zeroes/Plots/champion_report.png)
 
