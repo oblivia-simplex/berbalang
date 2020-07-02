@@ -265,6 +265,8 @@ pub struct RoperConfig {
     pub binary_path: String,
     #[serde(default)]
     pub ld_paths: Option<Vec<String>>,
+    #[serde(default)]
+    pub bad_bytes: Option<HashMap<String, u8>>,
 }
 
 impl RoperConfig {
@@ -312,6 +314,7 @@ impl Default for RoperConfig {
             emulator_stack_size: 0x1000,
             binary_path: "/bin/sh".to_string(),
             ld_paths: None,
+            bad_bytes: None,
         }
     }
 }

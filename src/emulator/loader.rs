@@ -635,6 +635,7 @@ mod test {
             emulator_stack_size: 0x1000,
             binary_path: "/bin/sh".into(), // "./binaries/X86/MODE_32/sshd".to_string(),
             ld_paths: None,
+            bad_bytes: None,
         };
         let res = load_from_path(&config, false).expect("Failed to load /bin/sh");
         println!("With legacy loader");

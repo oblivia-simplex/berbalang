@@ -207,10 +207,18 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
         let parameters = config.clone();
         let mem = memory.clone();
         let disas = disassembler.clone();
+        let bad_bytes: Arc<Option<HashMap<u8, u8>>> =
+            Arc::new(config.bad_bytes.as_ref().map(|table| {
+                table
+                    .iter()
+                    .map(|(k, v)| (k.parse::<u8>().unwrap(), *v))
+                    .collect::<HashMap<u8, u8>>()
+            }));
         let handle = spawn(move || {
             for payload in our_rx.iter() {
                 let emu_prep_fn = emu_prep_fn.clone();
                 let config = parameters.clone();
+                let bad_bytes = bad_bytes.clone();
                 let our_tx = our_tx.clone();
                 let output_registers = output_registers.clone();
                 let thread_pool = t_pool.lock().expect("Failed to unlock thread_pool mutex");
@@ -240,7 +248,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                         if config.record_memory_writes {
                             let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler).expect("Failed to install mem_write_hook");
                         }
-                        let code = payload.pack(word_size, endian);
+                        let code = payload.pack(word_size, endian, (*bad_bytes).as_ref());
                         // load the inputs
                         for (reg, val) in input.iter() {
                             emu.reg_write(*reg, *val).expect("Failed to load registers");

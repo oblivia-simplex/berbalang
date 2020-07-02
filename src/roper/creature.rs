@@ -23,6 +23,7 @@ use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
+use hashbrown::HashMap;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Creature<T: Clone + Serialize + Deserialize<'static>> {
@@ -86,7 +87,12 @@ impl Creature<u64> {
 }
 
 impl Pack for Creature<u64> {
-    fn pack(&self, word_size: usize, endian: Endian) -> Vec<u8> {
+    fn pack(
+        &self,
+        word_size: usize,
+        endian: Endian,
+        byte_filter: Option<&HashMap<u8, u8>>,
+    ) -> Vec<u8> {
         let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
             (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
             (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
@@ -103,7 +109,20 @@ impl Pack for Creature<u64> {
             packer(word, &mut buffer[ptr..]);
             ptr += word_size;
         }
-        buffer
+        if let Some(byte_filter) = byte_filter {
+            buffer
+                .into_iter()
+                .map(|b| {
+                    if let Some(x) = byte_filter.get(&b) {
+                        *x
+                    } else {
+                        b
+                    }
+                })
+                .collect::<Vec<u8>>()
+        } else {
+            buffer
+        }
     }
 
     fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
