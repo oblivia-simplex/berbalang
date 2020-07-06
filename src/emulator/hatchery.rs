@@ -40,8 +40,120 @@ pub type EmuPrepFn<C> = Box<
 //     TRACING_THREAD.compare_and_swap(0, thread, Ordering::Relaxed) == thread
 // }
 
+struct EmuPool<C: Cpu<'static>> {
+    pub pool: Pool<C>,
+    init_context: Context,
+    mode: Mode,
+    wait_limit: u64,
+    memory: Arc<Option<Pin<Vec<Seg>>>>,
+}
+
+impl<C: Cpu<'static>> EmuPool<C> {
+    pub fn new(config: &RoperConfig) -> Self {
+        let static_memory = loader::get_static_memory_image();
+
+        let memory = Some(Pin::new(static_memory.segments().clone()));
+
+        let pool: Pool<C> = Pool::new(config.num_workers, || {
+            Self::init_emu(&config, &memory).expect("failed to initialize emulator")
+        });
+        let init_context = {
+            let emu = Self::wait_for_emu(&pool, config.wait_limit, config.mode);
+            let ctx = (*emu).context_save().expect("Failed to save context");
+            ctx
+        };
+
+        Self {
+            pool,
+            init_context,
+            mode: config.mode,
+            wait_limit: config.wait_limit,
+            memory: Arc::new(memory),
+        }
+    }
+
+    /// Returns a reusable pointer to an emulator, which will be returned to the pool when it's
+    /// dropped.
+    pub fn pull(&self) -> object_pool::Reusable<'_, C> {
+        let mut emu = Self::wait_for_emu(&self.pool, self.wait_limit, self.mode);
+        emu.context_restore(&self.init_context)
+            .expect("Failed to restore context");
+        emu
+    }
+
+    fn init_emu(config: &RoperConfig, memory: &Option<Pin<Vec<Seg>>>) -> Result<C, Error> {
+        let mut emu = C::new(config.mode)?;
+        if let Some(segments) = memory {
+            //notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
+            let mut results = Vec::new();
+            // First, map the non-writeable segments to memory. These can be shared.
+            segments.iter().for_each(|s| {
+                log::debug!(
+                    "Mapping segment 0x{:x} - 0x{:x} [{:?}]",
+                    s.aligned_start(),
+                    s.aligned_end(),
+                    s.perm
+                );
+                if !s.is_writeable() {
+                    // This is a bit risky, but we want our many emulator instances to share common regions
+                    // of non-writeable memory.
+                    unsafe {
+                        let res = emu.mem_map_const_ptr(
+                            s.aligned_start(),
+                            s.aligned_size(),
+                            s.perm.into(),
+                            s.data.as_ptr(),
+                        );
+                        results.push(res);
+                    }
+                } else {
+                    // Next, map the writeable segments
+                    let res = emu.mem_map(s.aligned_start(), s.aligned_size(), s.perm.into());
+                    results.push(res);
+                }
+            });
+            // Return an error if there's been an error.
+            let _ = results
+                .into_iter()
+                .collect::<Result<Vec<_>, unicorn::Error>>()?;
+        };
+        emu.mem_regions()?.iter().for_each(|rgn| {
+            log::debug!(
+                "Mapped region: 0x{:x} - 0x{:x} [{:?}]",
+                rgn.begin,
+                rgn.end,
+                rgn.perms
+            );
+        });
+        Ok(emu)
+    }
+
+    fn wait_for_emu(pool: &Pool<C>, wait_limit: u64, mode: Mode) -> object_pool::Reusable<'_, C> {
+        let mut wait_time = 0;
+        let wait_unit = 1;
+        loop {
+            if let Some(c) = pool.try_pull() {
+                if wait_time > 0 {
+                    log::warn!("Waited {} milliseconds for CPU", wait_time);
+                }
+                return c;
+            } else if wait_time > wait_limit {
+                log::warn!(
+                    "Waited {} milliseconds for CPU, creating new one",
+                    wait_time
+                );
+                return pool.pull(|| C::new(mode).expect("Failed to spawn replacement CPU"));
+            }
+            {
+                std::thread::sleep(Duration::from_millis(wait_unit));
+                wait_time += wait_unit;
+            }
+        }
+    }
+}
+
 pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
-    emu_pool: Arc<Pool<C>>,
+    emu_pool: Arc<EmuPool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
     config: Arc<RoperConfig>,
     memory: Arc<Option<Pin<Vec<Seg>>>>,
@@ -71,7 +183,7 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
             // from them all. Attempting to unmap it again will trigger a NOMEM error.
             // And I think that attempting to access that unmapped segment *may* trigger a
             // use-after-free bug.
-            if let Some(mut emu) = emu_pool.try_pull() {
+            if let Some(mut emu) = emu_pool.pool.try_pull() {
                 segments
                     .iter()
                     .filter(|&s| !s.is_writeable())
@@ -87,83 +199,6 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
                             .unwrap_or_else(|e| log::error!("Failed to unmap segment: {:?}", e));
                     });
             }
-        }
-    }
-}
-
-fn init_emu<C: Cpu<'static>>(
-    config: &RoperConfig,
-    memory: &Option<Pin<Vec<Seg>>>,
-) -> Result<C, Error> {
-    let mut emu = C::new(config.mode)?;
-    if let Some(segments) = memory {
-        //notice!(emu.mem_map(0x1000, 0x4000, unicorn::Protection::ALL))?;
-        let mut results = Vec::new();
-        // First, map the non-writeable segments to memory. These can be shared.
-        segments.iter().for_each(|s| {
-            log::debug!(
-                "Mapping segment 0x{:x} - 0x{:x} [{:?}]",
-                s.aligned_start(),
-                s.aligned_end(),
-                s.perm
-            );
-            if !s.is_writeable() {
-                // This is a bit risky, but we want our many emulator instances to share common regions
-                // of non-writeable memory.
-                unsafe {
-                    let res = emu.mem_map_const_ptr(
-                        s.aligned_start(),
-                        s.aligned_size(),
-                        s.perm.into(),
-                        s.data.as_ptr(),
-                    );
-                    results.push(res);
-                }
-            } else {
-                // Next, map the writeable segments
-                let res = emu.mem_map(s.aligned_start(), s.aligned_size(), s.perm.into());
-                results.push(res);
-            }
-        });
-        // Return an error if there's been an error.
-        let _ = results
-            .into_iter()
-            .collect::<Result<Vec<_>, unicorn::Error>>()?;
-    };
-    emu.mem_regions()?.iter().for_each(|rgn| {
-        log::debug!(
-            "Mapped region: 0x{:x} - 0x{:x} [{:?}]",
-            rgn.begin,
-            rgn.end,
-            rgn.perms
-        );
-    });
-    Ok(emu)
-}
-
-fn wait_for_emu<C: Cpu<'static>>(
-    pool: &Pool<C>,
-    wait_limit: u64,
-    mode: Mode,
-) -> object_pool::Reusable<'_, C> {
-    let mut wait_time = 0;
-    let wait_unit = 1;
-    loop {
-        if let Some(c) = pool.try_pull() {
-            if wait_time > 0 {
-                log::warn!("Waited {} milliseconds for CPU", wait_time);
-            }
-            return c;
-        } else if wait_time > wait_limit {
-            log::warn!(
-                "Waited {} milliseconds for CPU, creating new one",
-                wait_time
-            );
-            return pool.pull(|| C::new(mode).expect("Failed to spawn replacement CPU"));
-        }
-        {
-            std::thread::sleep(Duration::from_millis(wait_unit));
-            wait_time += wait_unit;
         }
     }
 }
@@ -189,14 +224,10 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
 
         let memory = Some(Pin::new(static_memory.segments().clone()));
 
-        let emu_pool: Arc<Pool<C>> = Arc::new(Pool::new(config.num_workers, || {
-            init_emu(&config, &memory).expect("failed to initialize emulator")
-        }));
+        let emu_pool = Arc::new(EmuPool::new(&config));
         let thread_pool = Arc::new(Mutex::new(ThreadPool::new(config.num_workers)));
 
         let emu_prep_fn = Arc::new(emu_prep_fn.unwrap_or_else(|| Box::new(hooking::emu_prep_fn)));
-        let wait_limit = config.wait_limit;
-        let mode = config.mode;
         let millisecond_timeout = config.millisecond_timeout.unwrap_or(0);
         let max_emu_steps = config.max_emu_steps.unwrap_or(0);
         let word_size = crate::util::architecture::word_size_in_bytes(config.arch, config.mode);
@@ -228,19 +259,13 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                 let inputs = inputs.clone();
                 let disas = disas.clone();
                 // let's get a clean context to use here.
-                let context = {
-                    let emu = wait_for_emu(&emulator_pool, wait_limit, mode);
-                    let ctx = (*emu).context_save().expect("Failed to save context");
-                    Arc::new(ctx)
-                };
                 thread_pool.execute(move || {
                     let profile = inputs.par_iter().map(|input| {
                         // Acquire an emulator from the pool.
-                        let mut emu: Reusable<'_, C> = wait_for_emu(&emulator_pool, wait_limit, mode);
+                        let mut emu: Reusable<'_, C> = emulator_pool.pull();
                         // Initialize the profiler
                         let mut profiler = Profiler::new(&output_registers, &input);
                         // Restore the context. TODO: define an emulator pool struct that handles this
-                        emu.context_restore(&(*context)).expect("Failed to restore context");
 
                         // load the inputs
                         for (reg, val) in input.iter() {
