@@ -189,7 +189,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
 
         let memory = Some(Pin::new(static_memory.segments().clone()));
 
-        let emu_pool = Arc::new(Pool::new(config.num_workers, || {
+        let emu_pool: Arc<Pool<C>> = Arc::new(Pool::new(config.num_workers, || {
             init_emu(&config, &memory).expect("failed to initialize emulator")
         }));
         let thread_pool = Arc::new(Mutex::new(ThreadPool::new(config.num_workers)));
@@ -211,7 +211,8 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
             Arc::new(config.bad_bytes.as_ref().map(|table| {
                 table
                     .iter()
-                    .map(|(k, v)| (k.parse::<u8>().unwrap(), *v))
+                    // FIXME do this in a less dirty, shotgunny way
+                    .map(|(k, v)| (u8::from_str_radix(k, 16).unwrap(), *v))
                     .collect::<HashMap<u8, u8>>()
             }));
         let handle = spawn(move || {
@@ -226,14 +227,32 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                 let memory = mem.clone();
                 let inputs = inputs.clone();
                 let disas = disas.clone();
+                // let's get a clean context to use here.
+                let context = {
+                    let emu = wait_for_emu(&emulator_pool, wait_limit, mode);
+                    let ctx = (*emu).context_save().expect("Failed to save context");
+                    Arc::new(ctx)
+                };
                 thread_pool.execute(move || {
                     let profile = inputs.par_iter().map(|input| {
                         // Acquire an emulator from the pool.
                         let mut emu: Reusable<'_, C> = wait_for_emu(&emulator_pool, wait_limit, mode);
                         // Initialize the profiler
                         let mut profiler = Profiler::new(&output_registers, &input);
-                        // Save the register context
-                        let context: Context = (*emu).context_save().expect("Failed to save context");
+                        // Restore the context. TODO: define an emulator pool struct that handles this
+                        emu.context_restore(&(*context)).expect("Failed to restore context");
+
+                        // load the inputs
+                        for (reg, val) in input.iter() {
+                            emu.reg_write(*reg, *val).expect("Failed to load registers");
+                        }
+                        // Pedantically check to make sure the registers are initialized
+                        if true || cfg!(debug_assertions) {
+                            for (r,expected) in input.iter() {
+                                let val = emu.reg_read(*r).expect("Failed to read register!");
+                                assert_eq!(val, *expected, "register has not been initialized");
+                            }
+                        }
 
                         if config.record_basic_blocks {
                             let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
@@ -249,10 +268,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                             let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler).expect("Failed to install mem_write_hook");
                         }
                         let code = payload.pack(word_size, endian, (*bad_bytes).as_ref());
-                        // load the inputs
-                        for (reg, val) in input.iter() {
-                            emu.reg_write(*reg, *val).expect("Failed to load registers");
-                        }
+
                         // Prepare the emulator with the user-supplied preparation function.
                         // This function will generally be used to load the payload and install
                         // callbacks, which should be able to write to the Profiler instance.
@@ -294,7 +310,8 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
 
                         // cleanup
                         emu.remove_all_hooks().expect("Failed to clean up hooks");
-                        emu.context_restore(&context).expect("Failed to restore context");
+
+
                         // clean up writeable memory
                         // there will never be *too* many segments, so iterating over them is cheap.
                         if let Some(memory) = memory.as_ref() {
