@@ -1,0 +1,226 @@
+# The Effects of a Sketch-Based Novelty Metric on the "Minimize Zeroes" Problem
+
+Before embarking on more ambitious tasks, it's prudent to first evaluate ROPER's ability to evolve
+gadget chains that solve an extremely simple programming problem: find a payload that minimizes
+the zero bits in the bitwise product of a small series of registers -- `EAX & EBX & ECX & EDX`, for
+example. Our secondary goal here is to assess the impact of two different diversity pressures
+on the evolutionary process:
+
+1. A phenotypic "register novelty" metric, which assigns to each phenotype a score proportionate
+   to the relative number of times that we have already seen the register state resulting from its
+   execution. This will be measured using a 
+   [count-min sketch](https://en.wikipedia.org/wiki/Count%E2%80%93min_sketch)
+   algorithm, which will occasionally (and unpredictably) mistake the novel for the known, but
+   infrequently enough that it will be a small price to pay in exchange for
+   the memory efficiency the algorithm affords -- requiring only a small, constant amount of space.
+   
+2. A developmental "gadget uniqueness" metric, which assigns to each phenotype a reward 
+   proportionate to the number of distinct gadgets that it successfully executes. The idea here
+   will be to incentivize the discovery of recombinable "building blocks", through which a
+   genotype is able to maintain control over the flow of execution, in a sequential, decomposable
+   fashion. 
+   
+## Populations
+
+Our populations for this experiment will consist of 7 islands containing 768 genotypes each. Each
+"seed" genotype will consist of between 10 and 100 64-bit integers. Six different configurations
+will be used. In half of these, the initial "genetic soup" from which our genotypes will be
+constructed will just be a set of 0x10_000 random, executable addresses, drawn from the target
+binary. In the other, the "soup" will contain 0x18_cf4 gadgets harvested from the binary using 
+the open source gadget discovery tool, [ROPGadget](https://github.com/JonathanSalwan/ROPgadget).
+The target binary, in every case, will be a build of OpenSSH, version 6.8p1, statically compiled for
+the x86 architecture. 
+
+Beyond that, the populations are distinguished only by their fitness functions:
+
+1. in one set of populations, the fitness function will be nothing but the number of zeroes in 
+   the bitwise product of the registers `EAX & EBX & ECX & EDX`, which is to be minimized.
+   The configuration files for this set can be found [here](./zeroes/random-soup-just-zeroes.toml)
+   and [here](./zeroes/rg-soup-just-zeroes.toml);
+2. in another set, this zero-bit count is taken together, in a weighted sum, with the
+   ratio of phenotypes already witnessed to have *exactly* the same values in the four observed
+   registers (EAX, EBX, ECX, and EDX), with a weight of 1000 -- which is, again, to be
+   minimized. See the configuration files [here](./zeroes/random-soup-zeroes-novelty.toml)
+   and [here](./zeroes/rg-soup-zeroes-novelty.toml);
+3. in another, the fitness function combines these two addends with a third, set to
+   `10 - min(10, x)`, where `x` is the number of distinct gadgets executed by a particular
+   specimen: specimens are penalized for failing to execute 10 or more gadgets, but no
+   additional reward is given for executing more than 10. Configuration files 
+   [here](./zeroes/random-soup-zeroes-novelty-uniq.toml) and 
+   [here](./zeroes/rg-soup-zeroes-novelty-uniq.toml).
+
+## Selection Method
+
+We use the [tournament selection](https://en.wikipedia.org/wiki/Tournament_selection) algorithm
+to select parents for each new batch of offspring. A tournament size of six was used, throughout.
+Using Lee Spector and John Klein's 
+["trivial geography"](https://link.springer.com/chapter/10.1007/0-387-28111-8_8)
+algorithm, the competitors for each tournament are all chosen from a 20-cell neighbourhood in
+a one-dimensional population-space ("geography"), surrounding the first specimen chosen. 
+The two best performers are selected as parents, while the two worst performers are excised from
+the population, to be replaced by the parents' two offspring.
+
+## Genetic Operators
+
+Our genetic operators for this experiment include point mutation and an alternating crossover
+technique.
+
+### Mutation
+
+Mutation is decided on a pointwise (allele-by-allele) basis, with decisions made by the
+following function, so that the gaps between mutated alleles are drawn from an exponential
+distribution: 
+
+```rust
+pub fn levy_decision<R: Rng>(rng: &mut R, length: usize, exponent: f64) -> bool {
+    debug_assert!(length > 0);
+    let thresh = 1.0 - (1.0 / length as f64);
+    rand_distr::Exp::new(exponent)
+        .expect("Bad exponent for Exp distribution")
+        .sample(rng)
+        >= thresh
+}
+```
+
+`exponent`, here, has been set to 3.0.
+
+The type of mutation is chosen with uniform probability from the following, where `v` is the
+existing integer value of the allele:
+
+1. `v` is interpreted as an address and dereferenced, if valid.
+2. read-only memory is searched for `v`. If `v` is found at address `a`, we replace `v` with
+   `a` in the genotype.
+3. a random bit in `v` is flipped.
+4. a number between 0 and 256 is chosen, with uniform probability, and added to `v`.
+5. a number between 0 and 256 is chosen, with uniform probability, and subtracted from `v`.
+
+### Crossover
+
+Crossover between two genotypes is performed in the following fashion (in pseudocode,
+omitting some bookkeeping that's not relevant here):
+
+```$xslt
+let D be an exponential distribution
+let h be an array containing be two reading heads
+let parent be an array containing the two parental genotypes
+
+set h[p % 2] to the beginning of the first parent's genotype, and
+set h[(p+1) % 2] to the beginning of the second parent's genotype
+
+loop until we reach the end of a parental genotype:
+    let h1' = h[p % 2] + a value drawn from D
+    let h2' = h[(p+1) % 2] + a value drawn from D
+
+    copy parent[p][h[p % 2]..h1'] to the child genotype
+    set h[p % 2] <- h1'
+    set h[(p+1) % 2] <- h2'
+
+    increment p
+
+then copy the rest of the remaining parental genotype to the child
+
+return the child genotype
+```
+
+## Duration
+
+These populations are then set to evolve for either 150 epochs, or until a "perfect" specimen
+is produced, where "perfect", here, means that it was able to produce a register state where
+```$xslt
+EAX = 0xffff_ffff
+EBX = 0xffff_ffff
+ECX = 0xffff_ffff
+EDX = 0xffff_ffff
+```
+
+An epoch is defined as the number of iterations it takes until every member of the population
+is *expected* to have had a chance to reproduce: this is taken to be the size of the population,
+divided by the tournament size.
+
+## Migration
+
+With every tournament, there's a 1 in 50 chance of migration between islands: a winner of the
+most recent tournament is pushed to a "pier". If no such emigrant is selected, then we check
+the pier to see if any immigrants are waiting. If they are, we add them to the population. 
+No mechanism is in place to prevent an emigrant from immigrating back into its own native
+island, from the pier, and so the effectiveness of this migration method, and the pattern
+of migration that it induces, relies, to some extent, on the thread scheduler.
+
+# Results
+
+Even with this simple task, the impact of incorporating a novelty incentive has been dramatic. 
+The effects of incorporating an additional pressure to encourage the sequential execution
+of multiple gadgets, however, have been more or less negligible. The champion specimens, in
+fact, mostly tended to execute only one, single gadget, and devote the rest of their genome
+to hold data, which they would usually just pop into the four observed registers. Since no
+selective penalty was imposed on individuals that crashed (i.e., which threw a CPU exception, 
+a segmentation fault, for instance, in the emulator), quick and dirty methods tended to be
+favoured. This may also go some way towards explaining why there appears
+to have been no benefit whatsoever gained by seeding the "genetic soup" with
+ROPGadget's harvest set, rather than a spray of random addresses. The
+populations showed little interest in preserving control flow -- a license
+granted by the simplicity of this particular task. 
+
+![best scores](./zeroes/Plots/champion_report.png)
+
+The impact of the novelty pressures can be seen most clearly, I think, when we look at the
+distribution of fitness (focussing, here, exclusively on the zero-bit counts) by generation.
+Here, we define the *generation* of an individual to be the length of their longest
+ancestral chain. That is to say, we set the generation of each individual in the seed population
+to 0, and define the generation of each child to be the maximum generation of their parents, 
+plus one. 
+
+
+What we see here appears to be a tendency for populations to get "stuck"
+in local optima, in the absence of a novelty pressure. Where a novelty pressure is involve, 
+the distribution of fitnesses describes a more "rugged" landscape, often favouring exploration
+at the cost of exploitation. 
+
+Additonal plots can from this experiment can be found [here](./zeroes/Plots).
+
+## Random Soup
+
+### Zero Count
+
+![zero count](./zeroes/Plots/just-zeroes-0_pleasures.png)
+![zero count](./zeroes/Plots/just-zeroes-1_pleasures.png)
+![zero count](./zeroes/Plots/just-zeroes-2_pleasures.png)
+![zero count](./zeroes/Plots/just-zeroes-3_pleasures.png)
+
+### With Novelty
+
+![with novelty](./zeroes/Plots/count-zero-novelty-0_pleasures.png)
+![with novelty](./zeroes/Plots/count-zero-novelty-1_pleasures.png)
+![with novelty](./zeroes/Plots/count-zero-novelty-2_pleasures.png)
+![with novelty](./zeroes/Plots/count-zero-novelty-3_pleasures.png)
+
+### With Novelty and Unique Execution Count
+
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-0_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-1_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-2_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/uniq-exec-count-zero-novelty-3_pleasures.png)
+
+## ROPGadget Harvest
+
+
+### Zero Count
+
+![zero count](./zeroes/Plots/rg-just-zeroes-0_pleasures.png)
+![zero count](./zeroes/Plots/rg-just-zeroes-1_pleasures.png)
+![zero count](./zeroes/Plots/rg-just-zeroes-2_pleasures.png)
+![zero count](./zeroes/Plots/rg-just-zeroes-3_pleasures.png)
+
+### With Novelty
+
+![with novelty](./zeroes/Plots/rg-novelty-0_pleasures.png)
+![with novelty](./zeroes/Plots/rg-novelty-1_pleasures.png)
+![with novelty](./zeroes/Plots/rg-novelty-2_pleasures.png)
+![with novelty](./zeroes/Plots/rg-novelty-3_pleasures.png)
+
+### With Novelty and Unique Execution Count
+
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-0_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-1_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-2_pleasures.png)
+![with novelty and uniq](./zeroes/Plots/rg-novelty-plus-uniq-gadgets-3_pleasures.png)

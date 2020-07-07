@@ -435,6 +435,7 @@ impl fmt::Debug for RegisterState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let memory = get_static_memory_image();
         let endian = memory.endian;
+        let word_size = memory.word_size;
         self.0
             .iter()
             .sorted_by_key(|p| p.0)
@@ -451,7 +452,7 @@ impl fmt::Debug for RegisterState {
                                 .perm_of_addr(*v)
                                 .map(|p| format!(" {}", p))
                                 .unwrap_or_else(String::new),
-                            util::bitwise::try_word_as_string(*v, endian)
+                            util::bitwise::try_word_as_string(*v, endian, word_size)
                                 .map(|s| format!(" \"{}\"", s))
                                 .unwrap_or_else(String::new)
                         ))
@@ -501,6 +502,7 @@ mod test {
             emulator_stack_size: 0x1000,
             binary_path: "/bin/sh".to_string(),
             ld_paths: None,
+            bad_bytes: None,
         };
         let _ = loader::load_from_path(&config, true);
     }

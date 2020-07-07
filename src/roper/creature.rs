@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::configure::Config;
 use crate::emulator::loader;
+use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::Profile;
 use crate::error::Error;
@@ -22,6 +23,7 @@ use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
+use hashbrown::HashMap;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Creature<T: Clone + Serialize + Deserialize<'static>> {
@@ -85,7 +87,12 @@ impl Creature<u64> {
 }
 
 impl Pack for Creature<u64> {
-    fn pack(&self, word_size: usize, endian: Endian) -> Vec<u8> {
+    fn pack(
+        &self,
+        word_size: usize,
+        endian: Endian,
+        byte_filter: Option<&HashMap<u8, u8>>,
+    ) -> Vec<u8> {
         let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
             (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
             (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
@@ -102,7 +109,20 @@ impl Pack for Creature<u64> {
             packer(word, &mut buffer[ptr..]);
             ptr += word_size;
         }
-        buffer
+        if let Some(byte_filter) = byte_filter {
+            buffer
+                .into_iter()
+                .map(|b| {
+                    if let Some(x) = byte_filter.get(&b) {
+                        *x
+                    } else {
+                        b
+                    }
+                })
+                .collect::<Vec<u8>>()
+        } else {
+            buffer
+        }
     }
 
     fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
@@ -213,6 +233,32 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
     Ok(())
 }
 
+fn try_to_ensure_exec(mut chromosome: Vec<u64>) -> Vec<u64> {
+    // Now make sure that the head of the chromosome is executable
+    chromosome.reverse();
+    let mut tail = Vec::new();
+    let memory = get_static_memory_image();
+    while let Some(h) = chromosome.last() {
+        if let Some(perm) = memory.perm_of_addr(*h) {
+            if !perm.intersects(Perms::EXEC) {
+                tail.push(chromosome.pop().unwrap());
+            } else {
+                break;
+            }
+        } else {
+            tail.push(chromosome.pop().unwrap());
+        }
+    }
+    if chromosome.is_empty() {
+        log::warn!("Failed to ensure executability for chromosome");
+        tail
+    } else {
+        chromosome.reverse();
+        chromosome.extend_from_slice(&tail);
+        chromosome
+    }
+}
+
 impl Genome for Creature<u64> {
     type Allele = u64;
 
@@ -241,6 +287,7 @@ impl Genome for Creature<u64> {
             .into_iter()
             .copied()
             .collect::<Vec<u64>>();
+        let chromosome = try_to_ensure_exec(chromosome);
         let name = util::name::random(4, &salt);
         //let crossover_mask = rng.gen::<u64>();
         let tag = rng.gen::<u64>();
@@ -287,9 +334,11 @@ impl Genome for Creature<u64> {
                     chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
                 (chromosome, parentage, vec![mates[0].name.clone()])
             };
+
         let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
         let name = util::name::random(4, &chromosome);
         let len = chromosome.len();
+
         Self {
             chromosome,
             chromosome_parentage,
@@ -312,6 +361,13 @@ impl Genome for Creature<u64> {
         let word_size = memory.word_size;
         let endian = memory.endian;
         let mut rng = hash_seed_rng(&self);
+        fn is_executable(word: u64) -> bool {
+            let memory = loader::get_static_memory_image();
+            memory
+                .perm_of_addr(word)
+                .map(|p| p.intersects(Perms::EXEC))
+                .unwrap_or(false)
+        }
         for i in 0..self.len() {
             if !levy_decision(&mut rng, self.len(), config.mutation_exponent) {
                 continue;
@@ -323,8 +379,10 @@ impl Genome for Creature<u64> {
                     if let Some(bytes) = memory.try_dereference(self.chromosome[i], None) {
                         if bytes.len() > 8 {
                             if let Some(word) = read_integer(bytes, endian, word_size) {
-                                self.chromosome[i] = word;
-                                self.chromosome_mutation[i] = Some(mutation);
+                                if i > 0 || is_executable(word) {
+                                    self.chromosome[i] = word;
+                                    self.chromosome_mutation[i] = Some(mutation);
+                                }
                             }
                         }
                     }
@@ -334,21 +392,32 @@ impl Genome for Creature<u64> {
                     let word = self.chromosome[i];
                     write_integer(endian, word_size, word, &mut bytes);
                     if let Some(address) = memory.seek_from_random_address(&bytes, &self) {
-                        self.chromosome[i] = address;
-                        self.chromosome_mutation[i] = Some(mutation);
+                        if i > 0 || is_executable(address) {
+                            self.chromosome[i] = address;
+                            self.chromosome_mutation[i] = Some(mutation);
+                        }
                     }
                 }
                 Mutation::AddressAdd => {
-                    self.chromosome[i] = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
-                    self.chromosome_mutation[i] = Some(mutation);
+                    let word = self.chromosome[i].wrapping_add(rng.gen_range(0, 0x100));
+                    if i > 0 || is_executable(word) {
+                        self.chromosome[i] = word;
+                        self.chromosome_mutation[i] = Some(mutation);
+                    }
                 }
                 Mutation::AddressSub => {
-                    self.chromosome[i] = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
-                    self.chromosome_mutation[i] = Some(mutation);
+                    let word = self.chromosome[i].wrapping_sub(rng.gen_range(0, 0x100));
+                    if i > 0 || is_executable(word) {
+                        self.chromosome[i] = word;
+                        self.chromosome_mutation[i] = Some(mutation);
+                    }
                 }
                 Mutation::BitFlip => {
-                    self.chromosome[i] ^= 1 << rng.gen_range(0, word_size as u64 * 8);
-                    self.chromosome_mutation[i] = Some(mutation);
+                    let word = self.chromosome[i] ^ (1 << rng.gen_range(0, word_size as u64 * 8));
+                    if i > 0 || is_executable(word) {
+                        self.chromosome[i] = word;
+                        self.chromosome_mutation[i] = Some(mutation);
+                    }
                 }
             }
         }

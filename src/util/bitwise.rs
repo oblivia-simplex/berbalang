@@ -1,6 +1,5 @@
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 
-use crate::emulator::loader::try_to_get_static_memory_image;
 use crate::util::architecture::Endian;
 
 pub fn bit(n: u64, bit: usize) -> bool {
@@ -23,10 +22,7 @@ pub fn ham_rat(a: u64, b: u64) -> f64 {
     (a ^ b).count_ones() as f64 / 64.0
 }
 
-pub fn try_word_as_string(w: u64, endian: Endian) -> Option<String> {
-    let word_size = try_to_get_static_memory_image()
-        .map(|m| m.word_size)
-        .unwrap_or(8);
+pub fn try_word_as_string(w: u64, endian: Endian, word_size: usize) -> Option<String> {
     debug_assert!(word_size == 4 || word_size == 8);
     let mut buf = [0_u8; 8];
     let mut s = String::new();
@@ -40,23 +36,27 @@ pub fn try_word_as_string(w: u64, endian: Endian) -> Option<String> {
             BigEndian::write_u64(&mut buf, w);
         }
     }
+
     let buf = match endian {
-        Endian::Little => &buf[(8 - word_size)..],
-        Endian::Big => &buf[..word_size],
+        Endian::Little => &buf[..word_size],
+        Endian::Big => &buf[(8 - word_size)..],
     };
+
     for byte in buf.iter() {
         if 0x20 <= *byte && *byte < 0x7f {
             let ch = *byte as char;
             s.push(ch);
             ch_count += 1;
         } else {
-            //s.push('☐')
             if ch_count > max_ch_count {
                 max_ch_count = ch_count;
             }
             ch_count = 0;
             s.push('·');
         }
+    }
+    if ch_count > max_ch_count {
+        max_ch_count = ch_count;
     }
     if max_ch_count >= 3 {
         Some(s)
@@ -75,5 +75,27 @@ pub fn try_str_as_word(mut s: String, endian: Endian) -> Option<u64> {
     match endian {
         Endian::Little => Some(LittleEndian::read_u64(s.as_bytes())),
         Endian::Big => Some(BigEndian::read_u64(s.as_bytes())),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_try_word_as_str() {
+        let w = 0x41424344_45464748;
+        let s = try_word_as_string(w, Endian::Little, 4);
+        println!("0x{:x} -> {:?}", w, s);
+        assert_eq!(s, Some("HGFE".to_string()));
+        let s = try_word_as_string(w, Endian::Big, 4);
+        println!("0x{:x} -> {:?}", w, s);
+        assert_eq!(s, Some("EFGH".to_string()));
+        let s = try_word_as_string(w, Endian::Big, 8);
+        println!("0x{:x} -> {:?}", w, s);
+        assert_eq!(s, Some("ABCDEFGH".to_string()));
+        let s = try_word_as_string(w, Endian::Little, 8);
+        println!("0x{:x} -> {:?}", w, s);
+        assert_eq!(s, Some("HGFEDCBA".to_string()));
     }
 }
