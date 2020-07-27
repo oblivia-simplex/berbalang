@@ -45,8 +45,8 @@ type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
 fn prepare<C: 'static + Cpu<'static>>(
     config: &Config,
-) -> (Observer<Creature<u64>>, evaluation::Evaluator<C>) {
-    let fitness_function: FitnessFn<Creature<u64>, Sketches, Config> =
+) -> (Observer<Creature>, evaluation::Evaluator<C>) {
+    let fitness_function: FitnessFn<Creature, Sketches, Config> =
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
             "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
@@ -62,15 +62,15 @@ fn prepare<C: 'static + Cpu<'static>>(
 
 pub struct CreatureDominanceOrd;
 
-impl DominanceOrd<Creature<u64>> for CreatureDominanceOrd {
-    fn dominance_ord(&self, a: &Creature<u64>, b: &Creature<u64>) -> std::cmp::Ordering {
+impl DominanceOrd<Creature> for CreatureDominanceOrd {
+    fn dominance_ord(&self, a: &Creature, b: &Creature) -> std::cmp::Ordering {
         a.fitness()
             .partial_cmp(&b.fitness())
             .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
-impl DominanceOrd<&Creature<u64>> for CreatureDominanceOrd {}
+impl DominanceOrd<&Creature> for CreatureDominanceOrd {}
 
 pub fn run(mut config: Config) {
     let _ = loader::falcon_loader::load_from_path(&mut config.roper, true)
@@ -96,7 +96,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
             // TODO: factor this out into its own module, so that it works with
             // any job and selection method.
             let num_islands = config.num_islands;
-            let pier: Arc<Pier<Creature<u64>>> = Arc::new(Pier::new(config.num_islands));
+            let pier: Arc<Pier<Creature>> = Arc::new(Pier::new(config.num_islands));
             let mut handles = Vec::new();
             let mut rng = hash_seed_rng(&config.random_seed);
             for i in 0..num_islands {
@@ -107,7 +107,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
                 let (observer, evaluator) = prepare(&config);
                 let pier = pier.clone();
                 let h = spawn(move || {
-                    let mut world = Tournament::<evaluation::Evaluator<C>, Creature<u64>>::new(
+                    let mut world = Tournament::<evaluation::Evaluator<C>, Creature>::new(
                         &config, observer, evaluator, pier,
                     );
                     while crate::keep_going() {
@@ -123,7 +123,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
         Selection::Roulette => {
             let (observer, evaluator) = prepare(&config);
             let mut world =
-                Roulette::<evaluation::Evaluator<C>, Creature<u64>, CreatureDominanceOrd>::new(
+                Roulette::<evaluation::Evaluator<C>, Creature, CreatureDominanceOrd>::new(
                     &config,
                     observer,
                     evaluator,
@@ -135,22 +135,21 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
         }
         Selection::Metropolis => {
             let (observer, evaluator) = prepare(&config);
-            let mut world = Metropolis::<evaluation::Evaluator<C>, Creature<u64>>::new(
-                &config, observer, evaluator,
-            );
+            let mut world =
+                Metropolis::<evaluation::Evaluator<C>, Creature>::new(&config, observer, evaluator);
             while crate::keep_going() {
                 world = world.evolve();
             }
         }
         Selection::Lexicase => {
-            let fitness_function: FitnessFn<Creature<u64>, Sketches, Config> =
+            let fitness_function: FitnessFn<Creature, Sketches, Config> =
                 match config.fitness.function.as_str() {
                     "register_pattern" => Box::new(evaluation::register_pattern_ff),
                     "register_conjunction" => Box::new(evaluation::register_conjunction_ff),
                     "code_coverage" => Box::new(evaluation::code_coverage_ff),
                     s => unimplemented!("No such fitness function as {}", s),
                 };
-            let pier: Arc<Pier<Creature<u64>>> = Arc::new(Pier::new(config.num_islands));
+            let pier: Arc<Pier<Creature>> = Arc::new(Pier::new(config.num_islands));
             let evaluator = evaluation::Evaluator::spawn(&config, fitness_function);
             let observer = Observer::spawn(
                 &config,
@@ -173,7 +172,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
             cases.push(lexi::Task::UniqExec(2));
             cases.push(lexi::Task::UniqExec(3));
             log::info!("Register Feature cases: {:#x?}", cases);
-            let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature<u64>>::new(
+            let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature>::new(
                 &config, observer, evaluator, pier, cases,
             );
             while crate::keep_going() {

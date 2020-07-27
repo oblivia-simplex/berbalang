@@ -26,8 +26,8 @@ pub struct StatRecord {
 
 impl StatRecord {
     fn for_specimen(
-        window: &Window<Creature<u64>, CreatureDominanceOrd>,
-        specimen: &Creature<u64>,
+        window: &Window<Creature, CreatureDominanceOrd>,
+        specimen: &Creature,
         counter: usize,
         epoch: usize,
     ) -> Self {
@@ -72,10 +72,7 @@ impl StatRecord {
         }
     }
 
-    fn mean_from_window(
-        window: &Window<Creature<u64>, CreatureDominanceOrd>,
-        counter: usize,
-    ) -> Self {
+    fn mean_from_window(window: &Window<Creature, CreatureDominanceOrd>, counter: usize) -> Self {
         let frame = &window.frame;
 
         let length = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
@@ -141,7 +138,7 @@ mod test {
 }
 
 pub fn report_fn(
-    window: &Window<Creature<u64>, super::CreatureDominanceOrd>,
+    window: &Window<Creature, super::CreatureDominanceOrd>,
     counter: usize,
     config: &Config,
 ) {
@@ -181,7 +178,7 @@ pub mod lexicase {
     use super::*;
 
     pub fn report_fn(
-        window: &Window<Creature<u64>, super::CreatureDominanceOrd>,
+        window: &Window<Creature, super::CreatureDominanceOrd>,
         _counter: usize,
         _config: &Config,
     ) {

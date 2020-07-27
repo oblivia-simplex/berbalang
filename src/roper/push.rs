@@ -961,9 +961,11 @@ pub mod creature {
     use std::fmt;
     use std::hash::{Hash, Hasher};
 
+    use rand::thread_rng;
+
     use crate::emulator::loader;
     use crate::emulator::profiler::Profile;
-    use crate::evolution::{Genome, Phenome};
+    use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
     use crate::fitness::{HasScalar, MapFit, Weighted};
     use crate::roper::Fitness;
     use crate::util;
@@ -972,17 +974,20 @@ pub mod creature {
     use super::*;
 
     #[derive(Clone, Debug, Copy, Hash, Serialize, Deserialize)]
-    pub enum Mutation {}
+    pub enum OpMutation {}
 
-    #[derive(Clone, Serialize, Deserialize, Debug, Default)]
+    impl Mutation for OpMutation {
+        type Allele = Op;
+
+        fn mutate_point(allele: &mut Self::Allele) -> Self {
+            unimplemented!()
+        }
+    }
+
+    #[derive(Clone, Serialize, Debug)]
     pub struct Creature {
-        pub chromosome: Vec<Op>,
-        pub chromosome_parentage: Vec<usize>,
-        pub chromosome_mutation: Vec<Option<Mutation>>,
+        pub chromosome: LinearChromosome<Op, OpMutation>,
         pub tag: u64,
-        pub name: String,
-        pub parents: Vec<String>,
-        pub generation: usize,
         pub payload: Option<Vec<u64>>,
         pub profile: Option<Profile>,
         #[serde(borrow)]
@@ -1005,11 +1010,11 @@ pub mod creature {
         type Allele = Op;
 
         fn chromosome(&self) -> &[Self::Allele] {
-            &self.chromosome
+            &self.chromosome.chromosome
         }
 
         fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
-            &mut self.chromosome
+            &mut self.chromosome.chromosome
         }
 
         fn random<H: Hash>(config: &Config, salt: H) -> Self
@@ -1022,13 +1027,15 @@ pub mod creature {
             let ops = random_ops(&mut rng, config.push_vm.literal_rate, length);
 
             Self {
-                chromosome: ops,
-                chromosome_parentage: vec![],
-                chromosome_mutation: vec![],
+                chromosome: LinearChromosome {
+                    chromosome: ops,
+                    mutations: vec![None; length],
+                    parentage: vec![],
+                    parent_names: vec![],
+                    name: util::name::random(4, rng.gen::<u64>()),
+                    generation: 0,
+                },
                 tag: rng.gen::<u64>(),
-                name: util::name::random(4, rng.gen::<u64>()),
-                parents: vec![],
-                generation: 0,
                 payload: None,
                 profile: None,
                 fitness: None,
@@ -1039,57 +1046,30 @@ pub mod creature {
             }
         }
 
-        // is this simply identical to the original roper crossover?
-        // this and much else could probably be defined generically.
-        // TODO: Refactor
         fn crossover(mates: &[&Self], config: &Config) -> Self
         where
             Self: Sized,
         {
-            let min_mate_len = mates.iter().map(|p| p.len()).min().unwrap();
-            let lambda = min_mate_len as f64 / config.crossover_period;
-            let distribution =
-                rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
-            let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
-            let mut rng = hash_seed_rng(&mates[0]);
-            let (chromosome, chromosome_parentage, parent_names) =
-                // Check to see if we're performing a crossover or just cloning
-                if rng.gen_range(0.0, 1.0) < config.crossover_rate {
-                    let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
-                    let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
-                    (c, p, names)
-                } else {
-                    let parent = parental_chromosomes[rng.gen_range(0, 2)];
-                    let chromosome = parent.to_vec();
-                    let parentage =
-                        chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
-                    (chromosome, parentage, vec![mates[0].name.clone()])
-                };
-
-            let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
-            let name = util::name::random(4, &chromosome);
-            let len = chromosome.len();
-
+            let parents = mates
+                .iter()
+                .map(|x| &x.chromosome)
+                .collect::<Vec<&LinearChromosome<_, _>>>();
+            let chromosome = LinearChromosome::crossover(&parents, config);
             Self {
                 chromosome,
-                chromosome_parentage,
-                chromosome_mutation: vec![None; len],
-                tag: rand::random::<u64>(),
-                parents: parent_names,
-                generation,
-                name,
+                tag: thread_rng().gen::<u64>(),
+                payload: None,
                 profile: None,
                 fitness: None,
                 front: None,
                 num_offspring: 0,
-                native_island: config.island_identifier,
+                native_island: 0,
                 description: None,
-                ..Default::default()
             }
         }
 
         fn mutate(&mut self, config: &Config) {
-            unimplemented!()
+            self.chromosome.mutate(config)
         }
 
         fn incr_num_offspring(&mut self, _n: usize) {
