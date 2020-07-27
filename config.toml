@@ -3,7 +3,7 @@
 ##############################
 
 #random_seed = 0xdeadbeef
-job = "Roper"
+job = "LinearGp"
 selection = "Tournament" 
 
 num_islands = 7
@@ -32,12 +32,12 @@ num_epochs = 200 # = infinite
 
 [fitness]
 #function = "register_pattern"
-function = "register_entropy" # weird idea
+function = "error_rate" # weird idea
 #function = "register_conjunction"
 #priority = "zeroes" # could this be set by the ff?
-priority = "register_entropy"
+priority = "error_rate"
 #function = "code_coverage"
-target = -150
+target = 1
 eval_by_case = false
 dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 # as distinct, sometimes, from execution.

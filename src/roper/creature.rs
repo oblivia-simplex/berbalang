@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use hashbrown::HashMap;
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use rand_distr::{Distribution, Standard};
@@ -23,7 +24,6 @@ use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
-use hashbrown::HashMap;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Creature<T: Clone + Serialize + Deserialize<'static>> {
@@ -309,12 +309,7 @@ impl Genome for Creature<u64> {
         }
     }
 
-    fn crossover(mates: &[&Self], config: &Config) -> Self
-    where
-        Self: Sized,
-        // note code duplication between this and linear_gp TODO
-    {
-        // NOTE: this bitmask schema implements an implicit incest prohibition
+    fn crossover(mates: &[&Self], config: &Config) -> Self {
         let min_mate_len = mates.iter().map(|p| p.len()).min().unwrap();
         let lambda = min_mate_len as f64 / config.crossover_period;
         let distribution =

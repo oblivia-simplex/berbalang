@@ -15,8 +15,8 @@ pub mod pareto_roulette;
 pub mod population;
 pub mod tournament;
 
-pub trait Genome: Debug + Hash {
-    type Allele: Clone + Copy + Debug + PartialEq + Eq + Hash + Serialize + Sized;
+pub trait Genome: Hash {
+    type Allele: Clone + Debug + PartialEq + Eq + Hash + Serialize + Sized;
 
     fn chromosome(&self) -> &[Self::Allele];
 
@@ -56,7 +56,7 @@ pub trait Genome: Debug + Hash {
             let take_to = ptrs[src] + sample(&mut rng);
             let len = parents[src].len();
             for i in take_from..take_to {
-                chromosome.push(parents[src][i % len])
+                chromosome.push(parents[src][i % len].clone())
             }
 
             for _ in 0..(take_to - take_from) {
@@ -94,13 +94,13 @@ pub trait Genome: Debug + Hash {
     fn digrams(&self) -> Box<dyn Iterator<Item = (Self::Allele, Self::Allele)> + '_> {
         if self.chromosome().len() == 1 {
             // FIXME: i don't like this edge case.
-            return Box::new(self.chromosome().iter().map(|x| (*x, *x)));
+            return Box::new(self.chromosome().iter().map(|x| (x.clone(), x.clone())));
         }
         Box::new(
             self.chromosome()
                 .iter()
                 .zip(self.chromosome().iter().skip(1))
-                .map(|(a, b)| (*a, *b)),
+                .map(|(a, b)| (a.clone(), b.clone())),
         )
     }
 
@@ -147,10 +147,7 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
 
     fn scalar_fitness(&self) -> Option<f64>;
 
-    fn priority_fitness(&self, _config: &Config) -> Option<f64> {
-        unimplemented!("let's break here for now");
-        //self.scalar_fitness()
-    }
+    fn priority_fitness(&self, _config: &Config) -> Option<f64>;
 
     fn set_fitness(&mut self, f: Self::Fitness);
 

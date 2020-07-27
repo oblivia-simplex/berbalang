@@ -96,6 +96,9 @@ fn default_push_vm_max_steps() -> usize {
 pub struct PushVm {
     #[serde(default = "default_push_vm_max_steps")]
     pub max_steps: usize,
+    pub min_len: usize,
+    pub max_len: usize,
+    pub literal_rate: f64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

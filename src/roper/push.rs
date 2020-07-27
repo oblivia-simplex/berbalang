@@ -1,7 +1,15 @@
+use std::fmt;
+
+use bitflags::_core::fmt::Formatter;
+use capstone::RegId;
 use falcon::il;
 use hashbrown::HashMap;
+use rand::prelude::SliceRandom;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use crate::configure::Config;
+use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 
@@ -10,7 +18,7 @@ pub type Stack<T> = Vec<T>;
 pub type Input = Type;
 pub type Output = Type;
 
-// TODO: define a distribution over these ops. IntConst should comprise about half
+// TODO: define a distribution over these ops. WordConst should comprise about half
 // of any genome, I think, since without that, there's no ROP chain.
 
 /// Virtual
@@ -21,35 +29,55 @@ pub type Output = Type;
 /// Language
 ///
 /// VINDSL
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op {
+    BoolConst(bool),
     BoolAnd,
     BoolOr,
     BoolNot,
 
-    IntConst(u64),
-    IntLess,
-    IntEqual,
-    IntAdd,
-    IntSub,
-    IntAnd,
-    IntOr,
-    IntXor,
-    IntDiv,
-    IntMul,
-    IntMod,
-    IntOnes,
+    WordConst(u64),
+    WordLess,
+    WordEqual,
+    WordAdd,
+    WordSub,
+    WordAnd,
+    WordOr,
+    WordXor,
+    WordDiv,
+    WordMul,
+    WordMod,
+    WordOnes,
+    WordShl,
+    WordShr,
 
-    IntDeref,
-    IntSearch,
-    IntToFloat,
+    // Treating the Word as an address
+    WordDeref,
+    WordSearch,
+    //WordReadRegs,
+    //WordWriteRegs,
+    // TODO: there should be a way to map addresses to IL CFG Nodes
+    WordToFloat,
 
-    IntReadable,
-    IntWriteable,
-    IntExecutable,
+    WordReadable,
+    WordWriteable,
+    WordExecutable,
 
-    IntToGadget,
-    GadgetToInt,
+    WordToGadget,
+    GadgetToWord,
+
+    //BufConst(&'static [u8]),
+    BufAt,
+    // constant, by address
+    BufLen,
+    BufIndex,
+    BufPack,
+    BufHead,
+    BufTail,
+    //BufSearch,
+    BufDisRegRead,
+    BufDisRegWrite,
+    BufDisInstId,
 
     // floats need to be encoded as u64 to preserve Hash
     FloatConst(u64),
@@ -58,7 +86,8 @@ pub enum Op {
     FloatCos,
     FloatTan,
     FloatTanh,
-    FloatToInt,
+    FloatToWord,
+    FloatLess,
 
     CodeQuote,
     CodeDoAll,
@@ -69,18 +98,18 @@ pub enum Op {
     InstIsLoad,
     InstAddr,
 
+    // BlockConst(&'static il::Block),
     BlockInsts,
     BlockAddr,
     BlockSuccs,
     BlockPreds,
 
+    //FuncConst(&'static il::Function),
+    FuncNamed(String),
     FuncBlock,
     FuncEntry,
     FuncExit,
     FuncAddr,
-
-    ExprToInt,
-    // for constants
     ExprEval,
 
     ExecIf,
@@ -98,6 +127,123 @@ pub enum Op {
     Dup(Type),
 
     List(Vec<Op>),
+}
+
+static NON_CONSTANT_OPS: [Op; 60] = [
+    Op::BoolAnd,
+    Op::BoolOr,
+    Op::BoolNot,
+    Op::WordLess,
+    Op::WordEqual,
+    Op::WordAdd,
+    Op::WordSub,
+    Op::WordAnd,
+    Op::WordOr,
+    Op::WordXor,
+    Op::WordDiv,
+    Op::WordMul,
+    Op::WordMod,
+    Op::WordOnes,
+    Op::WordShl,
+    Op::WordShr,
+    Op::WordDeref,
+    Op::WordSearch,
+    // Op::WordReadRegs,
+    // Op::WordWriteRegs,
+    Op::WordToFloat,
+    Op::WordReadable,
+    Op::WordWriteable,
+    Op::WordExecutable,
+    Op::WordToGadget,
+    Op::GadgetToWord,
+    //Op::BufConst(&'static [u8]),
+    Op::BufAt,
+    Op::BufLen,
+    Op::BufIndex,
+    Op::BufPack,
+    Op::BufHead,
+    Op::BufTail,
+    // Op::BufSearch,
+    Op::BufDisRegRead,
+    Op::BufDisRegWrite,
+    Op::BufDisInstId,
+    // floats need to be encoded as u64 to preserve Op::Hash
+    Op::FloatLog,
+    Op::FloatSin,
+    Op::FloatCos,
+    Op::FloatTan,
+    Op::FloatTanh,
+    Op::FloatToWord,
+    Op::FloatLess,
+    Op::CodeQuote,
+    Op::CodeDoAll,
+    Op::InstIsBranch,
+    Op::InstIsStore,
+    Op::InstIsLoad,
+    Op::InstAddr,
+    Op::BlockInsts,
+    Op::BlockAddr,
+    Op::BlockSuccs,
+    Op::BlockPreds,
+    Op::FuncBlock,
+    Op::FuncEntry,
+    Op::FuncExit,
+    Op::FuncAddr,
+    Op::ExprEval,
+    Op::ExecIf,
+    Op::ExecK,
+    Op::ExecS,
+    Op::ExecY,
+    Op::Nop,
+];
+
+fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
+    let mut ops = Vec::new();
+
+    let memory = get_static_memory_image();
+    let program = memory.il_program.as_ref().unwrap();
+    let function_names: Vec<String> = program
+        .functions()
+        .into_iter()
+        .map(il::Function::name)
+        .collect();
+
+    for _ in 0..count {
+        if rng.gen_range(0.0, 1.0) < literal_rate {
+            match rng.gen_range(0, 4) {
+                0 => {
+                    // functions
+                    let f = function_names
+                        .choose(rng)
+                        .expect("Failed to choose a random function")
+                        .clone();
+                    ops.push(Op::FuncNamed(f))
+                }
+                1 => {
+                    // addresses
+                    let addr = memory.random_address(None, rng.gen::<u64>());
+                    ops.push(Op::WordConst(addr))
+                }
+                2 => {
+                    // boolean
+                    ops.push(Op::BoolConst(rng.gen::<bool>()))
+                }
+                3 => {
+                    // float
+                    ops.push(Op::FloatConst(rng.gen::<f64>().to_bits()))
+                }
+                _ => unreachable!("nope"),
+            };
+        } else {
+            let op = NON_CONSTANT_OPS
+                .choose(rng)
+                .expect("Failed to choose random op")
+                .clone();
+            ops.push(op)
+        }
+    }
+
+    ops
 }
 
 // TODO: add data and control flow graph operations, using Falcon.
@@ -188,6 +334,7 @@ impl Op {
             }
 
             // Boolean Operations
+            BoolConst(a) => mach.push(Bool(*a)),
             BoolAnd => {
                 if let (Bool(a), Bool(b)) = (mach.pop(&Type::Bool), mach.pop(&Type::Bool)) {
                     let res = Bool(a && b);
@@ -205,103 +352,205 @@ impl Op {
                 }
             }
 
-            // Int (integer/address) Operations
-            IntConst(w) => mach.push(Int(*w)),
-            IntLess => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Bool(a < b))
-                }
-            }
-            IntEqual => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Bool(a == b))
-                }
-            }
-            IntAdd => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Int(a.wrapping_add(b)))
-                }
-            }
-            IntSub => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Int(a.wrapping_sub(b)))
-                }
-            }
-            IntAnd => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Int(a & b))
-                }
-            }
-            IntOr => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Int(a | b))
-                }
-            }
-            IntXor => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Int(a ^ b))
-                }
-            }
-            IntMul => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    mach.push(Int(a.wrapping_mul(b)))
-                }
-            }
-            IntDiv => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    if b != 0 {
-                        mach.push(Int(a / b))
+            // Byte buffer operations
+            BufAt => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(a, None) {
+                        mach.push(Buf(buf))
                     }
                 }
             }
-            IntMod => {
-                if let (Int(a), Int(b)) = (mach.pop(&Type::Int), mach.pop(&Type::Int)) {
-                    if b != 0 {
-                        mach.push(Int(a % b))
+            BufLen => {
+                if let Buf(a) = mach.pop(&Type::Buf) {
+                    mach.push(Word(a.len() as u64))
+                }
+            }
+            BufHead => {
+                if let (Buf(buf), Word(n)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
+                    let n = n as usize % buf.len();
+                    mach.push(Buf(&buf[0..n]))
+                }
+            }
+            BufIndex => {
+                if let (Buf(buf), Word(i)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
+                    let i = i as usize;
+                    let b = buf[i % buf.len()];
+                    mach.push(Word(b as u64));
+                }
+            }
+            BufPack => {
+                if let Buf(b) = mach.pop(&Type::Buf) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(n) = read_integer(b, memory.endian, memory.word_size) {
+                        mach.push(Word(n))
                     }
                 }
             }
-            IntOnes => {
-                if let Int(a) = mach.pop(&Type::Int) {
-                    mach.push(Int(a.count_ones() as u64))
+            BufTail => {
+                if let (Buf(b), Word(n)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
+                    let n = n as usize % b.len();
+                    mach.push(Buf(b[..n].as_ref()))
                 }
             }
-            IntDeref => {
-                if let Int(a) = mach.pop(&Type::Int) {
-                    let memory = get_static_memory_image();
-                    if let Some(x) = memory.try_dereference(a, None) {
-                        if let Some(w) = read_integer(x, memory.endian, memory.word_size) {
-                            mach.push(Int(w))
+            BufDisRegRead => {
+                if let Buf(buf) = mach.pop(&Type::Buf) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(disassembler) = memory.disasm.as_ref() {
+                        if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                            for inst in insts.iter() {
+                                if let Ok(details) = disassembler.insn_detail(&inst) {
+                                    for reg in details.regs_read() {
+                                        let n = reg.0 as u64;
+                                        mach.push(Word(n))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-            IntSearch => {
-                if let Int(a) = mach.pop(&Type::Int) {
+            BufDisRegWrite => {
+                if let Buf(buf) = mach.pop(&Type::Buf) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(disassembler) = memory.disasm.as_ref() {
+                        if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                            for inst in insts.iter() {
+                                if let Ok(details) = disassembler.insn_detail(&inst) {
+                                    for reg in details.regs_write() {
+                                        let n = reg.0 as u64;
+                                        mach.push(Word(n))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            BufDisInstId => {
+                if let Buf(buf) = mach.pop(&Type::Buf) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(disassembler) = memory.disasm.as_ref() {
+                        if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                            for inst in insts.iter() {
+                                mach.push(Word(inst.id().0 as u64))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Word (integer/address) Operations
+            WordConst(w) => mach.push(Word(*w)),
+            WordShl => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    let b = b as u32 % 64;
+                    let (res, _) = a.overflowing_shl(b);
+                    mach.push(Word(res))
+                }
+            }
+            WordShr => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    let b = b as u32 % 64;
+                    let (res, _) = a.overflowing_shr(b);
+                    mach.push(Word(res))
+                }
+            }
+            WordLess => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Bool(a < b))
+                }
+            }
+            WordEqual => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Bool(a == b))
+                }
+            }
+            WordAdd => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Word(a.wrapping_add(b)))
+                }
+            }
+            WordSub => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Word(a.wrapping_sub(b)))
+                }
+            }
+            WordAnd => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Word(a & b))
+                }
+            }
+            WordOr => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Word(a | b))
+                }
+            }
+            WordXor => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Word(a ^ b))
+                }
+            }
+            WordMul => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    mach.push(Word(a.wrapping_mul(b)))
+                }
+            }
+            WordDiv => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    if b != 0 {
+                        mach.push(Word(a / b))
+                    }
+                }
+            }
+            WordMod => {
+                if let (Word(a), Word(b)) = (mach.pop(&Type::Word), mach.pop(&Type::Word)) {
+                    if b != 0 {
+                        mach.push(Word(a % b))
+                    }
+                }
+            }
+            WordOnes => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    mach.push(Word(a.count_ones() as u64))
+                }
+            }
+            WordDeref => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    let memory = get_static_memory_image();
+                    if let Some(x) = memory.try_dereference(a, None) {
+                        if let Some(w) = read_integer(x, memory.endian, memory.word_size) {
+                            mach.push(Word(w))
+                        }
+                    }
+                }
+            }
+            WordSearch => {
+                if let Word(a) = mach.pop(&Type::Word) {
                     let memory = get_static_memory_image();
                     let mut bytes = vec![0; memory.word_size];
                     write_integer(memory.endian, memory.word_size, a, &mut bytes);
                     if let Some(addr) = memory.seek_all_segs(&bytes, None) {
-                        mach.push(Int(addr))
+                        mach.push(Word(addr))
                     }
                 }
             }
-            IntReadable => {
-                if let Int(a) = mach.pop(&Type::Int) {
+            WordReadable => {
+                if let Word(a) = mach.pop(&Type::Word) {
                     let memory = get_static_memory_image();
                     let perm = memory.perm_of_addr(a).unwrap_or(Perms::NONE);
                     mach.push(Bool(perm.intersects(Perms::READ)))
                 }
             }
-            IntWriteable => {
-                if let Int(a) = mach.pop(&Type::Int) {
+            WordWriteable => {
+                if let Word(a) = mach.pop(&Type::Word) {
                     let memory = get_static_memory_image();
                     let perm = memory.perm_of_addr(a).unwrap_or(Perms::NONE);
                     mach.push(Bool(perm.intersects(Perms::WRITE)))
                 }
             }
-            IntExecutable => {
-                if let Int(a) = mach.pop(&Type::Int) {
+            WordExecutable => {
+                if let Word(a) = mach.pop(&Type::Word) {
                     let memory = get_static_memory_image();
                     let perm = memory.perm_of_addr(a).unwrap_or(Perms::NONE);
                     mach.push(Bool(perm.intersects(Perms::EXEC)))
@@ -333,36 +582,36 @@ impl Op {
                 }
             }
             FloatConst(n) => mach.push(Float(*n)),
-
-            FloatToInt => {
-                if let Float(a) = mach.pop(&Type::Float) {
-                    mach.push(Int(a))
+            FloatLess => {
+                if let (Float(a), Float(b)) = (mach.pop(&Type::Float), mach.pop(&Type::Float)) {
+                    let a = f64::from_bits(a);
+                    let b = f64::from_bits(b);
+                    mach.push(Bool(a < b))
                 }
             }
 
-            IntToFloat => {
-                if let Int(a) = mach.pop(&Type::Int) {
+            FloatToWord => {
+                if let Float(a) = mach.pop(&Type::Float) {
+                    mach.push(Word(f64::from_bits(a) as u64))
+                }
+            }
+
+            WordToFloat => {
+                if let Word(a) = mach.pop(&Type::Word) {
                     mach.push(Float(a))
                 }
             }
-            IntToGadget => {
-                if let Int(a) = mach.pop(&Type::Int) {
+            WordToGadget => {
+                if let Word(a) = mach.pop(&Type::Word) {
                     mach.push(Gadget(a))
                 }
             }
-            GadgetToInt => {
+            GadgetToWord => {
                 if let Gadget(a) = mach.pop(&Type::Gadget) {
-                    mach.push(Int(a))
+                    mach.push(Word(a))
                 }
             }
 
-            ExprToInt => {
-                if let Expression(il::Expression::Constant(c)) = mach.pop(&Type::Expression) {
-                    if let Some(n) = c.value_u64() {
-                        mach.push(Int(n))
-                    }
-                }
-            }
             // Perform a very much approximate evaluation of the expression, by unwrapping its
             // arguments, and roughly translating the operation
             ExprEval => {
@@ -371,24 +620,24 @@ impl Op {
                     use il::Expression as E;
                     if let E::Constant(c) = expr {
                         if let Some(n) = c.value_u64() {
-                            mach.push(Int(n))
+                            mach.push(Word(n))
                         }
                     } else {
                         let (op, a, b) = match expr {
-                            E::Add(a, b) => (IntAdd, Some(a), Some(b)),
-                            E::Sub(a, b) => (IntSub, Some(a), Some(b)),
-                            E::Mul(a, b) => (IntMul, Some(a), Some(b)),
-                            E::Divu(a, b) => (IntDiv, Some(a), Some(b)),
-                            E::Modu(a, b) => (IntMod, Some(a), Some(b)),
-                            E::Divs(a, b) => (IntDiv, Some(a), Some(b)),
-                            E::Mods(a, b) => (IntMod, Some(a), Some(b)),
-                            E::And(a, b) => (IntAnd, Some(a), Some(b)),
-                            E::Or(a, b) => (IntOr, Some(a), Some(b)),
-                            E::Xor(a, b) => (IntXor, Some(a), Some(b)),
-                            E::Cmpeq(a, b) => (Eq(Type::Int), Some(a), Some(b)),
-                            E::Cmpneq(a, b) => (Eq(Type::Int), Some(a), Some(b)),
-                            E::Cmplts(a, b) => (IntLess, Some(a), Some(b)),
-                            E::Cmpltu(a, b) => (IntLess, Some(a), Some(b)),
+                            E::Add(a, b) => (WordAdd, Some(a), Some(b)),
+                            E::Sub(a, b) => (WordSub, Some(a), Some(b)),
+                            E::Mul(a, b) => (WordMul, Some(a), Some(b)),
+                            E::Divu(a, b) => (WordDiv, Some(a), Some(b)),
+                            E::Modu(a, b) => (WordMod, Some(a), Some(b)),
+                            E::Divs(a, b) => (WordDiv, Some(a), Some(b)),
+                            E::Mods(a, b) => (WordMod, Some(a), Some(b)),
+                            E::And(a, b) => (WordAnd, Some(a), Some(b)),
+                            E::Or(a, b) => (WordOr, Some(a), Some(b)),
+                            E::Xor(a, b) => (WordXor, Some(a), Some(b)),
+                            E::Cmpeq(a, b) => (Eq(Type::Word), Some(a), Some(b)),
+                            E::Cmpneq(a, b) => (Eq(Type::Word), Some(a), Some(b)),
+                            E::Cmplts(a, b) => (WordLess, Some(a), Some(b)),
+                            E::Cmpltu(a, b) => (WordLess, Some(a), Some(b)),
                             E::Ite(a, b, _) => (ExecIf, Some(a), Some(b)),
                             // scalars and constants
                             _ => (Nop, None, None),
@@ -405,7 +654,7 @@ impl Op {
             }
             // Given a Function and a CFG index, get the block at that index
             FuncBlock => {
-                if let (Function(f), Int(i)) = (mach.pop(&Type::Function), mach.pop(&Type::Int)) {
+                if let (Function(f), Word(i)) = (mach.pop(&Type::Function), mach.pop(&Type::Word)) {
                     let index = i as usize;
                     if let Ok(block) = f.block(index) {
                         mach.push(Block(block));
@@ -433,14 +682,22 @@ impl Op {
             FuncAddr => {
                 if let Function(f) = mach.pop(&Type::Function) {
                     let addr = f.address();
-                    mach.push(Int(addr));
+                    mach.push(Word(addr));
+                }
+            }
+            FuncNamed(name) => {
+                let memory = get_static_memory_image();
+                if let Some(ref program) = memory.il_program {
+                    if let Some(func) = program.function_by_name(name) {
+                        mach.push(Function(func))
+                    }
                 }
             }
 
             BlockAddr => {
                 if let Block(a) = mach.pop(&Type::Block) {
                     if let Some(addr) = a.address() {
-                        mach.push(Int(addr));
+                        mach.push(Gadget(addr));
                     }
                 }
             }
@@ -511,7 +768,7 @@ impl Op {
             InstAddr => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
                     if let Some(addr) = a.address() {
-                        mach.push(Int(addr))
+                        mach.push(Gadget(addr))
                     }
                 }
             }
@@ -519,10 +776,10 @@ impl Op {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Type {
-    Int,
-    Byte,
+    Word,
+    Buf,
     // Not using byte slices yet. but we could try later.
     Bool,
     Exec,
@@ -534,7 +791,7 @@ pub enum Type {
     // Falcon-specific
     Scalar,
     Expression,
-    Operation,
+    //Operation,
     Instruction,
     Block,
     Function,
@@ -543,16 +800,16 @@ pub enum Type {
 impl From<&Val> for Type {
     fn from(v: &Val) -> Self {
         match v {
-            Val::Int(_) => Type::Int,
+            Val::Word(_) => Type::Word,
             Val::Gadget(_) => Type::Gadget,
-            Val::Byte(_) => Type::Byte,
+            Val::Buf(_) => Type::Buf,
             Val::Bool(_) => Type::Bool,
             Val::Exec(_) => Type::Exec,
             Val::Float(_) => Type::Float,
             Val::Code(_) => Type::Code,
             Val::Scalar(_) => Type::Scalar,
             Val::Expression(_) => Type::Expression,
-            Val::Operation(_) => Type::Operation,
+            //Val::Operation(_) => Type::Operation,
             Val::Instruction(_) => Type::Instruction,
             Val::Block(_) => Type::Block,
             Val::Function(_) => Type::Function,
@@ -564,8 +821,8 @@ impl From<&Val> for Type {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Val {
     Null,
-    Int(u64),
-    Byte(&'static [u8]),
+    Word(u64),
+    Buf(&'static [u8]),
     Bool(bool),
     Exec(Op),
     Code(Op),
@@ -574,16 +831,19 @@ pub enum Val {
     // Falcon
     Scalar(il::Scalar),
     Expression(il::Expression),
-    Operation(&'static il::Operation),
+    //Operation(&'static il::Operation),
     Instruction(&'static il::Instruction),
     Block(&'static il::Block),
     Function(&'static il::Function),
 }
 
+// TODO: disassembly aware instructions.
+//
+
 impl Val {
     pub fn unwrap_word(self) -> Option<u64> {
         match self {
-            Self::Int(w) | Self::Gadget(w) => Some(w),
+            Self::Word(w) | Self::Gadget(w) => Some(w),
             _ => None,
         }
     }
@@ -606,10 +866,18 @@ impl MachineState {
 
     pub fn flush(&mut self) {
         self.stacks = HashMap::new();
-        self.stacks.insert(Type::Int, vec![]);
+        self.stacks.insert(Type::Block, vec![]);
         self.stacks.insert(Type::Bool, vec![]);
-        self.stacks.insert(Type::Float, vec![]);
+        self.stacks.insert(Type::Buf, vec![]);
+        self.stacks.insert(Type::Code, vec![]);
         self.stacks.insert(Type::Exec, vec![]);
+        self.stacks.insert(Type::Expression, vec![]);
+        self.stacks.insert(Type::Float, vec![]);
+        self.stacks.insert(Type::Function, vec![]);
+        self.stacks.insert(Type::Gadget, vec![]);
+        self.stacks.insert(Type::Instruction, vec![]);
+        self.stacks.insert(Type::Scalar, vec![]);
+        self.stacks.insert(Type::Word, vec![]);
         self.counter = 0;
     }
 
@@ -634,7 +902,7 @@ impl MachineState {
             .push(val)
     }
 
-    pub fn exec(&mut self, code: &[Op], args: &[Val], config: &Config) -> Vec<u64> {
+    pub fn exec(&mut self, code: &[Op], args: &[Val], max_steps: usize) -> Vec<u64> {
         self.flush();
         self.load_args(args);
         // Load the exec stack
@@ -643,43 +911,325 @@ impl MachineState {
         }
 
         while let Some(Val::Exec(op)) = self.pop_opt(&Type::Exec) {
+            log::trace!("[{}] {:x?}", self.counter, op);
             self.counter += 1;
-            if self.counter >= config.push_vm.max_steps {
+            if self.counter >= max_steps {
                 break;
             }
 
             op.eval(self)
         }
 
+        log::trace!("Completed execution");
         // first, take the explicitly-marked gadgets.
         // ensure that this list begins with an executable.
-        let mut gadgets: Vec<u64> = self
+
+        let mut payload = self
+            .stacks
+            .get_mut(&Type::Word)
+            .unwrap()
+            .drain(..)
+            .filter_map(Val::unwrap_word)
+            .collect::<Vec<u64>>();
+
+        let gadgets = self
             .stacks
             .get_mut(&Type::Gadget)
             .unwrap()
             .drain(..)
-            .filter_map(Val::unwrap_word)
-            .collect();
+            .filter_map(Val::unwrap_word);
+        payload.extend(gadgets);
+
         let memory = get_static_memory_image();
-        while !gadgets
+        while !payload
             .last()
             .and_then(|a| memory.perm_of_addr(*a))
             .map(|p| p.intersects(Perms::EXEC))
             .unwrap_or(false)
         {
-            let _ = gadgets.pop();
+            if payload.pop().is_none() {
+                break;
+            };
         }
-        gadgets.reverse();
+        payload.reverse();
 
-        let integers = self
-            .stacks
-            .get_mut(&Type::Int)
-            .unwrap()
-            .drain(..)
-            .filter_map(Val::unwrap_word);
-        gadgets.extend(integers);
-        gadgets
+        payload
     }
 }
 
-pub mod creature {}
+pub mod creature {
+    use std::fmt;
+    use std::hash::{Hash, Hasher};
+
+    use crate::emulator::loader;
+    use crate::emulator::profiler::Profile;
+    use crate::evolution::{Genome, Phenome};
+    use crate::fitness::{HasScalar, MapFit, Weighted};
+    use crate::roper::Fitness;
+    use crate::util;
+    use crate::util::random::hash_seed_rng;
+
+    use super::*;
+
+    #[derive(Clone, Debug, Copy, Hash, Serialize, Deserialize)]
+    pub enum Mutation {}
+
+    #[derive(Clone, Serialize, Deserialize, Debug, Default)]
+    pub struct Creature {
+        pub chromosome: Vec<Op>,
+        pub chromosome_parentage: Vec<usize>,
+        pub chromosome_mutation: Vec<Option<Mutation>>,
+        pub tag: u64,
+        pub name: String,
+        pub parents: Vec<String>,
+        pub generation: usize,
+        pub payload: Option<Vec<u64>>,
+        pub profile: Option<Profile>,
+        #[serde(borrow)]
+        pub fitness: Option<Fitness<'static>>,
+        pub front: Option<usize>,
+        pub num_offspring: usize,
+        pub native_island: usize,
+        pub description: Option<String>,
+    }
+
+    impl Hash for Creature {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.tag.hash(state)
+        }
+    }
+
+    impl Creature {}
+
+    impl Genome for Creature {
+        type Allele = Op;
+
+        fn chromosome(&self) -> &[Self::Allele] {
+            &self.chromosome
+        }
+
+        fn chromosome_mut(&mut self) -> &mut [Self::Allele] {
+            &mut self.chromosome
+        }
+
+        fn random<H: Hash>(config: &Config, salt: H) -> Self
+        where
+            Self: Sized,
+        {
+            // First, let's get some information from the lifted program
+            let mut rng = hash_seed_rng(&salt);
+            let length = rng.gen_range(config.push_vm.min_len, config.push_vm.max_len);
+            let ops = random_ops(&mut rng, config.push_vm.literal_rate, length);
+
+            Self {
+                chromosome: ops,
+                chromosome_parentage: vec![],
+                chromosome_mutation: vec![],
+                tag: rng.gen::<u64>(),
+                name: util::name::random(4, rng.gen::<u64>()),
+                parents: vec![],
+                generation: 0,
+                payload: None,
+                profile: None,
+                fitness: None,
+                front: None,
+                num_offspring: 0,
+                native_island: config.island_identifier,
+                description: None,
+            }
+        }
+
+        // is this simply identical to the original roper crossover?
+        // this and much else could probably be defined generically.
+        // TODO: Refactor
+        fn crossover(mates: &[&Self], config: &Config) -> Self
+        where
+            Self: Sized,
+        {
+            let min_mate_len = mates.iter().map(|p| p.len()).min().unwrap();
+            let lambda = min_mate_len as f64 / config.crossover_period;
+            let distribution =
+                rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
+            let parental_chromosomes = mates.iter().map(|m| m.chromosome()).collect::<Vec<_>>();
+            let mut rng = hash_seed_rng(&mates[0]);
+            let (chromosome, chromosome_parentage, parent_names) =
+                // Check to see if we're performing a crossover or just cloning
+                if rng.gen_range(0.0, 1.0) < config.crossover_rate {
+                    let (c, p) = Self::crossover_by_distribution(&distribution, &parental_chromosomes);
+                    let names = mates.iter().map(|p| p.name.clone()).collect::<Vec<String>>();
+                    (c, p, names)
+                } else {
+                    let parent = parental_chromosomes[rng.gen_range(0, 2)];
+                    let chromosome = parent.to_vec();
+                    let parentage =
+                        chromosome.iter().map(|_| 0).collect::<Vec<usize>>();
+                    (chromosome, parentage, vec![mates[0].name.clone()])
+                };
+
+            let generation = mates.iter().map(|p| p.generation).max().unwrap() + 1;
+            let name = util::name::random(4, &chromosome);
+            let len = chromosome.len();
+
+            Self {
+                chromosome,
+                chromosome_parentage,
+                chromosome_mutation: vec![None; len],
+                tag: rand::random::<u64>(),
+                parents: parent_names,
+                generation,
+                name,
+                profile: None,
+                fitness: None,
+                front: None,
+                num_offspring: 0,
+                native_island: config.island_identifier,
+                description: None,
+                ..Default::default()
+            }
+        }
+
+        fn mutate(&mut self, config: &Config) {
+            unimplemented!()
+        }
+
+        fn incr_num_offspring(&mut self, _n: usize) {
+            unimplemented!()
+        }
+    }
+
+    impl Phenome for Creature {
+        type Fitness = Fitness<'static>;
+        type Problem = ();
+
+        fn fitness(&self) -> Option<&Self::Fitness> {
+            self.fitness.as_ref()
+        }
+
+        fn scalar_fitness(&self) -> Option<f64> {
+            self.fitness.as_ref().map(HasScalar::scalar)
+        }
+
+        fn priority_fitness(&self, config: &Config) -> Option<f64> {
+            let priority = &config.fitness.priority;
+            self.fitness().as_ref().and_then(|f| f.get(priority))
+        }
+
+        fn set_fitness(&mut self, f: Self::Fitness) {
+            self.fitness = Some(f)
+        }
+
+        fn tag(&self) -> u64 {
+            self.tag
+        }
+
+        fn set_tag(&mut self, tag: u64) {
+            self.tag = tag
+        }
+
+        fn answers(&self) -> Option<&Vec<Self::Problem>> {
+            unimplemented!()
+        }
+
+        fn store_answers(&mut self, results: Vec<Self::Problem>) {
+            unimplemented!()
+        }
+
+        fn is_goal_reached(&self, config: &Config) -> bool {
+            self.priority_fitness(config)
+                .map(|p| p - config.fitness.target <= std::f64::EPSILON)
+                .unwrap_or(false)
+        }
+    }
+
+    // impl fmt::Debug for Creature<Op> {
+    //     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    //         writeln!(f, "Name: {}, from island {}", self.name, self.native_island)?;
+    //         writeln!(f, "Generation: {}", self.generation)?;
+    //         let memory = loader::get_static_memory_image();
+    //         for i in 0..self.chromosome.len() {
+    //             let parent = if self.parents.is_empty() {
+    //                 "seed"
+    //             } else {
+    //                 &self.parents[self.chromosome_parentage[i]]
+    //             };
+    //             let allele = &self.chromosome[i];
+    //             let mutation = self.chromosome_mutation[i];
+    //             writeln!(
+    //                 f,
+    //                 "[{}][{}] 0x{:010x}{}{} {}",
+    //                 i,
+    //                 parent,
+    //                 allele,
+    //                 perms,
+    //                 if was_it_executed { " *" } else { "" },
+    //                 mutation
+    //                     .map(|m| format!("{:?}", m))
+    //                     .unwrap_or_else(String::new),
+    //             )?;
+    //         }
+    //         if let Some(ref profile) = self.profile {
+    //             writeln!(f, "Trace:")?;
+    //             for path in profile.disas_paths() {
+    //                 writeln!(f, "{}", path)?;
+    //             }
+    //             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
+    //             for state in &profile.registers {
+    //                 writeln!(f, "\nSpidered register state:\n{:?}", state)?;
+    //             }
+    //             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
+    //         }
+    //         // writeln!(
+    //         //     f,
+    //         //     "Scalar fitness: {:?}",
+    //         //     self.fitness().as_ref().map(|f| f.scalar())
+    //         // )?;
+    //         writeln!(f, "Fitness: {:#?}", self.fitness())?;
+    //         Ok(())
+    //     }
+    //}
+}
+
+#[cfg(test)]
+mod test {
+    use unicorn::{Arch, Mode};
+
+    use crate::configure::RoperConfig;
+
+    use super::*;
+
+    #[test]
+    fn test_random_ops() {
+        // first initialize things
+        let mut config = RoperConfig {
+            gadget_file: None,
+            output_registers: vec![],
+            randomize_registers: false,
+            register_pattern: None,
+            parsed_register_pattern: None,
+            soup: None,
+            soup_size: None,
+            arch: Arch::X86,
+            mode: Mode::MODE_64,
+            num_workers: 0,
+            num_emulators: 0,
+            wait_limit: 0,
+            max_emu_steps: None,
+            millisecond_timeout: None,
+            record_basic_blocks: false,
+            record_memory_writes: false,
+            emulator_stack_size: 0,
+            binary_path: "./binaries/X86/MODE_64/nano".to_string(),
+            ld_paths: None,
+            bad_bytes: None,
+        };
+        crate::logger::init("test");
+        println!("Loading, linking, and lifting...");
+        loader::falcon_loader::load_from_path(&mut config, true);
+        let ops = random_ops(&mut rand::thread_rng(), 0.5, 100);
+        println!("{:#?}", ops);
+        let mut machine = MachineState::default();
+        let args = vec![];
+        let res = machine.exec(&ops, &args, 1000);
+        println!("Result: {:#x?}", res);
+    }
+}

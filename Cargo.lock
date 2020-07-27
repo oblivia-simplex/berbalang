@@ -127,6 +127,7 @@ dependencies = [
  "rand_distr",
  "rand_xoshiro",
  "rayon",
+ "ron",
  "rust-ini",
  "seahash",
  "serde",
@@ -569,7 +570,6 @@ dependencies = [
 [[package]]
 name = "falcon"
 version = "0.4.12"
-source = "git+https://github.com/oblivia-simplex/falcon#80f9c618d3923f0b417cc5dddbb04e9fbb379299"
 dependencies = [
  "base64",
  "bitflags",
@@ -1222,6 +1222,17 @@ name = "regex-syntax"
 version = "0.6.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fe5bd57d1d7414c6b5ed48563a2c855d995ff777729dcd91c369ec7fea395ae"
+
+[[package]]
+name = "ron"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a91260f321dbf3b5a16ff91c451dc9eb644ce72775a6812f9c3dfffe63818f8f"
+dependencies = [
+ "base64",
+ "bitflags",
+ "serde",
+]
 
 [[package]]
 name = "rust-ini"

@@ -68,6 +68,11 @@ impl From<std::str::Utf8Error> for Error {
     }
 }
 
+impl From<ron::error::Error> for Error {
+    fn from(e: ron::error::Error) -> Self {
+        Self::Parsing(e.to_string())
+    }
+}
 // type RegisterParseError<C> = <<C as Cpu<'static>>::Reg as FromStr>::Err;
 //
 // impl<C: Cpu<'static>> From<<<C as Cpu<'static>>::Reg as FromStr>::Err> for Error {
