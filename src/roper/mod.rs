@@ -5,7 +5,7 @@ use non_dominated_sort::DominanceOrd;
 use rand::Rng;
 use unicorn::Cpu;
 
-use creature::*;
+use bare::*;
 
 use crate::configure::{Config, Selection};
 /// This is where the ROP-evolution-specific code lives.
@@ -30,7 +30,7 @@ use crate::util::random::hash_seed_rng;
 mod analysis;
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
 /// traits associated with `roper` mode.
-mod creature;
+mod bare;
 
 /// The `evaluation` module contains the various fitness functions, and the construction
 /// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness

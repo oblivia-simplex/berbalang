@@ -15,7 +15,7 @@ use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::pack::Pack;
-use crate::emulator::profiler::Profile;
+use crate::emulator::profiler::{HasProfile, Profile};
 use crate::error::Error;
 use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
 use crate::fitness::{HasScalar, MapFit};
@@ -40,6 +40,12 @@ pub struct Creature {
     pub num_offspring: usize,
     pub native_island: usize,
     pub description: Option<String>,
+}
+
+impl HasProfile for Creature {
+    fn profile(&self) -> Option<&Profile> {
+        self.profile.as_ref()
+    }
 }
 
 impl Hash for Creature {

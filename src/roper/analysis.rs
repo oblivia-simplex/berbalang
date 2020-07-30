@@ -5,7 +5,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::MapFit;
 use crate::get_epoch_counter;
 use crate::observer::Window;
-use crate::roper::creature::Creature;
+use crate::roper::bare::Creature;
 
 use super::CreatureDominanceOrd;
 

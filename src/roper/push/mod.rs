@@ -8,6 +8,8 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+pub use creature::Creature;
+
 use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
@@ -964,7 +966,7 @@ pub mod creature {
     use rand::thread_rng;
 
     use crate::emulator::loader;
-    use crate::emulator::profiler::Profile;
+    use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
     use crate::fitness::{HasScalar, MapFit, Weighted};
     use crate::roper::Fitness;
@@ -974,17 +976,25 @@ pub mod creature {
     use super::*;
 
     #[derive(Clone, Debug, Copy, Hash, Serialize, Deserialize)]
-    pub enum OpMutation {}
+    pub enum OpMutation {
+        RandomOp,
+    }
 
     impl Mutation for OpMutation {
         type Allele = Op;
 
+        // TODO: should we have a pointer to the config here?
+        // we might want to take certain parameters into consideration, like the literal rate
         fn mutate_point(allele: &mut Self::Allele) -> Self {
-            unimplemented!()
+            let mut rng = thread_rng();
+            let literal_rate = 0.5; // TODO: parameterize
+            let new_allele = random_ops(&mut rng, literal_rate, 1).pop().unwrap();
+            *allele = new_allele;
+            OpMutation::RandomOp
         }
     }
 
-    #[derive(Clone, Serialize, Debug)]
+    #[derive(Clone, Serialize)]
     pub struct Creature {
         pub chromosome: LinearChromosome<Op, OpMutation>,
         pub tag: u64,
@@ -996,6 +1006,12 @@ pub mod creature {
         pub num_offspring: usize,
         pub native_island: usize,
         pub description: Option<String>,
+    }
+
+    impl HasProfile for Creature {
+        fn profile(&self) -> Option<&Profile> {
+            self.profile.as_ref()
+        }
     }
 
     impl Hash for Creature {
@@ -1073,7 +1089,7 @@ pub mod creature {
         }
 
         fn incr_num_offspring(&mut self, _n: usize) {
-            unimplemented!()
+            self.num_offspring += 1
         }
     }
 
@@ -1121,52 +1137,47 @@ pub mod creature {
         }
     }
 
-    // impl fmt::Debug for Creature<Op> {
-    //     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    //         writeln!(f, "Name: {}, from island {}", self.name, self.native_island)?;
-    //         writeln!(f, "Generation: {}", self.generation)?;
-    //         let memory = loader::get_static_memory_image();
-    //         for i in 0..self.chromosome.len() {
-    //             let parent = if self.parents.is_empty() {
-    //                 "seed"
-    //             } else {
-    //                 &self.parents[self.chromosome_parentage[i]]
-    //             };
-    //             let allele = &self.chromosome[i];
-    //             let mutation = self.chromosome_mutation[i];
-    //             writeln!(
-    //                 f,
-    //                 "[{}][{}] 0x{:010x}{}{} {}",
-    //                 i,
-    //                 parent,
-    //                 allele,
-    //                 perms,
-    //                 if was_it_executed { " *" } else { "" },
-    //                 mutation
-    //                     .map(|m| format!("{:?}", m))
-    //                     .unwrap_or_else(String::new),
-    //             )?;
-    //         }
-    //         if let Some(ref profile) = self.profile {
-    //             writeln!(f, "Trace:")?;
-    //             for path in profile.disas_paths() {
-    //                 writeln!(f, "{}", path)?;
-    //             }
-    //             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
-    //             for state in &profile.registers {
-    //                 writeln!(f, "\nSpidered register state:\n{:?}", state)?;
-    //             }
-    //             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
-    //         }
-    //         // writeln!(
-    //         //     f,
-    //         //     "Scalar fitness: {:?}",
-    //         //     self.fitness().as_ref().map(|f| f.scalar())
-    //         // )?;
-    //         writeln!(f, "Fitness: {:#?}", self.fitness())?;
-    //         Ok(())
-    //     }
-    //}
+    impl fmt::Debug for Creature {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            writeln!(f, "Native island {}", self.native_island)?;
+            writeln!(f, "{:?}", self.chromosome)?;
+
+            if let Some(ref payload) = self.payload {
+                let memory = get_static_memory_image();
+                for (i, w) in payload.iter().enumerate() {
+                    let perms = memory
+                        .perm_of_addr(*w)
+                        .map(|p| format!(" ({:?})", p))
+                        .unwrap_or_else(String::new);
+                    let executed = self
+                        .profile
+                        .as_ref()
+                        .map(|p| p.gadgets_executed.contains(w))
+                        .unwrap_or(false);
+                    writeln!(
+                        f,
+                        "[{i}] 0x{word:010x}{perms}{executed}",
+                        i = i,
+                        word = w,
+                        perms = perms,
+                        executed = if executed { " *" } else { "" },
+                    )?;
+                }
+                if let Some(ref profile) = self.profile {
+                    writeln!(f, "Trace:")?;
+                    for path in profile.disas_paths() {
+                        writeln!(f, "{}", path)?;
+                    }
+                    for state in &profile.registers {
+                        writeln!(f, "\nSpidered register state:\n{:?}", state)?;
+                    }
+                    writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
+                }
+                writeln!(f, "Fitness: {:#?}", self.fitness())?;
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]

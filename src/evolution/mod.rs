@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter;
+use std::{fmt, iter};
 
+use bitflags::_core::fmt::Formatter;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -42,7 +43,7 @@ pub trait Mutation {
     }
 }
 
-#[derive(Debug, Clone, Hash, Serialize)]
+#[derive(Clone, Hash, Serialize)]
 pub struct LinearChromosome<
     A: Debug + Clone + Hash + Serialize + DeserializeOwned,
     M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A>,
@@ -132,6 +133,37 @@ impl<
         // maybe check a uniform mutation rate to see if any pointwise mutations happen at all.
         let mutations = M::mutate(&mut self.chromosome, config);
         self.mutations = mutations;
+    }
+}
+
+impl<A, M> fmt::Debug for LinearChromosome<A, M>
+where
+    A: Debug + Clone + Hash + Serialize + DeserializeOwned,
+    M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Name: {}\nGeneration: {}", self.name, self.generation)?;
+        for i in 0..self.chromosome.len() {
+            let parent = if self.parent_names.is_empty() {
+                "seed"
+            } else {
+                &self.parent_names[self.parentage[i]]
+            };
+            let allele = &self.chromosome[i];
+            let mutation = &self.mutations[i];
+            writeln!(
+                f,
+                "[{i}][{parent}] {allele:x?}{mutation:?}",
+                i = i,
+                parent = parent,
+                allele = allele,
+                mutation = mutation
+                    .as_ref()
+                    .map(|m| format!(" {:?}", m))
+                    .unwrap_or_else(String::new),
+            )?;
+        }
+        Ok(())
     }
 }
 
