@@ -10,24 +10,8 @@ use crate::evolution::Genome;
 use crate::ontogenesis::{Develop, FitnessFn};
 use crate::roper::push;
 use crate::roper::push::{Creature, MachineState};
+use crate::roper::Sketches;
 use crate::util;
-use crate::util::count_min_sketch::CountMinSketch;
-
-pub struct Sketches {
-    pub register_error: CountMinSketch,
-    pub memory_writes: CountMinSketch,
-    pub addresses_visited: CountMinSketch,
-}
-
-impl Sketches {
-    pub fn new(config: &Config) -> Self {
-        Self {
-            register_error: CountMinSketch::new(config),
-            memory_writes: CountMinSketch::new(config),
-            addresses_visited: CountMinSketch::new(config),
-        }
-    }
-}
 
 pub struct PushEvaluator<C: Cpu<'static> + 'static> {
     config: Arc<Config>,

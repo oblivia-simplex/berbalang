@@ -1,11 +1,10 @@
+use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::{fmt, iter};
 
-use bitflags::_core::fmt::Formatter;
 use rand::Rng;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::configure::Config;
 use crate::fitness::FitnessScore;

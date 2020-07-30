@@ -6,8 +6,7 @@ use crate::fitness::MapFit;
 use crate::get_epoch_counter;
 use crate::observer::Window;
 use crate::roper::bare::Creature;
-
-use super::CreatureDominanceOrd;
+use crate::roper::CreatureDominanceOrd;
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct StatRecord {
@@ -137,11 +136,7 @@ mod test {
     }
 }
 
-pub fn report_fn(
-    window: &Window<Creature, super::CreatureDominanceOrd>,
-    counter: usize,
-    config: &Config,
-) {
+pub fn report_fn(window: &Window<Creature, CreatureDominanceOrd>, counter: usize, config: &Config) {
     let epoch = get_epoch_counter();
 
     let record = StatRecord::mean_from_window(window, counter);

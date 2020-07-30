@@ -8,7 +8,6 @@ use hashbrown::HashMap;
 use rand::seq::IteratorRandom;
 use rand::{thread_rng, Rng};
 use rand_distr::{Distribution, Standard};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::configure::Config;
@@ -19,10 +18,9 @@ use crate::emulator::profiler::{HasProfile, Profile};
 use crate::error::Error;
 use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
 use crate::fitness::{HasScalar, MapFit};
-use crate::roper::evaluation::lexi;
+use crate::roper::bare::evaluation::lexi;
 use crate::roper::Fitness;
-use crate::util::architecture::{endian, read_integer, write_integer, Perms};
-use crate::util::levy_flight::levy_decision;
+use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
 
@@ -30,6 +28,10 @@ use crate::util::{self, architecture::Endian};
 /// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness
 /// scores to each member of the population.
 pub mod evaluation;
+
+/// The `analysis` module contains the reporting function passed to the observation
+/// window. Population saving, soup dumping, statistical assessment, etc., happens there.
+pub mod analysis;
 
 #[derive(Clone, Serialize)]
 pub struct Creature {

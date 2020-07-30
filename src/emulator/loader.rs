@@ -4,7 +4,6 @@ use std::sync::Once;
 
 use capstone::Instructions;
 use falcon::il;
-use falcon::loader::Loader;
 use goblin::{
     elf::{self, Elf},
     Object,
@@ -529,7 +528,7 @@ pub mod falcon_loader {
     use unicorn::{Arch, Mode};
 
     use crate::util;
-    use crate::util::dump::{dump, ron_dump, ron_undump, undump};
+    use crate::util::dump::{ron_dump, ron_undump};
 
     // A wrapper around falcon's loader.
     use super::*;

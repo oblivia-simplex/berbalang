@@ -1,7 +1,3 @@
-use std::fmt;
-
-use bitflags::_core::fmt::Formatter;
-use capstone::RegId;
 use falcon::il;
 use hashbrown::HashMap;
 use rand::prelude::SliceRandom;
@@ -15,6 +11,7 @@ use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 
+pub mod analysis;
 pub mod evaluation;
 
 pub type Stack<T> = Vec<T>;
@@ -968,11 +965,10 @@ pub mod creature {
     use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use rand::thread_rng;
 
-    use crate::emulator::loader;
     use crate::emulator::pack::Pack;
     use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
-    use crate::fitness::{HasScalar, MapFit, Weighted};
+    use crate::fitness::{HasScalar, MapFit};
     use crate::roper::Fitness;
     use crate::util;
     use crate::util::architecture::Endian;
@@ -1056,7 +1052,7 @@ pub mod creature {
             }
         }
 
-        fn as_code_addrs(&self, word_size: usize, endian: Endian) -> Vec<u64> {
+        fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
             unimplemented!()
         }
     }
@@ -1179,7 +1175,7 @@ pub mod creature {
             unimplemented!()
         }
 
-        fn store_answers(&mut self, results: Vec<Self::Problem>) {
+        fn store_answers(&mut self, _results: Vec<Self::Problem>) {
             unimplemented!()
         }
 

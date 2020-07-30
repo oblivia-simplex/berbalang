@@ -8,10 +8,10 @@ use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::fitness::Weighted;
 use crate::ontogenesis::FitnessFn;
+use crate::roper::Sketches;
 use crate::util::entropy::Entropy;
 use crate::{
-    configure::Config, emulator::hatchery::Hatchery, evolution::Phenome, ontogenesis::Develop,
-    util, util::count_min_sketch::CountMinSketch,
+    configure::Config, emulator::hatchery::Hatchery, evolution::Phenome, ontogenesis::Develop, util,
 };
 
 use super::*;
@@ -226,22 +226,6 @@ pub fn register_entropy_ff(
 }
 
 // test this zero counter for 3+ words
-
-pub struct Sketches {
-    pub register_error: CountMinSketch,
-    pub memory_writes: CountMinSketch,
-    pub addresses_visited: CountMinSketch,
-}
-
-impl Sketches {
-    pub fn new(config: &Config) -> Self {
-        Self {
-            register_error: CountMinSketch::new(config),
-            memory_writes: CountMinSketch::new(config),
-            addresses_visited: CountMinSketch::new(config),
-        }
-    }
-}
 
 pub struct BareEvaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
