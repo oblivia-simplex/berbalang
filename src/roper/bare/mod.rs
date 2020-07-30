@@ -26,6 +26,11 @@ use crate::util::levy_flight::levy_decision;
 use crate::util::random::hash_seed_rng;
 use crate::util::{self, architecture::Endian};
 
+/// The `evaluation` module contains the various fitness functions, and the construction
+/// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness
+/// scores to each member of the population.
+pub mod evaluation;
+
 #[derive(Clone, Serialize)]
 pub struct Creature {
     // pub chromosome: Vec<T>,

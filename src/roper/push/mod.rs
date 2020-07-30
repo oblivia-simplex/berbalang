@@ -15,6 +15,8 @@ use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 
+pub mod evaluation;
+
 pub type Stack<T> = Vec<T>;
 
 pub type Input = Type;
@@ -963,14 +965,17 @@ pub mod creature {
     use std::fmt;
     use std::hash::{Hash, Hasher};
 
+    use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use rand::thread_rng;
 
     use crate::emulator::loader;
+    use crate::emulator::pack::Pack;
     use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
     use crate::fitness::{HasScalar, MapFit, Weighted};
     use crate::roper::Fitness;
     use crate::util;
+    use crate::util::architecture::Endian;
     use crate::util::random::hash_seed_rng;
 
     use super::*;
@@ -1006,6 +1011,54 @@ pub mod creature {
         pub num_offspring: usize,
         pub native_island: usize,
         pub description: Option<String>,
+    }
+
+    impl Pack for Creature {
+        fn pack(
+            &self,
+            word_size: usize,
+            endian: Endian,
+            byte_filter: Option<&HashMap<u8, u8>>,
+        ) -> Vec<u8> {
+            if let Some(ref payload) = self.payload {
+                let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
+                    (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
+                    (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
+                    (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),
+                    (Endian::Big, 4) => BigEndian::write_u32(&mut bytes, word as u32),
+                    (Endian::Little, 2) => LittleEndian::write_u16(&mut bytes, word as u16),
+                    (Endian::Big, 2) => BigEndian::write_u16(&mut bytes, word as u16),
+                    (_, _) => unimplemented!("I think we've covered the bases"),
+                };
+                let mut ptr = 0;
+                let mut buffer = vec![0_u8; payload.len() * word_size];
+                for word in payload {
+                    packer(word, &mut buffer[ptr..]);
+                    ptr += word_size;
+                }
+
+                if let Some(byte_filter) = byte_filter {
+                    buffer
+                        .into_iter()
+                        .map(|b| {
+                            if let Some(x) = byte_filter.get(&b) {
+                                *x
+                            } else {
+                                b
+                            }
+                        })
+                        .collect::<Vec<u8>>()
+                } else {
+                    buffer
+                }
+            } else {
+                panic!("Cannot pack Creature before generating payload")
+            }
+        }
+
+        fn as_code_addrs(&self, word_size: usize, endian: Endian) -> Vec<u64> {
+            unimplemented!()
+        }
     }
 
     impl HasProfile for Creature {

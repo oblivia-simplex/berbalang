@@ -41,7 +41,7 @@ pub fn ron_dump<T: Serialize, P: AsRef<Path> + Debug>(thing: T, path: P) -> Resu
     let mut dumper = || -> Result<(), Error> {
         let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
         let s = ron::ser::to_string(&thing)?;
-        gz.write_all(s.as_bytes());
+        gz.write_all(s.as_bytes())?;
         let compressed = gz.finish()?;
         file.write_all(&compressed).map_err(Error::from)
     };

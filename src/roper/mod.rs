@@ -22,7 +22,7 @@ use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
 use crate::ontogenesis::FitnessFn;
-use crate::roper::evaluation::{lexi, Sketches};
+use crate::roper::bare::evaluation::{lexi, Sketches};
 use crate::util::random::hash_seed_rng;
 
 /// The `analysis` module contains the reporting function passed to the observation
@@ -32,11 +32,6 @@ mod analysis;
 /// traits associated with `roper` mode.
 mod bare;
 
-/// The `evaluation` module contains the various fitness functions, and the construction
-/// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness
-/// scores to each member of the population.
-mod evaluation;
-
 /// A ROPER-specific implementation of Spector's PUSH VM.
 #[allow(dead_code)]
 mod push;
@@ -45,7 +40,7 @@ type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
 fn prepare<C: 'static + Cpu<'static>>(
     config: &Config,
-) -> (Observer<Creature>, evaluation::Evaluator<C>) {
+) -> (Observer<Creature>, evaluation::BareEvaluator<C>) {
     let fitness_function: FitnessFn<Creature, Sketches, Config> =
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(evaluation::register_pattern_ff),
@@ -56,7 +51,7 @@ fn prepare<C: 'static + Cpu<'static>>(
             s => unimplemented!("No such fitness function as {}", s),
         };
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn), CreatureDominanceOrd);
-    let evaluator = evaluation::Evaluator::spawn(&config, fitness_function);
+    let evaluator = evaluation::BareEvaluator::spawn(&config, fitness_function);
     (observer, evaluator)
 }
 
@@ -107,7 +102,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
                 let (observer, evaluator) = prepare(&config);
                 let pier = pier.clone();
                 let h = spawn(move || {
-                    let mut world = Tournament::<evaluation::Evaluator<C>, Creature>::new(
+                    let mut world = Tournament::<evaluation::BareEvaluator<C>, Creature>::new(
                         &config, observer, evaluator, pier,
                     );
                     while crate::keep_going() {
@@ -123,7 +118,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
         Selection::Roulette => {
             let (observer, evaluator) = prepare(&config);
             let mut world =
-                Roulette::<evaluation::Evaluator<C>, Creature, CreatureDominanceOrd>::new(
+                Roulette::<evaluation::BareEvaluator<C>, Creature, CreatureDominanceOrd>::new(
                     &config,
                     observer,
                     evaluator,
@@ -135,8 +130,9 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
         }
         Selection::Metropolis => {
             let (observer, evaluator) = prepare(&config);
-            let mut world =
-                Metropolis::<evaluation::Evaluator<C>, Creature>::new(&config, observer, evaluator);
+            let mut world = Metropolis::<evaluation::BareEvaluator<C>, Creature>::new(
+                &config, observer, evaluator,
+            );
             while crate::keep_going() {
                 world = world.evolve();
             }
@@ -150,7 +146,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
                     s => unimplemented!("No such fitness function as {}", s),
                 };
             let pier: Arc<Pier<Creature>> = Arc::new(Pier::new(config.num_islands));
-            let evaluator = evaluation::Evaluator::spawn(&config, fitness_function);
+            let evaluator = evaluation::BareEvaluator::spawn(&config, fitness_function);
             let observer = Observer::spawn(
                 &config,
                 Box::new(analysis::lexicase::report_fn),
@@ -172,7 +168,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
             cases.push(lexi::Task::UniqExec(2));
             cases.push(lexi::Task::UniqExec(3));
             log::info!("Register Feature cases: {:#x?}", cases);
-            let mut world = Lexicase::<lexi::Task, evaluation::Evaluator<C>, Creature>::new(
+            let mut world = Lexicase::<lexi::Task, evaluation::BareEvaluator<C>, Creature>::new(
                 &config, observer, evaluator, pier, cases,
             );
             while crate::keep_going() {
