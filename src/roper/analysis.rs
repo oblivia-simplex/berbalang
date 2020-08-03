@@ -30,28 +30,22 @@ impl StatRecord {
             return StatRecord::default();
         }
         // let specimen_exec_ratio = specimen.execution_ratio();
-        let specimen_scalar_fitness = specimen.scalar_fitness().unwrap();
+        let specimen_scalar_fitness = specimen.scalar_fitness().unwrap_or(1.0);
         let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap_or(1.0);
         let specimen_register_error = specimen
             .fitness()
             .as_ref()
-            .unwrap()
-            .scores
-            .get("register_error")
-            .cloned()
+            .and_then(|f| f.scores.get("register_error").cloned())
             .unwrap_or_default();
         let specimen_len = specimen.chromosome().len() as f64;
         let specimen_uniq_exec_count = specimen
             .profile()
             .map(|p| p.gadgets_executed.len())
-            .unwrap_or(0) as f64;
+            .unwrap_or_default() as f64;
         let specimen_ratio_written = specimen
             .fitness()
             .as_ref()
-            .unwrap()
-            .scores
-            .get("mem_write_ratio")
-            .cloned()
+            .and_then(|f| f.scores.get("mem_write_ratio").cloned())
             .unwrap_or_default();
         let specimen_emulation_time = specimen
             .profile()

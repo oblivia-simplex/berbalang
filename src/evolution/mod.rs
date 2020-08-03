@@ -152,7 +152,7 @@ where
             let mutation = &self.mutations[i];
             writeln!(
                 f,
-                "[{i}][{parent}] {allele:x?}{mutation:?}",
+                "[{i}][{parent}] {allele:x?}{mutation}",
                 i = i,
                 parent = parent,
                 allele = allele,

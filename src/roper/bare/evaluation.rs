@@ -12,14 +12,14 @@ use crate::{
 
 use super::*;
 
-pub struct BareEvaluator<C: 'static + Cpu<'static>> {
+pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
     hatchery: Hatchery<C, Creature>,
     sketches: Sketches,
     fitness_fn: Box<FitnessFn<Creature, Sketches, Config>>,
 }
 
-impl<C: 'static + Cpu<'static>> BareEvaluator<C> {
+impl<C: 'static + Cpu<'static>> Evaluator<C> {
     pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, Sketches, Config>) -> Self {
         let mut config = config.clone();
         config.roper.parse_register_pattern();
@@ -73,7 +73,7 @@ impl<C: 'static + Cpu<'static>> BareEvaluator<C> {
 }
 
 // And refactor the modules a bit.
-impl<'a, C: 'static + Cpu<'static>> Develop<Creature> for BareEvaluator<C> {
+impl<'a, C: 'static + Cpu<'static>> Develop<Creature> for Evaluator<C> {
     fn develop(&self, creature: Creature) -> Creature {
         if creature.profile.is_none() {
             let (mut creature, profile) = self

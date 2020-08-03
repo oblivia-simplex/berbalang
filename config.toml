@@ -18,7 +18,7 @@ min_init_len = 10
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x500
+pop_size = 0x1000
 max_length = 100
 num_epochs = 200 # = infinite
 # season length is only used by 
@@ -31,7 +31,7 @@ function = "register_pattern"
 #function = "error_rate" # weird idea
 #function = "register_conjunction"
 #priority = "zeroes" # could this be set by the ff?
-priority = "register_pattern"
+priority = "register_error"
 #function = "code_coverage"
 target = 1
 eval_by_case = false
@@ -99,6 +99,7 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
+use_push = true
 #arch = "X86"
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"

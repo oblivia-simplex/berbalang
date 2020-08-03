@@ -57,7 +57,7 @@ type Fitness<'a> = Weighted<'a>; //Pareto<'static>;
 
 fn prepare_bare<C: 'static + Cpu<'static>>(
     config: &Config,
-) -> (Observer<bare::Creature>, bare::evaluation::BareEvaluator<C>) {
+) -> (Observer<bare::Creature>, bare::evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<bare::Creature, Sketches, Config> =
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(fitness_functions::register_pattern_ff),
@@ -68,13 +68,13 @@ fn prepare_bare<C: 'static + Cpu<'static>>(
             s => unimplemented!("No such fitness function as {}", s),
         };
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn));
-    let evaluator = bare::evaluation::BareEvaluator::spawn(&config, fitness_function);
+    let evaluator = bare::evaluation::Evaluator::spawn(&config, fitness_function);
     (observer, evaluator)
 }
 
 fn prepare_push<C: 'static + Cpu<'static>>(
     config: &Config,
-) -> (Observer<push::Creature>, push::evaluation::PushEvaluator<C>) {
+) -> (Observer<push::Creature>, push::evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<push::Creature, Sketches, Config> =
         match config.fitness.function.as_str() {
             "register_pattern" => Box::new(fitness_functions::register_pattern_ff),
@@ -86,7 +86,7 @@ fn prepare_push<C: 'static + Cpu<'static>>(
         };
     let observer: Observer<push::Creature> =
         Observer::spawn(&config, Box::new(analysis::report_fn));
-    let evaluator = push::evaluation::PushEvaluator::spawn(&config, fitness_function);
+    let evaluator = push::evaluation::Evaluator::spawn(&config, fitness_function);
     (observer, evaluator)
 }
 
@@ -132,39 +132,64 @@ pub fn run(mut config: Config) {
 pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
     match config.selection {
         Selection::Tournament => {
-            // first, crude shot at islands...
-            // TODO: factor this out into its own module, so that it works with
-            // any job and selection method.
+            // TODO: Refactor this!!
             let num_islands = config.num_islands;
-            let pier: Arc<Pier<bare::Creature>> = Arc::new(Pier::new(config.num_islands));
-            let mut handles = Vec::new();
-            let mut rng = hash_seed_rng(&config.random_seed);
-            for i in 0..num_islands {
-                let mut config = config.clone();
-                config.island_identifier = i;
-                config.set_data_directory();
-                config.random_seed = rng.gen::<u64>();
-                let (observer, evaluator) = prepare_bare(&config);
-                let pier = pier.clone();
-                let h = spawn(move || {
-                    let mut world =
-                        Tournament::<bare::evaluation::BareEvaluator<C>, bare::Creature>::new(
-                            &config, observer, evaluator, pier,
-                        );
-                    while crate::keep_going() {
-                        world = world.evolve();
-                    }
-                });
-                handles.push(h);
-            }
-            for h in handles.into_iter() {
-                h.join().expect("Failed to join thread");
+            if config.roper.use_push {
+                let pier: Arc<Pier<push::Creature>> = Arc::new(Pier::new(config.num_islands));
+                let mut handles = Vec::new();
+                let mut rng = hash_seed_rng(&config.random_seed);
+                for i in 0..num_islands {
+                    let mut config = config.clone();
+                    config.island_identifier = i;
+                    config.set_data_directory();
+                    config.random_seed = rng.gen::<u64>();
+                    let (observer, evaluator) = prepare_push(&config);
+                    let pier = pier.clone();
+                    let h = spawn(move || {
+                        let mut world =
+                            Tournament::<push::evaluation::Evaluator<C>, push::Creature>::new(
+                                &config, observer, evaluator, pier,
+                            );
+                        while crate::keep_going() {
+                            world = world.evolve();
+                        }
+                    });
+                    handles.push(h);
+                }
+                for h in handles.into_iter() {
+                    h.join().expect("Failed to join thread");
+                }
+            } else {
+                let pier: Arc<Pier<bare::Creature>> = Arc::new(Pier::new(config.num_islands));
+                let mut handles = Vec::new();
+                let mut rng = hash_seed_rng(&config.random_seed);
+                for i in 0..num_islands {
+                    let mut config = config.clone();
+                    config.island_identifier = i;
+                    config.set_data_directory();
+                    config.random_seed = rng.gen::<u64>();
+                    let (observer, evaluator) = prepare_bare(&config);
+                    let pier = pier.clone();
+                    let h = spawn(move || {
+                        let mut world =
+                            Tournament::<bare::evaluation::Evaluator<C>, bare::Creature>::new(
+                                &config, observer, evaluator, pier,
+                            );
+                        while crate::keep_going() {
+                            world = world.evolve();
+                        }
+                    });
+                    handles.push(h);
+                }
+                for h in handles.into_iter() {
+                    h.join().expect("Failed to join thread");
+                }
             }
         }
         Selection::Roulette => {
             let (observer, evaluator) = prepare_bare(&config);
             let mut world = Roulette::<
-                bare::evaluation::BareEvaluator<C>,
+                bare::evaluation::Evaluator<C>,
                 bare::Creature,
                 CreatureDominanceOrd,
             >::new(&config, observer, evaluator, CreatureDominanceOrd);
@@ -174,7 +199,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
         }
         Selection::Metropolis => {
             let (observer, evaluator) = prepare_bare(&config);
-            let mut world = Metropolis::<bare::evaluation::BareEvaluator<C>, bare::Creature>::new(
+            let mut world = Metropolis::<bare::evaluation::Evaluator<C>, bare::Creature>::new(
                 &config, observer, evaluator,
             );
             while crate::keep_going() {

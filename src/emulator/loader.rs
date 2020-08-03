@@ -632,9 +632,11 @@ pub mod falcon_loader {
                     )
                 })
             } else {
+                log::info!("Lifting the intermediate representation of the program...");
                 let program = linker
                     .program()
                     .expect("Failed to lift il::Program from ElfLinker");
+                log::info!("Finished lifting program.");
                 ron_dump(&program, cached_path).expect("Failed to dump il::Program");
                 program
             };

@@ -13,14 +13,14 @@ use crate::roper::push::{Creature, MachineState};
 use crate::roper::Sketches;
 use crate::util;
 
-pub struct PushEvaluator<C: Cpu<'static> + 'static> {
+pub struct Evaluator<C: Cpu<'static> + 'static> {
     config: Arc<Config>,
     hatchery: Hatchery<C, push::Creature>,
     sketches: Sketches,
     fitness_fn: Box<FitnessFn<push::Creature, Sketches, Config>>,
 }
 
-impl<C: 'static + Cpu<'static>> PushEvaluator<C> {
+impl<C: 'static + Cpu<'static>> Evaluator<C> {
     pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, Sketches, Config>) -> Self {
         let mut config = config.clone();
         config.roper.parse_register_pattern();
@@ -76,7 +76,7 @@ impl<C: 'static + Cpu<'static>> PushEvaluator<C> {
 // TODO: impl Develop<push::Creature> for Evaluator.
 // It will look a lot like this, except that it will first generate the payload by executing the
 // pushvm code.
-impl<C: 'static + Cpu<'static>> Develop<push::Creature> for PushEvaluator<C> {
+impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
     fn develop(&self, mut creature: push::Creature) -> push::Creature {
         let args = vec![];
 

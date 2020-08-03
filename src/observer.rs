@@ -189,7 +189,10 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                         self.best = Some(specimen.clone())
                     }
                     Some(champ) => {
-                        if f < champ.scalar_fitness().unwrap() {
+                        if f < champ
+                            .scalar_fitness()
+                            .expect("There should be a fitness score here")
+                        {
                             updated = true;
                             self.best = Some(specimen.clone())
                         }
@@ -202,7 +205,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             log::info!(
                 "Island {}: new best:\n{:#?}",
                 self.config.island_identifier,
-                self.best.as_ref().unwrap()
+                self.best.as_ref().expect("Updated, but no best?")
             );
         }
     }
@@ -217,7 +220,10 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                         self.champion = Some(specimen.clone())
                     }
                     Some(champ) => {
-                        if f < champ.priority_fitness(&self.config).unwrap() {
+                        if f < champ
+                            .priority_fitness(&self.config)
+                            .expect("there should be a fitness score here")
+                        {
                             updated = true;
                             self.champion = Some(specimen.clone())
                         }

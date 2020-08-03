@@ -129,7 +129,7 @@ pub enum Op {
     List(Vec<Op>),
 }
 
-static NON_CONSTANT_OPS: [Op; 60] = [
+static NON_CONSTANT_OPS: [Op; 59] = [
     Op::BoolAnd,
     Op::BoolOr,
     Op::BoolNot,
@@ -147,7 +147,7 @@ static NON_CONSTANT_OPS: [Op; 60] = [
     Op::WordShl,
     Op::WordShr,
     Op::WordDeref,
-    Op::WordSearch,
+    // Op::WordSearch,
     // Op::WordReadRegs,
     // Op::WordWriteRegs,
     Op::WordToFloat,
@@ -368,15 +368,19 @@ impl Op {
             }
             BufHead => {
                 if let (Buf(buf), Word(n)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
-                    let n = n as usize % buf.len();
-                    mach.push(Buf(&buf[0..n]))
+                    if buf.len() > 0 {
+                        let n = n as usize % buf.len();
+                        mach.push(Buf(&buf[0..n]))
+                    }
                 }
             }
             BufIndex => {
                 if let (Buf(buf), Word(i)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
-                    let i = i as usize;
-                    let b = buf[i % buf.len()];
-                    mach.push(Word(b as u64));
+                    if buf.len() > 0 {
+                        let i = i as usize;
+                        let b = buf[i % buf.len()];
+                        mach.push(Word(b as u64));
+                    }
                 }
             }
             BufPack => {
@@ -389,8 +393,10 @@ impl Op {
             }
             BufTail => {
                 if let (Buf(b), Word(n)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
-                    let n = n as usize % b.len();
-                    mach.push(Buf(b[..n].as_ref()))
+                    if b.len() > 0 {
+                        let n = n as usize % b.len();
+                        mach.push(Buf(b[n..].as_ref()))
+                    }
                 }
             }
             BufDisRegRead => {
@@ -1052,7 +1058,21 @@ pub mod creature {
         }
 
         fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
-            unimplemented!()
+            let memory = loader::get_static_memory_image();
+            if let Some(ref payload) = self.payload {
+                payload
+                    .iter()
+                    .filter(|a| {
+                        memory
+                            .perm_of_addr(**a)
+                            .map(|p| p.intersects(Perms::EXEC))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            }
         }
     }
 
