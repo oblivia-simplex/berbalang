@@ -1,19 +1,17 @@
 use serde::Serialize;
 
 use crate::configure::Config;
+use crate::emulator::profiler::HasProfile;
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::MapFit;
+use crate::fitness::{MapFit, Weighted};
 use crate::get_epoch_counter;
 use crate::observer::Window;
-use crate::roper::bare::Creature;
-use crate::roper::CreatureDominanceOrd;
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct StatRecord {
     pub counter: usize,
     pub epoch: usize,
 
-    pub exec_ratio: f64,
     pub length: f64,
     pub register_error: f64,
     pub scalar_fitness: f64,
@@ -24,30 +22,31 @@ pub struct StatRecord {
 }
 
 impl StatRecord {
-    fn for_specimen(
-        window: &Window<Creature, CreatureDominanceOrd>,
-        specimen: &Creature,
-        counter: usize,
-        epoch: usize,
-    ) -> Self {
-        if specimen.fitness.is_none() {
+    fn for_specimen<C>(window: &Window<C>, specimen: &C, counter: usize, epoch: usize) -> Self
+    where
+        C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
+    {
+        if specimen.fitness().is_none() {
             return StatRecord::default();
         }
-        let specimen_exec_ratio = specimen.execution_ratio();
+        // let specimen_exec_ratio = specimen.execution_ratio();
         let specimen_scalar_fitness = specimen.scalar_fitness().unwrap();
         let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap_or(1.0);
         let specimen_register_error = specimen
-            .fitness
+            .fitness()
             .as_ref()
             .unwrap()
             .scores
             .get("register_error")
             .cloned()
             .unwrap_or_default();
-        let specimen_len = specimen.len() as f64;
-        let specimen_uniq_exec_count = specimen.num_uniq_alleles_executed() as f64;
+        let specimen_len = specimen.chromosome().len() as f64;
+        let specimen_uniq_exec_count = specimen
+            .profile()
+            .map(|p| p.gadgets_executed.len())
+            .unwrap_or(0) as f64;
         let specimen_ratio_written = specimen
-            .fitness
+            .fitness()
             .as_ref()
             .unwrap()
             .scores
@@ -55,7 +54,7 @@ impl StatRecord {
             .cloned()
             .unwrap_or_default();
         let specimen_emulation_time = specimen
-            .profile
+            .profile()
             .as_ref()
             .map(|p| p.avg_emulation_micros())
             .unwrap_or(0.0);
@@ -63,7 +62,6 @@ impl StatRecord {
         Self {
             counter,
             epoch,
-            exec_ratio: specimen_exec_ratio,
             length: specimen_len,
             register_error: specimen_register_error,
             scalar_fitness: specimen_scalar_fitness,
@@ -74,10 +72,14 @@ impl StatRecord {
         }
     }
 
-    fn mean_from_window(window: &Window<Creature, CreatureDominanceOrd>, counter: usize) -> Self {
+    fn mean_from_window<C>(window: &Window<C>, counter: usize) -> Self
+    where
+        C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
+    {
         let frame = &window.frame;
 
-        let length = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
+        let length =
+            frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame.len() as f64;
 
         let scalar_fitness: f64 =
             frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
@@ -91,15 +93,13 @@ impl StatRecord {
 
         let avg_exec_count: f64 = frame
             .iter()
-            .map(|g| g.num_uniq_alleles_executed() as f64)
+            .map(|g| g.profile().map(|p| p.gadgets_executed.len()).unwrap_or(0) as f64)
             .sum::<f64>()
             / frame.len() as f64;
-        let exec_ratio: f64 =
-            frame.iter().map(|g| g.execution_ratio()).sum::<f64>() / frame.len() as f64;
 
         let emulation_time = frame
             .iter()
-            .filter_map(|g| g.profile.as_ref().map(|p| p.avg_emulation_micros()))
+            .filter_map(|g| g.profile().as_ref().map(|p| p.avg_emulation_micros()))
             .sum::<f64>()
             / frame.len() as f64;
 
@@ -110,7 +110,6 @@ impl StatRecord {
             scalar_fitness,
             priority_fitness,
             uniq_exec_count: avg_exec_count,
-            exec_ratio,
             register_error: fit_vec.get("register_error").unwrap_or_default(),
             ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
             emulation_time,
@@ -139,7 +138,10 @@ mod test {
     }
 }
 
-pub fn report_fn(window: &Window<Creature, CreatureDominanceOrd>, counter: usize, config: &Config) {
+pub fn report_fn<C>(window: &Window<C>, counter: usize, config: &Config)
+where
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
+{
     let epoch = get_epoch_counter();
 
     let record = StatRecord::mean_from_window(window, counter);
@@ -171,16 +173,16 @@ pub fn report_fn(window: &Window<Creature, CreatureDominanceOrd>, counter: usize
         log::debug!("Memory status: {:#x?}", stat);
     }
 }
-
-pub mod lexicase {
-    use super::*;
-
-    pub fn report_fn(
-        window: &Window<Creature, super::CreatureDominanceOrd>,
-        _counter: usize,
-        _config: &Config,
-    ) {
-        let soup = window.soup();
-        log::info!("soup size: {}", soup.len());
-    }
-}
+//
+// pub mod lexicase {
+//     use super::*;
+//
+//     pub fn report_fn(
+//         window: &Window<Creature, super::CreatureDominanceOrd>,
+//         _counter: usize,
+//         _config: &Config,
+//     ) {
+//         let soup = window.soup();
+//         log::info!("soup size: {}", soup.len());
+//     }
+// }

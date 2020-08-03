@@ -13,7 +13,7 @@ use crate::util::count_min_sketch::Sketch;
 use crate::util::levy_flight::levy_decision;
 use crate::util::random::{hash_seed_rng, Prng};
 
-pub mod lexicase;
+//pub mod lexicase;
 pub mod metropolis;
 pub mod pareto_roulette;
 pub mod population;

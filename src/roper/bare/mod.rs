@@ -18,7 +18,6 @@ use crate::emulator::profiler::{HasProfile, Profile};
 use crate::error::Error;
 use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
 use crate::fitness::{HasScalar, MapFit};
-use crate::roper::bare::evaluation::lexi;
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::random::hash_seed_rng;
@@ -28,10 +27,6 @@ use crate::util::{self, architecture::Endian};
 /// of the `Evaluator` structure that maps genotype to phenotype, and assigns fitness
 /// scores to each member of the population.
 pub mod evaluation;
-
-/// The `analysis` module contains the reporting function passed to the observation
-/// window. Population saving, soup dumping, statistical assessment, etc., happens there.
-pub mod analysis;
 
 #[derive(Clone, Serialize)]
 pub struct Creature {
@@ -58,42 +53,6 @@ impl HasProfile for Creature {
 impl Hash for Creature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.tag.hash(state)
-    }
-}
-
-impl Creature {
-    /// Returns the number of alleles executed.
-    pub fn num_uniq_alleles_executed(&self) -> usize {
-        if let Some(ref profile) = self.profile {
-            profile.gadgets_executed.len()
-        } else {
-            0
-        }
-    }
-
-    /// Returns the ratio of executed to non-executed, but *executable*, alleles.
-    /// If the `Creature` hasn't been executed yet, then this
-    /// will always return `0.0`.
-    /// FIXME: this seems to be returning n > 1 sometimes! Why?
-    pub fn execution_ratio(&self) -> f64 {
-        let memory = loader::get_static_memory_image();
-        let mut executable_alleles = self
-            .chromosome()
-            .iter()
-            .filter(|a| {
-                memory
-                    .perm_of_addr(**a)
-                    .map(|p| p.intersects(Perms::EXEC))
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<_>>();
-        if executable_alleles.is_empty() {
-            return 0.0;
-        };
-        executable_alleles.dedup();
-        let uniq_count = executable_alleles.len();
-        let exec_count = self.num_uniq_alleles_executed();
-        exec_count as f64 / uniq_count as f64
     }
 }
 
@@ -424,7 +383,7 @@ impl Distribution<WordMutation> for Standard {
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
-    type Problem = lexi::Task;
+    type Problem = ();
 
     fn generate_description(&mut self) {
         self.description = Some(format!("{:#?}", self))
@@ -481,8 +440,9 @@ impl Phenome for Creature {
             .unwrap_or(false)
     }
 
-    fn fails(&self, case: &Self::Problem) -> bool {
-        !case.check_creature(self)
+    fn fails(&self, _case: &Self::Problem) -> bool {
+        unimplemented!("putting lexicase on ice for now")
+        // !case.check_creature(self)
     }
 
     fn mature(&self) -> bool {

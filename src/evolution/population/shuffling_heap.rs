@@ -81,9 +81,9 @@ impl<P> ShufflingHeap<P> {
         self.heap.push(cell)
     }
 
-    pub fn len(&self) -> usize {
-        self.count
-    }
+    // pub fn len(&self) -> usize {
+    //     self.count
+    // }
 }
 
 impl<P: Hash> FromIterator<P> for ShufflingHeap<P> {

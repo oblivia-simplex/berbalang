@@ -11,7 +11,6 @@ use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 
-pub mod analysis;
 pub mod evaluation;
 
 pub type Stack<T> = Vec<T>;

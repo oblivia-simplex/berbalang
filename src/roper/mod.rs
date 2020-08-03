@@ -12,17 +12,22 @@ use crate::{
     evolution::{tournament::Tournament, Phenome},
 };
 // the runner
-use crate::emulator::register_pattern::RegisterPattern;
-use crate::evolution::lexicase::Lexicase;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
 use crate::ontogenesis::FitnessFn;
-use crate::roper::bare::evaluation::lexi;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
+
+/// The `analysis` module contains the reporting function passed to the observation
+/// window. Population saving, soup dumping, statistical assessment, etc., happens there.
+mod analysis;
+
+/// Generic fitness functions, which can be used for either push or bare
+/// mode ROPER.
+mod fitness_functions;
 
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
 /// traits associated with `roper` mode.
@@ -55,42 +60,35 @@ fn prepare_bare<C: 'static + Cpu<'static>>(
 ) -> (Observer<bare::Creature>, bare::evaluation::BareEvaluator<C>) {
     let fitness_function: FitnessFn<bare::Creature, Sketches, Config> =
         match config.fitness.function.as_str() {
-            "register_pattern" => Box::new(bare::evaluation::register_pattern_ff),
-            "register_conjunction" => Box::new(bare::evaluation::register_conjunction_ff),
-            "register_entropy" => Box::new(bare::evaluation::register_entropy_ff),
-            "code_coverage" => Box::new(bare::evaluation::code_coverage_ff),
-            "just_novelty" => Box::new(bare::evaluation::just_novelty_ff),
+            "register_pattern" => Box::new(fitness_functions::register_pattern_ff),
+            "register_conjunction" => Box::new(fitness_functions::register_conjunction_ff),
+            "register_entropy" => Box::new(fitness_functions::register_entropy_ff),
+            "code_coverage" => Box::new(fitness_functions::code_coverage_ff),
+            "just_novelty" => Box::new(fitness_functions::just_novelty_ff),
             s => unimplemented!("No such fitness function as {}", s),
         };
-    let observer = Observer::spawn(
-        &config,
-        Box::new(bare::analysis::report_fn),
-        CreatureDominanceOrd,
-    );
+    let observer = Observer::spawn(&config, Box::new(analysis::report_fn));
     let evaluator = bare::evaluation::BareEvaluator::spawn(&config, fitness_function);
     (observer, evaluator)
 }
 
-// fn prepare_push<C: 'static + Cpu<'static>>(
-//     config: &Config,
-// ) -> (Observer<push::Creature>, push::evaluation::PushEvaluator<C>) {
-//     let fitness_function: FitnessFn<push::Creature, Sketches, Config> =
-//         match config.fitness.function.as_str() {
-//             // "register_pattern" => Box::new(push::evaluation::register_pattern_ff),
-//             // "register_conjunction" => Box::new(push::evaluation::register_conjunction_ff),
-//             // "register_entropy" => Box::new(push::evaluation::register_entropy_ff),
-//             // "code_coverage" => Box::new(push::evaluation::code_coverage_ff),
-//             // "just_novelty" => Box::new(push::evaluation::just_novelty_ff),
-//             s => unimplemented!("No such fitness function as {}", s),
-//         };
-//     let observer: Observer<push::Creature> = Observer::spawn(
-//         &config,
-//         Box::new(push::analysis::report_fn),
-//         CreatureDominanceOrd,
-//     );
-//     let evaluator = push::evaluation::PushEvaluator::spawn(&config, fitness_function);
-//     (observer, evaluator)
-// }
+fn prepare_push<C: 'static + Cpu<'static>>(
+    config: &Config,
+) -> (Observer<push::Creature>, push::evaluation::PushEvaluator<C>) {
+    let fitness_function: FitnessFn<push::Creature, Sketches, Config> =
+        match config.fitness.function.as_str() {
+            "register_pattern" => Box::new(fitness_functions::register_pattern_ff),
+            "register_conjunction" => Box::new(fitness_functions::register_conjunction_ff),
+            "register_entropy" => Box::new(fitness_functions::register_entropy_ff),
+            "code_coverage" => Box::new(fitness_functions::code_coverage_ff),
+            "just_novelty" => Box::new(fitness_functions::just_novelty_ff),
+            s => unimplemented!("No such fitness function as {}", s),
+        };
+    let observer: Observer<push::Creature> =
+        Observer::spawn(&config, Box::new(analysis::report_fn));
+    let evaluator = push::evaluation::PushEvaluator::spawn(&config, fitness_function);
+    (observer, evaluator)
+}
 
 pub struct CreatureDominanceOrd;
 
@@ -183,44 +181,45 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
                 world = world.evolve();
             }
         }
-        Selection::Lexicase => {
-            let fitness_function: FitnessFn<bare::Creature, Sketches, Config> =
-                match config.fitness.function.as_str() {
-                    "register_pattern" => Box::new(bare::evaluation::register_pattern_ff),
-                    "register_conjunction" => Box::new(bare::evaluation::register_conjunction_ff),
-                    "code_coverage" => Box::new(bare::evaluation::code_coverage_ff),
-                    s => unimplemented!("No such fitness function as {}", s),
-                };
-            let pier: Arc<Pier<bare::Creature>> = Arc::new(Pier::new(config.num_islands));
-            let evaluator = bare::evaluation::BareEvaluator::spawn(&config, fitness_function);
-            let observer = Observer::spawn(
-                &config,
-                Box::new(bare::analysis::lexicase::report_fn),
-                CreatureDominanceOrd,
-            );
-            let mut cases = config
-                .roper
-                .register_pattern
-                .as_ref()
-                .map(|rp| {
-                    let pattern: RegisterPattern = rp.into();
-                    pattern
-                        .features()
-                        .into_iter()
-                        .map(lexi::Task::Reg)
-                        .collect::<Vec<lexi::Task>>()
-                })
-                .expect("No register pattern specified");
-            cases.push(lexi::Task::UniqExec(2));
-            cases.push(lexi::Task::UniqExec(3));
-            log::info!("Register Feature cases: {:#x?}", cases);
-            let mut world =
-                Lexicase::<lexi::Task, bare::evaluation::BareEvaluator<C>, bare::Creature>::new(
-                    &config, observer, evaluator, pier, cases,
-                );
-            while crate::keep_going() {
-                world = world.evolve();
-            }
-        }
+        Selection::Lexicase => unimplemented!("Probably needs an overhaul"),
+        // Selection::Lexicase => {
+        //     let fitness_function: FitnessFn<bare::Creature, Sketches, Config> =
+        //         match config.fitness.function.as_str() {
+        //             "register_pattern" => Box::new(bare::evaluation::register_pattern_ff),
+        //             "register_conjunction" => Box::new(bare::evaluation::register_conjunction_ff),
+        //             "code_coverage" => Box::new(bare::evaluation::code_coverage_ff),
+        //             s => unimplemented!("No such fitness function as {}", s),
+        //         };
+        //     let pier: Arc<Pier<bare::Creature>> = Arc::new(Pier::new(config.num_islands));
+        //     let evaluator = bare::evaluation::BareEvaluator::spawn(&config, fitness_function);
+        //     let observer = Observer::spawn(
+        //         &config,
+        //         Box::new(bare::analysis::lexicase::report_fn),
+        //         CreatureDominanceOrd,
+        //     );
+        //     let mut cases = config
+        //         .roper
+        //         .register_pattern
+        //         .as_ref()
+        //         .map(|rp| {
+        //             let pattern: RegisterPattern = rp.into();
+        //             pattern
+        //                 .features()
+        //                 .into_iter()
+        //                 .map(lexi::Task::Reg)
+        //                 .collect::<Vec<lexi::Task>>()
+        //         })
+        //         .expect("No register pattern specified");
+        //     cases.push(lexi::Task::UniqExec(2));
+        //     cases.push(lexi::Task::UniqExec(3));
+        //     log::info!("Register Feature cases: {:#x?}", cases);
+        //     let mut world =
+        //         Lexicase::<lexi::Task, bare::evaluation::BareEvaluator<C>, bare::Creature>::new(
+        //             &config, observer, evaluator, pier, cases,
+        //         );
+        //     while crate::keep_going() {
+        //         world = world.evolve();
+        //     }
+        // }
     }
 }
