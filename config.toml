@@ -3,17 +3,13 @@
 ##############################
 
 #random_seed = 0xdeadbeef
-job = "LinearGp"
+job = "Roper"
 selection = "Tournament" 
 
 num_islands = 7
-#job = "LinearGp"
-#selection = "Roulette"
-#selection = "Lexicase"
-#selection = "Metropolis"
-## should be between 1 and 3
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
-mutation_exponent = 3.0
+mutation_rate = 0.05
+mutation_exponent = 2.0
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 15
@@ -31,11 +27,11 @@ num_epochs = 200 # = infinite
 # add this:
 
 [fitness]
-#function = "register_pattern"
-function = "error_rate" # weird idea
+function = "register_pattern"
+#function = "error_rate" # weird idea
 #function = "register_conjunction"
 #priority = "zeroes" # could this be set by the ff?
-priority = "error_rate"
+priority = "register_pattern"
 #function = "code_coverage"
 target = 1
 eval_by_case = false
@@ -107,7 +103,7 @@ path = "./data/iris.tsv"
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "./target/release/berbalang"
+binary_path = "./binaries/X86/MODE_64/small"
 #binary_path = "/tmp/ldconfig"
 num_workers = 70
 num_emulators = 60
@@ -134,3 +130,6 @@ randomize_registers = false
 
 [push_vm]
 max_steps = 0x1000
+min_len = 20
+max_len = 1000
+literal_rate = 0.3

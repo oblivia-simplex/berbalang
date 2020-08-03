@@ -30,9 +30,12 @@ impl StatRecord {
         counter: usize,
         epoch: usize,
     ) -> Self {
+        if specimen.fitness.is_none() {
+            return StatRecord::default();
+        }
         let specimen_exec_ratio = specimen.execution_ratio();
         let specimen_scalar_fitness = specimen.scalar_fitness().unwrap();
-        let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap();
+        let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap_or(1.0);
         let specimen_register_error = specimen
             .fitness
             .as_ref()
