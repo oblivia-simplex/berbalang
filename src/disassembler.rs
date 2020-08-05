@@ -1,6 +1,8 @@
-use crate::emulator::loader;
-use capstone::{Capstone, Instructions, NO_EXTRA_MODE};
 use std::fmt;
+
+use capstone::{Capstone, Insn, InsnDetail, Instructions, NO_EXTRA_MODE};
+
+use crate::emulator::loader;
 
 pub struct Disassembler(pub Capstone);
 
@@ -9,6 +11,7 @@ impl fmt::Debug for Disassembler {
         write!(f, "<Capstone disassembler at {:p}>", self as *const Self,)
     }
 }
+
 // TODO: go and fix the library code for this.
 unsafe impl Send for Disassembler {}
 unsafe impl Sync for Disassembler {}
@@ -30,7 +33,11 @@ impl Disassembler {
         let arch = convert_arch(arch);
         let mode = convert_mode(mode);
         Capstone::new_raw(arch, mode, NO_EXTRA_MODE, None)
-            .map(Self)
+            .map(|mut c| {
+                c.set_detail(true)
+                    .expect("Failed to set detail option on disassembler");
+                Self(c)
+            })
             .map_err(Error::from)
     }
 
@@ -46,6 +53,10 @@ impl Disassembler {
         };
         //res.map(|res| format!("{}", res)).map_err(Error::from)
         res.map_err(Error::from)
+    }
+
+    pub fn insn_detail<'a>(&self, insn: &'a Insn) -> Result<InsnDetail<'a>, Error> {
+        self.0.insn_detail(insn).map_err(Error::from)
     }
 
     pub fn disas_from_mem_image(

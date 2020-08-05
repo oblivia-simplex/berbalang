@@ -294,6 +294,10 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
     }
 }
 
+pub trait HasProfile {
+    fn profile(&self) -> Option<&Profile>;
+}
+
 #[cfg(test)]
 mod test {
     use unicorn::CpuX86;

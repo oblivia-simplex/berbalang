@@ -8,17 +8,13 @@ use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 
 use hashbrown::HashMap;
-use rand::seq::SliceRandom;
 use serde::Serialize;
-
-use non_dominated_sort::{non_dominated_sort, DominanceOrd};
 
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
 use crate::hashmap;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::dump::dump;
-use crate::util::random::hash_seed_rng;
 
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
@@ -42,17 +38,12 @@ fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
     tx: Sender<O>,
-    stop_flag: bool,
 }
 
-pub type ReportFn<T, D> = Box<dyn Fn(&Window<T, D>, usize, &Config) -> () + Sync + Send + 'static>;
+pub type ReportFn<T> = Box<dyn Fn(&Window<T>, usize, &Config) -> () + Sync + Send + 'static>;
 
 #[allow(dead_code)]
-pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
-    window: &Window<P, D>,
-    counter: usize,
-    config: &Config,
-) {
+pub fn default_report_fn<P: Phenome + Genome>(window: &Window<P>, counter: usize, config: &Config) {
     let frame = &window.frame;
     log::info!("default report function");
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
@@ -77,25 +68,24 @@ pub fn default_report_fn<P: Phenome + Genome, D: DominanceOrd<P>>(
     log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
 }
 
-pub struct Window<O: Phenome + 'static, D: DominanceOrd<O>> {
+pub struct Window<O: Phenome + 'static> {
     pub frame: Vec<O>,
     pub config: Arc<Config>,
     counter: usize,
     report_every: usize,
     i: usize,
     window_size: usize,
-    report_fn: ReportFn<O, D>,
+    report_fn: ReportFn<O>,
     pub best: Option<O>,
     pub champion: Option<O>,
     // priority fitness best
     pub archive: Vec<O>,
     #[allow(dead_code)] // TODO: re-establish pareto archive as optional
-    dominance_order: D,
     stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
 }
 
-impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
-    fn new(report_fn: ReportFn<O, D>, config: Arc<Config>, dominance_order: D) -> Self {
+impl<O: Genome + Phenome + 'static> Window<O> {
+    fn new(report_fn: ReportFn<O>, config: Arc<Config>) -> Self {
         let window_size = config.observer.window_size;
         let report_every = config.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
@@ -120,7 +110,6 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             champion: None,
             archive: vec![],
             stat_writers,
-            dominance_order,
         }
     }
 
@@ -200,7 +189,10 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                         self.best = Some(specimen.clone())
                     }
                     Some(champ) => {
-                        if f < champ.scalar_fitness().unwrap() {
+                        if f < champ
+                            .scalar_fitness()
+                            .expect("There should be a fitness score here")
+                        {
                             updated = true;
                             self.best = Some(specimen.clone())
                         }
@@ -213,7 +205,7 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
             log::info!(
                 "Island {}: new best:\n{:#?}",
                 self.config.island_identifier,
-                self.best.as_ref().unwrap()
+                self.best.as_ref().expect("Updated, but no best?")
             );
         }
     }
@@ -228,7 +220,10 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                         self.champion = Some(specimen.clone())
                     }
                     Some(champ) => {
-                        if f < champ.priority_fitness(&self.config).unwrap() {
+                        if f < champ
+                            .priority_fitness(&self.config)
+                            .expect("there should be a fitness score here")
+                        {
                             updated = true;
                             self.champion = Some(specimen.clone())
                         }
@@ -264,32 +259,6 @@ impl<O: Genome + Phenome + 'static, D: DominanceOrd<O>> Window<O, D> {
                 std::os::unix::fs::symlink(path, latest).expect("Failed to make symlink");
             }
         }
-    }
-
-    #[allow(dead_code)] // TODO re-establish as optional
-    fn update_archive(&mut self) {
-        // TODO: optimize this. it's quite bad.
-
-        let arena = self
-            .archive
-            .iter()
-            //.chain(self.frame.iter().filter(|g| g.front() == Some(0)))
-            .chain(self.frame.iter())
-            .cloned() // trouble non_dom sorting refs
-            .collect::<Vec<O>>();
-
-        // arena.sort_by(|a, b| {
-        //     a.fitness()
-        //         .partial_cmp(&b.fitness())
-        //         .unwrap_or(Ordering::Equal)
-        // });
-
-        let front = non_dominated_sort(&arena, &self.dominance_order);
-        let sample = front
-            .current_front_indices()
-            .choose_multiple(&mut hash_seed_rng(&arena), self.config.pop_size);
-
-        self.archive = sample.map(|i| arena[*i].clone()).collect::<Vec<O>>();
     }
 
     fn report(&self) {
@@ -364,29 +333,21 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
         self.tx.send(ob).expect("tx failure");
     }
 
-    pub fn spawn<D: 'static + DominanceOrd<O> + Send>(
-        config: &Config,
-        report_fn: ReportFn<O, D>,
-        dominance_order: D,
-    ) -> Observer<O> {
+    pub fn spawn(config: &Config, report_fn: ReportFn<O>) -> Observer<O> {
         let (tx, rx): (Sender<O>, Receiver<O>) = channel();
 
         let config = Arc::new(config.clone());
         let handle: JoinHandle<()> = spawn(move || {
-            let mut window: Window<O, D> = Window::new(report_fn, config.clone(), dominance_order);
+            let mut window: Window<O> = Window::new(report_fn, config.clone());
             for observable in rx {
                 window.insert(observable);
             }
         });
 
-        Observer {
-            handle,
-            tx,
-            stop_flag: false,
-        }
+        Observer { handle, tx }
     }
 
-    pub fn stop_evolution(&mut self) {
-        self.stop_flag = true
-    }
+    // pub fn stop_evolution(&mut self) {
+    //     self.stop_flag = true
+    // }
 }

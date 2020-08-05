@@ -13,7 +13,6 @@ use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
 use crate::fitness::{MapFit, Weighted};
-use crate::impl_dominance_ord_for_phenome;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::ontogenesis::FitnessFn;
 use crate::util;
@@ -331,6 +330,11 @@ impl Phenome for Creature {
         self.fitness.as_ref().map(Fitness::scalar)
     }
 
+    fn priority_fitness(&self, config: &Config) -> Option<f64> {
+        let priority = &config.fitness.priority;
+        self.fitness().as_ref().and_then(|f| f.get(priority))
+    }
+
     fn set_fitness(&mut self, f: Self::Fitness) {
         self.fitness = Some(f)
     }
@@ -474,9 +478,7 @@ impl Genome for Creature {
 
 type Mutation = u8;
 
-impl_dominance_ord_for_phenome!(Creature, Dom);
-
-fn report(window: &Window<Creature, Dom>, counter: usize, config: &Config) {
+fn report(window: &Window<Creature>, counter: usize, config: &Config) {
     let frame = &window.frame;
     let avg_len = frame.iter().map(|c| c.len()).sum::<usize>() as f64 / frame.len() as f64;
     let mut sketch = CountMinSketch::new(config);
@@ -713,9 +715,9 @@ fn prepare(mut config: Config) -> (Config, Observer<Creature>, evaluation::Evalu
     config.linear_gp.return_registers = Some(return_registers);
     config.linear_gp.num_registers = Some(num_registers);
     log::info!("Config: {:#?}", config);
-    let report_fn: ReportFn<_, _> = Box::new(report);
+    let report_fn: ReportFn<_> = Box::new(report);
     let fitness_fn: FitnessFn<Creature, _, _> = Box::new(evaluation::fitness_function);
-    let observer = Observer::spawn(&config, report_fn, Dom);
+    let observer = Observer::spawn(&config, report_fn);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
     (config, observer, evaluator)
 }

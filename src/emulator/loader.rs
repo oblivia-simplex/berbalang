@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::sync::Once;
 
 use capstone::Instructions;
+use falcon::il;
 use goblin::{
     elf::{self, Elf},
     Object,
@@ -28,7 +29,7 @@ pub static mut MEM_IMAGE: MemoryImage = MemoryImage {
     endian: Endian::Little,
     word_size: 8,
     disasm: None,
-    linker: None,
+    il_program: None,
 };
 static INIT_MEM_IMAGE: Once = Once::new();
 
@@ -40,7 +41,7 @@ pub struct MemoryImage {
     pub endian: Endian,
     pub word_size: usize,
     pub disasm: Option<Disassembler>,
-    pub linker: Option<falcon::loader::ElfLinker>,
+    pub il_program: Option<falcon::il::Program>,
 }
 
 impl MemoryImage {
@@ -446,7 +447,7 @@ fn initialize_memory_image(
     segments: &[Seg],
     arch: unicorn::Arch,
     mode: unicorn::Mode,
-    elf: Option<falcon::loader::ElfLinker>,
+    il_program: Option<il::Program>,
 ) {
     let endian = endian(arch, mode);
     let word_size = word_size_in_bytes(arch, mode);
@@ -458,7 +459,7 @@ fn initialize_memory_image(
             endian,
             word_size,
             disasm: Some(Disassembler::new(arch, mode).expect("Failed to initialize disassembler")),
-            linker: elf,
+            il_program,
         }
     }
 }
@@ -509,7 +510,6 @@ pub fn load(
 }
 
 pub fn load_from_path(config: &RoperConfig, init: bool) -> Result<Vec<Seg>, Error> {
-    //falcon_loader::load_from_path(config)
     let path = &config.binary_path;
     let stack_size = config.emulator_stack_size;
     let arch = config.arch;
@@ -518,14 +518,29 @@ pub fn load_from_path(config: &RoperConfig, init: bool) -> Result<Vec<Seg>, Erro
 }
 
 pub mod falcon_loader {
+    use std::hash::Hasher;
+    use std::path::Path;
+
+    use falcon::il;
     use falcon::loader::{ElfLinker, ElfLinkerBuilder, Loader};
     use falcon::memory::MemoryPermissions;
+    use fnv::FnvHasher;
     use unicorn::{Arch, Mode};
 
     use crate::util;
+    use crate::util::dump::{ron_dump, ron_undump};
 
     // A wrapper around falcon's loader.
     use super::*;
+
+    // TODO:
+    // add a function that
+    // - hashes the binary
+    // - checks a directory to see if a lifted serialization of the lifted program
+    //   has been stored for that hash
+    // - if so, deserializes the program
+    // - if not, lifts the binary, then serializes the program and saves it
+    //   with a filename matching the hash.
 
     fn arch_mode_from_linker(linker: &ElfLinker) -> (Arch, Mode) {
         match linker.architecture().name() {
@@ -596,10 +611,40 @@ pub mod falcon_loader {
             let (arch, mode) = arch_mode_from_linker(&linker);
             config.arch = arch;
             config.mode = mode;
-            // FIXME: derive the arch and mode
+
+            // Do the lifting, then serialize and save the lifted program
+            // but check to see if a previously lifted version already exists.
+            let mem_hash = {
+                let mut h = FnvHasher::default();
+                let mem = linker.memory().expect("Failed to get memory from linker");
+                mem.hash(&mut h);
+                h.finish()
+            };
+            let p = format!("./cache/{:x}.ron.gz", mem_hash);
+            let cached_path = Path::new(&p);
+            // FIXME: temporarily disabled. Problems deserializing RON encoded Program structs.
+            // experiment with different formats.
+            let program: il::Program = if false && cached_path.exists() {
+                ron_undump::<il::Program, &Path>(cached_path).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to deserialized cached il::Program at {:?}: {:?}",
+                        cached_path, e
+                    )
+                })
+            } else {
+                log::info!("Lifting the intermediate representation of the program...");
+                let program = linker
+                    .program()
+                    .expect("Failed to lift il::Program from ElfLinker");
+                log::info!("Finished lifting program.");
+                ron_dump(&program, cached_path).expect("Failed to dump il::Program");
+                program
+            };
+
             if init {
+                // TODO: let lift_program be optional, and only activated when using Push
                 INIT_MEM_IMAGE
-                    .call_once(|| initialize_memory_image(&segs, arch, mode, Some(linker)));
+                    .call_once(|| initialize_memory_image(&segs, arch, mode, Some(program)));
             }
             Ok(segs)
         }
@@ -636,6 +681,7 @@ mod test {
             binary_path: "/bin/sh".into(), // "./binaries/X86/MODE_32/sshd".to_string(),
             ld_paths: None,
             bad_bytes: None,
+            ..Default::default()
         };
         let res = load_from_path(&config, false).expect("Failed to load /bin/sh");
         println!("With legacy loader");

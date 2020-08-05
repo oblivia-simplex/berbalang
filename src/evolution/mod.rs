@@ -1,22 +1,173 @@
+use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 use rand::Rng;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::configure::Config;
 use crate::fitness::FitnessScore;
+use crate::util;
 use crate::util::count_min_sketch::Sketch;
+use crate::util::levy_flight::levy_decision;
 use crate::util::random::{hash_seed_rng, Prng};
 
-pub mod lexicase;
+//pub mod lexicase;
 pub mod metropolis;
 pub mod pareto_roulette;
 pub mod population;
 pub mod tournament;
 
-pub trait Genome: Debug + Hash {
-    type Allele: Clone + Copy + Debug + PartialEq + Eq + Hash + Serialize + Sized;
+pub trait Mutation {
+    type Allele;
+
+    fn mutate_point(allele: &mut Self::Allele) -> Self;
+
+    fn mutate(chromosome: &mut [Self::Allele], config: &Config) -> Vec<Option<Self>>
+    where
+        Self: Sized,
+    {
+        let mut rng = rand::thread_rng();
+        let len = chromosome.len();
+        (0..len)
+            .map(|i| {
+                if !levy_decision(&mut rng, len, config.mutation_exponent) {
+                    Some(Self::mutate_point(&mut chromosome[i]))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<Option<Self>>>()
+    }
+}
+
+#[derive(Clone, Hash, Serialize)]
+pub struct LinearChromosome<
+    A: Debug + Clone + Hash + Serialize + DeserializeOwned,
+    M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A>,
+> {
+    pub chromosome: Vec<A>,
+    pub mutations: Vec<Option<M>>,
+    pub parentage: Vec<usize>,
+    pub parent_names: Vec<String>,
+    pub name: String,
+    pub generation: usize,
+}
+
+// TODO: Define a mutation method on the mutation enum type
+
+impl<
+        A: Debug + Clone + Hash + Serialize + DeserializeOwned,
+        M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A>,
+    > LinearChromosome<A, M>
+{
+    pub fn len(&self) -> usize {
+        self.chromosome.len()
+    }
+
+    pub fn crossover(parents: &[&Self], config: &Config) -> Self {
+        let min_mate_len = parents.iter().map(|p| p.len()).min().unwrap();
+        let lambda = min_mate_len as f64 / config.crossover_period;
+        let distribution =
+            rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
+        Self::crossover_by_distribution(&distribution, &parents)
+    }
+
+    fn crossover_by_distribution<D: rand_distr::Distribution<f64>>(
+        distribution: &D,
+        parents: &[&Self],
+    ) -> Self {
+        let mut chromosome = Vec::new();
+        let mut parentage = Vec::new();
+        let mut rng = hash_seed_rng(&parents[0].chromosome);
+        let mut ptrs = vec![0_usize; parents.len()];
+        let switch = |rng: &mut Prng| rng.gen_range(0, parents.len());
+        let sample = |rng: &mut Prng| distribution.sample(rng).round() as usize + 1;
+
+        loop {
+            let src = switch(&mut rng);
+            let take_from = ptrs[src];
+
+            if take_from >= parents[src].len() {
+                break;
+            }
+            //let take_to = std::cmp::min(ptrs[src] + sample(&mut rng), parents[src].len());
+            let take_to = ptrs[src] + sample(&mut rng);
+            let len = parents[src].len();
+            for i in take_from..take_to {
+                chromosome.push(parents[src].chromosome[i % len].clone())
+            }
+
+            for _ in 0..(take_to - take_from) {
+                parentage.push(src)
+            }
+
+            ptrs[src] = take_to;
+            // now slide the other ptrs ahead a random interval
+            for i in 0..ptrs.len() {
+                if i != src {
+                    ptrs[i] += sample(&mut rng);
+                }
+            }
+        }
+
+        let len = chromosome.len();
+        let name = util::name::random(4, &chromosome);
+
+        Self {
+            chromosome,
+            parentage,
+            mutations: vec![None; len],
+            parent_names: parents
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<String>>(),
+            name,
+            generation: parents.iter().map(|p| p.generation).max().unwrap_or(0) + 1,
+        }
+    }
+
+    pub fn mutate(&mut self, config: &Config) {
+        // maybe check a uniform mutation rate to see if any pointwise mutations happen at all.
+        let mutations = M::mutate(&mut self.chromosome, config);
+        self.mutations = mutations;
+    }
+}
+
+impl<A, M> fmt::Debug for LinearChromosome<A, M>
+where
+    A: Debug + Clone + Hash + Serialize + DeserializeOwned,
+    M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Name: {}\nGeneration: {}", self.name, self.generation)?;
+        for i in 0..self.chromosome.len() {
+            let parent = if self.parent_names.is_empty() {
+                "seed"
+            } else {
+                &self.parent_names[self.parentage[i]]
+            };
+            let allele = &self.chromosome[i];
+            let mutation = &self.mutations[i];
+            writeln!(
+                f,
+                "[{i}][{parent}] {allele:x?}{mutation}",
+                i = i,
+                parent = parent,
+                allele = allele,
+                mutation = mutation
+                    .as_ref()
+                    .map(|m| format!(" {:?}", m))
+                    .unwrap_or_else(String::new),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+pub trait Genome: Hash {
+    type Allele: Clone + Debug + PartialEq + Eq + Hash + Serialize + Sized;
 
     fn chromosome(&self) -> &[Self::Allele];
 
@@ -56,7 +207,7 @@ pub trait Genome: Debug + Hash {
             let take_to = ptrs[src] + sample(&mut rng);
             let len = parents[src].len();
             for i in take_from..take_to {
-                chromosome.push(parents[src][i % len])
+                chromosome.push(parents[src][i % len].clone())
             }
 
             for _ in 0..(take_to - take_from) {
@@ -94,13 +245,13 @@ pub trait Genome: Debug + Hash {
     fn digrams(&self) -> Box<dyn Iterator<Item = (Self::Allele, Self::Allele)> + '_> {
         if self.chromosome().len() == 1 {
             // FIXME: i don't like this edge case.
-            return Box::new(self.chromosome().iter().map(|x| (*x, *x)));
+            return Box::new(self.chromosome().iter().map(|x| (x.clone(), x.clone())));
         }
         Box::new(
             self.chromosome()
                 .iter()
                 .zip(self.chromosome().iter().skip(1))
-                .map(|(a, b)| (*a, *b)),
+                .map(|(a, b)| (a.clone(), b.clone())),
         )
     }
 
@@ -147,10 +298,7 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
 
     fn scalar_fitness(&self) -> Option<f64>;
 
-    fn priority_fitness(&self, _config: &Config) -> Option<f64> {
-        unimplemented!("let's break here for now");
-        //self.scalar_fitness()
-    }
+    fn priority_fitness(&self, _config: &Config) -> Option<f64>;
 
     fn set_fitness(&mut self, f: Self::Fitness);
 

@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use crate::configure::Config;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{Genome, Phenome};
-use crate::impl_dominance_ord_for_phenome;
 use crate::observer::Window;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::levy_flight::levy_decision;
@@ -68,6 +67,10 @@ impl Phenome for Genotype {
 
     fn scalar_fitness(&self) -> Option<f64> {
         self.fitness.as_ref().map(|v| v[0])
+    }
+
+    fn priority_fitness(&self, _config: &Config) -> Option<f64> {
+        self.scalar_fitness()
     }
 
     fn set_fitness(&mut self, f: Fitness) {
@@ -192,9 +195,7 @@ impl Genome for Genotype {
     }
 }
 
-impl_dominance_ord_for_phenome!(Genotype, Dom);
-
-fn report(window: &Window<Genotype, Dom>, counter: usize, _config: &Config) {
+fn report(window: &Window<Genotype>, counter: usize, _config: &Config) {
     let frame = &window.frame;
     let fitnesses: Vec<Fitness> = frame.iter().filter_map(|g| g.fitness.clone()).collect();
     let len = fitnesses.len();
@@ -256,7 +257,7 @@ fn fitness_function(
 pub fn run(config: Config) {
     let report_fn = Box::new(report);
     let fitness_fn = Box::new(fitness_function);
-    let observer = Observer::spawn(&config, report_fn, Dom);
+    let observer = Observer::spawn(&config, report_fn);
     let evaluator = evaluation::Evaluator::spawn(&config, fitness_fn);
     let pier = Pier::new(4); // FIXME: don't hardcode, make this the number of islands, say
     let mut world = Tournament::<evaluation::Evaluator, Genotype>::new(

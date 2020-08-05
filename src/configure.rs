@@ -96,6 +96,9 @@ fn default_push_vm_max_steps() -> usize {
 pub struct PushVm {
     #[serde(default = "default_push_vm_max_steps")]
     pub max_steps: usize,
+    pub min_len: usize,
+    pub max_len: usize,
+    pub literal_rate: f64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -232,6 +235,8 @@ fn default_mode() -> unicorn::Mode {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct RoperConfig {
+    #[serde(default)]
+    pub use_push: bool,
     pub gadget_file: Option<String>,
     #[serde(default)]
     pub output_registers: Vec<String>,
@@ -295,6 +300,7 @@ const fn default_stack_size() -> usize {
 impl Default for RoperConfig {
     fn default() -> Self {
         Self {
+            use_push: false,
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,

@@ -503,6 +503,7 @@ mod test {
             binary_path: "/bin/sh".to_string(),
             ld_paths: None,
             bad_bytes: None,
+            ..Default::default()
         };
         let _ = loader::load_from_path(&config, true);
     }
