@@ -18,22 +18,18 @@ min_init_len = 10
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x1000
+pop_size = 0x500
 max_length = 100
 num_epochs = 200 # = infinite
-# season length is only used by 
-# SeasonalSketch, which I don't
-# think actually works
-# add this:
 
 [fitness]
-function = "register_pattern"
+function = "register_conjunction"
 #function = "error_rate" # weird idea
 #function = "register_conjunction"
-#priority = "zeroes" # could this be set by the ff?
-priority = "register_error"
+priority = "zeroes" # could this be set by the ff?
+#priority = "register_error"
 #function = "code_coverage"
-target = 1
+target = 0
 eval_by_case = false
 dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 # as distinct, sometimes, from execution.
@@ -48,11 +44,9 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
 #important_writes = "100 - min(100, x*50)"
-#gadgets_executed = "10*(5 - min(5, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
-gadgets_executed = "10 - min(10, x)"
-register_error = "x"
-register_entropy = "-10*x"
-register_novelty = "0 * x"
+gadgets_executed = "10*(5 - min(5, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
+gadgets_executed = "0" #10 - min(10, x)"
+register_novelty = "1000 *x"
 mem_write_ratio = "0" #1.0 - x"
 #code_frequency = "x"
 #code_coverage = "100 * x"
@@ -104,7 +98,7 @@ use_push = true
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sh_soup.json"
 soup_size = 0x10000
-binary_path = "./binaries/X86/MODE_64/small"
+binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 num_workers = 70
 num_emulators = 60
@@ -115,7 +109,7 @@ record_basic_blocks = true
 record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
 #output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
-output_registers= ["RAX"]
+output_registers= ["EAX", "EBX", "ECX", "EDX"]
 randomize_registers = false 
   [roper.register_pattern] 
   #EAX = "0xb"
@@ -123,10 +117,10 @@ randomize_registers = false
   #ECX = "&0"
   #EDX = "0"
 
-  RAX = "0x3b"                   # execve syscall number
-  RDI = "&'/bin/sh"
-  RSI = "&&0"                  # an empty argv array
-  RDX = "&&0"                  # an empty argv array
+  #RAX = "0x3b"                   # execve syscall number
+  #RDI = "&'/bin/sh"
+  #RSI = "&&0"                  # an empty argv array
+  #RDX = "&&0"                  # an empty argv array
 
 
 [push_vm]

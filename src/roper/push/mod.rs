@@ -10,6 +10,7 @@ use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
+use std::fmt;
 
 pub mod evaluation;
 
@@ -129,7 +130,7 @@ pub enum Op {
     List(Vec<Op>),
 }
 
-static NON_CONSTANT_OPS: [Op; 59] = [
+static NON_CONSTANT_OPS: [Op; 52] = [
     Op::BoolAnd,
     Op::BoolOr,
     Op::BoolNot,
@@ -147,10 +148,10 @@ static NON_CONSTANT_OPS: [Op; 59] = [
     Op::WordShl,
     Op::WordShr,
     Op::WordDeref,
-    // Op::WordSearch,
+    Op::WordSearch,
     // Op::WordReadRegs,
     // Op::WordWriteRegs,
-    Op::WordToFloat,
+    // Op::WordToFloat,
     Op::WordReadable,
     Op::WordWriteable,
     Op::WordExecutable,
@@ -168,13 +169,13 @@ static NON_CONSTANT_OPS: [Op; 59] = [
     Op::BufDisRegWrite,
     Op::BufDisInstId,
     // floats need to be encoded as u64 to preserve Op::Hash
-    Op::FloatLog,
-    Op::FloatSin,
-    Op::FloatCos,
-    Op::FloatTan,
-    Op::FloatTanh,
-    Op::FloatToWord,
-    Op::FloatLess,
+    // Op::FloatLog,
+    // Op::FloatSin,
+    // Op::FloatCos,
+    // Op::FloatTan,
+    // Op::FloatTanh,
+    // Op::FloatToWord,
+    // Op::FloatLess,
     Op::CodeQuote,
     Op::CodeDoAll,
     Op::InstIsBranch,
@@ -210,7 +211,7 @@ fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
 
     for _ in 0..count {
         if rng.gen_range(0.0, 1.0) < literal_rate {
-            match rng.gen_range(0, 4) {
+            match rng.gen_range(0, 3) {
                 0 => {
                     // functions
                     let f = function_names
@@ -228,10 +229,10 @@ fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
                     // boolean
                     ops.push(Op::BoolConst(rng.gen::<bool>()))
                 }
-                3 => {
-                    // float
-                    ops.push(Op::FloatConst(rng.gen::<f64>().to_bits()))
-                }
+                // 3 => {
+                //     // float
+                //     ops.push(Op::FloatConst(rng.gen::<f64>().to_bits()))
+                // }
                 _ => unreachable!("nope"),
             };
         } else {
@@ -279,8 +280,13 @@ impl Op {
             }
             ExecY => {
                 if let Exec(a) = mach.pop(&Type::Exec) {
-                    mach.push(Exec(List(vec![ExecY, a.clone()])));
-                    mach.push(Exec(a));
+                    if let ExecY = a {
+                        // infinite loop detected.
+                        log::trace!("Infinite loop detected. Skipping")
+                    } else {
+                        mach.push(Exec(List(vec![ExecY, a.clone()])));
+                        mach.push(Exec(a));
+                    }
                 }
             }
 
@@ -824,7 +830,7 @@ impl From<&Val> for Type {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub enum Val {
     Null,
     Word(u64),
@@ -841,6 +847,31 @@ pub enum Val {
     Instruction(&'static il::Instruction),
     Block(&'static il::Block),
     Function(&'static il::Function),
+}
+
+impl fmt::Debug for Val {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Val::*;
+        match self {
+            Null => write!(f, "Null"),
+            Word(w) => write!(f, "Word(0x{:x})", w),
+            Buf(b) => {
+                let i = 16.min(b.len());
+                let ellipsis = if i < b.len() { "..." } else { "" };
+                write!(f, "Buf({:x?}{})", &b[..i], ellipsis)
+            }
+            Bool(b) => write!(f, "Bool({:?})", b),
+            Exec(op) => write!(f, "Exec({:?})", op),
+            Code(op) => write!(f, "Code({:?})", op),
+            Float(bits) => write!(f, "Float({})", f64::from_bits(*bits)),
+            Gadget(w) => write!(f, "Gadget(0x{:x})", w),
+            Scalar(s) => write!(f, "Scalar({:?})", s),
+            Expression(e) => write!(f, "Expression({})", e),
+            Instruction(inst) => write!(f, "Instruction({})", inst),
+            Block(b) => write!(f, "Block(at 0x{:x})", b.address().unwrap_or(0)),
+            Function(func) => write!(f, "Function(named {})", func.name()),
+        }
+    }
 }
 
 // TODO: disassembly aware instructions.
@@ -926,7 +957,7 @@ impl MachineState {
             op.eval(self)
         }
 
-        log::trace!("Completed execution");
+        log::trace!("Completed execution. Machine state: {:#?}", self);
         // first, take the explicitly-marked gadgets.
         // ensure that this list begins with an executable.
 
@@ -959,6 +990,7 @@ impl MachineState {
         }
         payload.reverse();
 
+        log::trace!("Payload: {:#x?}", payload);
         payload
     }
 }
@@ -1280,15 +1312,17 @@ mod test {
             binary_path: "./binaries/X86/MODE_64/nano".to_string(),
             ld_paths: None,
             bad_bytes: None,
+            ..Default::default()
         };
         crate::logger::init("test");
         println!("Loading, linking, and lifting...");
-        loader::falcon_loader::load_from_path(&mut config, true);
+        loader::falcon_loader::load_from_path(&mut config, true).expect("failed to load");
         let ops = random_ops(&mut rand::thread_rng(), 0.5, 100);
         println!("{:#?}", ops);
         let mut machine = MachineState::default();
         let args = vec![];
         let res = machine.exec(&ops, &args, 1000);
         println!("Result: {:#x?}", res);
+        println!("Machine state: {:#?}", machine);
     }
 }
