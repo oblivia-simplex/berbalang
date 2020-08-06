@@ -420,6 +420,10 @@ impl Weighted<'static> {
         }
         val
     }
+
+    pub fn declare_failure(&mut self) {
+        *self.cached_scalar.get_mut().unwrap() = Some(f64::MAX)
+    }
 }
 
 impl HasScalar for Weighted<'static> {

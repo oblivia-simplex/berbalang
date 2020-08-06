@@ -1,3 +1,7 @@
+use std::fs::File;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::thread::spawn;
 
@@ -6,20 +10,20 @@ use rand::Rng;
 use unicorn::Cpu;
 
 use crate::configure::{Config, Selection};
-/// This is where the ROP-evolution-specific code lives.
-use crate::{
-    emulator::loader,
-    evolution::{tournament::Tournament, Phenome},
-};
-// the runner
+use crate::error::Error;
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::fitness::Weighted;
 use crate::observer::Observer;
 use crate::ontogenesis::FitnessFn;
+use crate::util::architecture::Perms;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::random::hash_seed_rng;
+use crate::{
+    emulator::loader,
+    evolution::{tournament::Tournament, Phenome},
+};
 
 /// The `analysis` module contains the reporting function passed to the observation
 /// window. Population saving, soup dumping, statistical assessment, etc., happens there.
@@ -36,6 +40,43 @@ mod bare;
 /// A ROPER-specific implementation of Spector's PUSH VM.
 #[allow(dead_code)]
 mod push;
+
+/// load binary before calling this function
+pub fn init_soup(config: &mut Config) -> Result<(), Error> {
+    let mut soup = Vec::new();
+    //might as well take the constants from the register pattern
+    if let Some(pattern) = config.roper.register_pattern() {
+        pattern.0.values().for_each(|w| soup.push(w.val))
+    }
+    if let Some(gadget_file) = config.roper.gadget_file.as_ref() {
+        // parse the gadget file
+        let reader = File::open(gadget_file).map(BufReader::new)?;
+
+        if gadget_file.ends_with(".json") {
+            log::info!("Deserializing soup from {}", gadget_file);
+            soup = serde_json::from_reader(reader)?;
+        } else {
+            log::info!("Parsing soup from {}", gadget_file);
+            for line in reader.lines() {
+                let word = line?.parse::<u64>()?;
+                soup.push(word)
+            }
+        }
+    } else if let Some(soup_size) = config.roper.soup_size.as_ref() {
+        let memory = loader::get_static_memory_image();
+        for addr in (0..(*soup_size)).map(|i| {
+            let mut hasher = fnv::FnvHasher::default();
+            i.hash(&mut hasher);
+            config.random_seed.hash(&mut hasher);
+            let seed = hasher.finish();
+            memory.random_address(Some(Perms::EXEC), seed)
+        }) {
+            soup.push(addr)
+        }
+    }
+    config.roper.soup = Some(soup);
+    Ok(())
+}
 
 pub struct Sketches {
     pub register_error: CountMinSketch,
@@ -115,7 +156,7 @@ impl DominanceOrd<&push::Creature> for CreatureDominanceOrd {}
 pub fn run(mut config: Config) {
     let _ = loader::falcon_loader::load_from_path(&mut config.roper, true)
         .expect("Failed to load binary image");
-    bare::init_soup(&mut config).expect("Failed to initialize the soup");
+    init_soup(&mut config).expect("Failed to initialize the soup");
 
     use unicorn::Arch::*;
     match config.roper.arch {

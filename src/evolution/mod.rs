@@ -22,7 +22,7 @@ pub mod tournament;
 pub trait Mutation {
     type Allele;
 
-    fn mutate_point(allele: &mut Self::Allele) -> Self;
+    fn mutate_point(allele: &mut Self::Allele, config: &Config) -> Self;
 
     fn mutate(chromosome: &mut [Self::Allele], config: &Config) -> Vec<Option<Self>>
     where
@@ -33,7 +33,7 @@ pub trait Mutation {
         (0..len)
             .map(|i| {
                 if !levy_decision(&mut rng, len, config.mutation_exponent) {
-                    Some(Self::mutate_point(&mut chromosome[i]))
+                    Some(Self::mutate_point(&mut chromosome[i], &config))
                 } else {
                     None
                 }

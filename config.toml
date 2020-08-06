@@ -44,9 +44,8 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
 #important_writes = "100 - min(100, x*50)"
-gadgets_executed = "10*(5 - min(5, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
-gadgets_executed = "0" #10 - min(10, x)"
-register_novelty = "1000 *x"
+gadgets_executed = "10*(10 - min(10, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
+register_novelty = "100 *x"
 mem_write_ratio = "0" #1.0 - x"
 #code_frequency = "x"
 #code_coverage = "100 * x"

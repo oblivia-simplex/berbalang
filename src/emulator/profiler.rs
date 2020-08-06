@@ -69,7 +69,7 @@ pub struct Profiler<C: Cpu<'static>> {
     pub input: HashMap<Register<C>, u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Profile {
     pub paths: Vec<Vec<Block>>,
     //PrefixSet<Block>,
@@ -83,6 +83,7 @@ pub struct Profile {
     #[serde(skip)]
     pub writeable_memory: Vec<Vec<Seg>>,
     pub write_logs: Vec<Vec<MemLogEntry>>,
+    pub executable: bool,
 }
 
 fn segqueue_to_vec<T>(sq: Arc<SegQueue<T>>) -> Vec<T> {
@@ -164,6 +165,7 @@ impl Profile {
             registers: register_maps,
             writeable_memory: writeable_memory_regions,
             write_logs,
+            executable: true,
         }
     }
 

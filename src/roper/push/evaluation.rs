@@ -5,8 +5,10 @@ use unicorn::Cpu;
 
 use crate::configure::Config;
 use crate::emulator::hatchery::Hatchery;
+use crate::emulator::profiler::{HasProfile, Profile};
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
-use crate::evolution::Genome;
+use crate::evolution::{Genome, Phenome};
+use crate::fitness::Weighted;
 use crate::ontogenesis::{Develop, FitnessFn};
 use crate::roper::push;
 use crate::roper::push::{Creature, MachineState};
@@ -85,47 +87,52 @@ impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
             let payload = machine.exec(creature.chromosome(), &args, self.config.push_vm.max_steps);
             creature.payload = Some(payload);
         }
+        // a maximal (very bad) fitness value should be assigned if the payload is empty
+        // so we can skip evaluation in this case.
+
         if creature.profile.is_none() {
-            let (mut creature, profile) = self
-                .hatchery
-                .execute(creature)
-                .expect("Failed to evaluate creature");
-            creature.profile = Some(profile);
-            creature
+            let empty_payload = creature.payload.as_ref().map(Vec::is_empty);
+            if let Some(false) = empty_payload {
+                let (mut creature, profile) = self
+                    .hatchery
+                    .execute(creature)
+                    .expect("Failed to evaluate creature");
+                creature.profile = Some(profile);
+                creature
+            } else {
+                // this will mark the profile as non-executable
+                // log::warn!("Creature with empty payload. declaring it a complete failure");
+                let profile = Profile::default();
+                debug_assert!(!profile.executable);
+                creature.profile = Some(profile);
+                creature
+            }
         } else {
             creature
         }
     }
 
-    fn apply_fitness_function(&mut self, creature: push::Creature) -> push::Creature {
-        (self.fitness_fn)(creature, &mut self.sketches, self.config.clone())
+    fn apply_fitness_function(&mut self, mut creature: push::Creature) -> push::Creature {
+        let profile = creature
+            .profile()
+            .expect("Attempted to apply fitness function to undeveloped creature");
+        if !profile.executable {
+            let mut fitness = Weighted::new(self.config.fitness.weights.clone());
+            fitness.declare_failure();
+            creature.set_fitness(fitness);
+            creature
+        } else {
+            (self.fitness_fn)(creature, &mut self.sketches, self.config.clone())
+        }
     }
 
     fn development_pipeline<I: 'static + Iterator<Item = push::Creature> + Send>(
         &self,
         inbound: I,
     ) -> Vec<push::Creature> {
-        let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(|c| c.profile.is_some());
-        self.hatchery
-            .execute_batch(fresh_meat.into_iter().map(|mut c| {
-                if c.payload.is_none() {
-                    let args = vec![];
-                    let payload = MachineState::default().exec(
-                        c.chromosome(),
-                        &args,
-                        self.config.push_vm.max_steps,
-                    );
-                    c.payload = Some(payload)
-                }
-                c
-            }))
-            .expect("execute batch failure")
+        inbound
             .into_iter()
-            .map(|(mut creature, profile)| {
-                creature.profile = Some(profile);
-                creature
-            })
-            .chain(old_meat)
-            .collect::<Vec<_>>()
+            .map(|c| self.develop(c))
+            .collect::<Vec<push::Creature>>()
     }
 }

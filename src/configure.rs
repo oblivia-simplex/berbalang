@@ -40,7 +40,7 @@ fn default_one() -> f64 {
     1.0
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
     pub job: Job,
     pub selection: Selection,
@@ -138,7 +138,7 @@ fn random_population_name() -> String {
     crate::util::name::random(2, seed)
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ObserverConfig {
     pub dump_population: bool,
     pub dump_soup: bool,

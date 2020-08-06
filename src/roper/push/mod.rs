@@ -1,3 +1,5 @@
+use std::fmt;
+
 use falcon::il;
 use hashbrown::HashMap;
 use rand::prelude::SliceRandom;
@@ -10,7 +12,6 @@ use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
-use std::fmt;
 
 pub mod evaluation;
 
@@ -55,6 +56,9 @@ pub enum Op {
     // Treating the Word as an address
     WordDeref,
     WordSearch,
+    WordDisRegRead,
+    WordDisRegWrite,
+    WordDisInstId,
     //WordReadRegs,
     //WordWriteRegs,
     // TODO: there should be a way to map addresses to IL CFG Nodes
@@ -130,7 +134,7 @@ pub enum Op {
     List(Vec<Op>),
 }
 
-static NON_CONSTANT_OPS: [Op; 52] = [
+static NON_CONSTANT_OPS: [Op; 100] = [
     Op::BoolAnd,
     Op::BoolOr,
     Op::BoolNot,
@@ -155,19 +159,19 @@ static NON_CONSTANT_OPS: [Op; 52] = [
     Op::WordReadable,
     Op::WordWriteable,
     Op::WordExecutable,
+    Op::WordDisRegRead,
+    Op::WordDisRegWrite,
+    Op::WordDisInstId,
     Op::WordToGadget,
     Op::GadgetToWord,
     //Op::BufConst(&'static [u8]),
-    Op::BufAt,
-    Op::BufLen,
-    Op::BufIndex,
-    Op::BufPack,
-    Op::BufHead,
-    Op::BufTail,
+    // Op::BufAt,
+    // Op::BufLen,
+    // Op::BufIndex,
+    // Op::BufPack,
+    // Op::BufHead,
+    // Op::BufTail,
     // Op::BufSearch,
-    Op::BufDisRegRead,
-    Op::BufDisRegWrite,
-    Op::BufDisInstId,
     // floats need to be encoded as u64 to preserve Op::Hash
     // Op::FloatLog,
     // Op::FloatSin,
@@ -196,10 +200,73 @@ static NON_CONSTANT_OPS: [Op; 52] = [
     Op::ExecS,
     Op::ExecY,
     Op::Nop,
+    // Generics
+    Op::Eq(Type::Word),
+    Op::Rot(Type::Word),
+    Op::Swap(Type::Word),
+    Op::Drop(Type::Word),
+    Op::Dup(Type::Word),
+    Op::Eq(Type::Bool),
+    Op::Rot(Type::Bool),
+    Op::Swap(Type::Bool),
+    Op::Drop(Type::Bool),
+    Op::Dup(Type::Bool),
+    Op::Eq(Type::Buf),
+    Op::Rot(Type::Buf),
+    Op::Swap(Type::Buf),
+    Op::Drop(Type::Buf),
+    Op::Dup(Type::Buf),
+    Op::Eq(Type::Scalar),
+    Op::Rot(Type::Scalar),
+    Op::Swap(Type::Scalar),
+    Op::Drop(Type::Scalar),
+    Op::Dup(Type::Scalar),
+    // Op::Eq(Type::Float),
+    // Op::Rot(Type::Float),
+    // Op::Swap(Type::Float),
+    // Op::Drop(Type::Float),
+    // Op::Dup(Type::Float),
+    Op::Eq(Type::Expression),
+    Op::Rot(Type::Expression),
+    Op::Swap(Type::Expression),
+    Op::Drop(Type::Expression),
+    Op::Dup(Type::Expression),
+    Op::Eq(Type::Block),
+    Op::Rot(Type::Block),
+    Op::Swap(Type::Block),
+    Op::Drop(Type::Block),
+    Op::Dup(Type::Block),
+    Op::Eq(Type::Instruction),
+    Op::Rot(Type::Instruction),
+    Op::Swap(Type::Instruction),
+    Op::Drop(Type::Instruction),
+    Op::Dup(Type::Instruction),
+    Op::Eq(Type::Function),
+    Op::Rot(Type::Function),
+    Op::Swap(Type::Function),
+    Op::Drop(Type::Function),
+    Op::Dup(Type::Function),
+    Op::Eq(Type::Gadget),
+    Op::Rot(Type::Gadget),
+    Op::Swap(Type::Gadget),
+    Op::Drop(Type::Gadget),
+    Op::Dup(Type::Gadget),
+    Op::Eq(Type::Exec),
+    Op::Rot(Type::Exec),
+    Op::Swap(Type::Exec),
+    Op::Drop(Type::Exec),
+    // Op::Dup(Type::Exec),
+    Op::Eq(Type::Code),
+    Op::Rot(Type::Code),
+    Op::Swap(Type::Code),
+    Op::Drop(Type::Code),
+    Op::Dup(Type::Code),
 ];
 
-fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
+fn random_ops<R: Rng>(rng: &mut R, config: &Config) -> Vec<Op> {
     let mut ops = Vec::new();
+
+    let count = rng.gen_range(config.push_vm.min_len, config.push_vm.max_len);
 
     let memory = get_static_memory_image();
     let program = memory.il_program.as_ref().unwrap();
@@ -210,7 +277,7 @@ fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
         .collect();
 
     for _ in 0..count {
-        if rng.gen_range(0.0, 1.0) < literal_rate {
+        if rng.gen_range(0.0, 1.0) < config.push_vm.literal_rate {
             match rng.gen_range(0, 3) {
                 0 => {
                     // functions
@@ -222,8 +289,14 @@ fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
                 }
                 1 => {
                     // addresses
-                    let addr = memory.random_address(None, rng.gen::<u64>());
-                    ops.push(Op::WordConst(addr))
+                    let addr = config
+                        .roper
+                        .soup
+                        .as_ref()
+                        .expect("No soup?!")
+                        .choose(rng)
+                        .expect("Failed to choose word from soup.");
+                    ops.push(Op::WordConst(*addr))
                 }
                 2 => {
                     // boolean
@@ -402,6 +475,58 @@ impl Op {
                     if b.len() > 0 {
                         let n = n as usize % b.len();
                         mach.push(Buf(b[n..].as_ref()))
+                    }
+                }
+            }
+            WordDisRegRead => {
+                if let Word(w) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(w, None) {
+                        if let Some(disassembler) = memory.disasm.as_ref() {
+                            if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                                for inst in insts.iter() {
+                                    if let Ok(details) = disassembler.insn_detail(&inst) {
+                                        for reg in details.regs_read() {
+                                            let n = reg.0 as u64;
+                                            mach.push(Word(n))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WordDisRegWrite => {
+                if let Word(w) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(w, None) {
+                        if let Some(disassembler) = memory.disasm.as_ref() {
+                            if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                                for inst in insts.iter() {
+                                    if let Ok(details) = disassembler.insn_detail(&inst) {
+                                        for reg in details.regs_write() {
+                                            let n = reg.0 as u64;
+                                            mach.push(Word(n))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WordDisInstId => {
+                if let Word(w) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(w, None) {
+                        if let Some(disassembler) = memory.disasm.as_ref() {
+                            if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                                for inst in insts.iter() {
+                                    mach.push(Word(inst.id().0 as u64))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -684,9 +809,17 @@ impl Op {
             }
             FuncExit => {
                 if let Function(f) = mach.pop(&Type::Function) {
-                    if let Some(i) = f.control_flow_graph().exit() {
+                    let cfg = f.control_flow_graph();
+                    if let Some(i) = cfg.exit() {
                         if let Ok(block) = f.block(i) {
-                            mach.push(Block(block));
+                            let tail_index = block.index();
+                            if let Ok(indices) = cfg.predecessor_indices(tail_index) {
+                                for head_index in indices {
+                                    if let Ok(block) = cfg.block(head_index) {
+                                        mach.push(Block(block));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -764,17 +897,28 @@ impl Op {
 
             InstIsLoad => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
+                    if let il::Operation::Load { dst, index } = a.operation() {
+                        mach.push(Expression(index.clone()));
+                        mach.push(Scalar(dst.clone()));
+                    }
                     mach.push(Bool(a.is_load()))
                 }
             }
             InstIsStore => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
-                    mach.push(Bool(a.is_store()))
+                    if let il::Operation::Store { index, src } = a.operation() {
+                        mach.push(Expression(index.clone()));
+                        mach.push(Expression(src.clone()));
+                    }
+                    mach.push(Bool(a.is_store()));
                 }
             }
             InstIsBranch => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
-                    mach.push(Bool(a.is_branch()))
+                    if let il::Operation::Branch { target } = a.operation() {
+                        mach.push(Expression(target.clone()));
+                    }
+                    mach.push(Bool(a.is_branch()));
                 }
             }
             InstAddr => {
@@ -1023,10 +1167,9 @@ pub mod creature {
 
         // TODO: should we have a pointer to the config here?
         // we might want to take certain parameters into consideration, like the literal rate
-        fn mutate_point(allele: &mut Self::Allele) -> Self {
+        fn mutate_point(allele: &mut Self::Allele, config: &Config) -> Self {
             let mut rng = thread_rng();
-            let literal_rate = 0.5; // TODO: parameterize
-            let new_allele = random_ops(&mut rng, literal_rate, 1).pop().unwrap();
+            let new_allele = random_ops(&mut rng, config).pop().unwrap();
             *allele = new_allele;
             OpMutation::RandomOp
         }
@@ -1140,7 +1283,7 @@ pub mod creature {
             // First, let's get some information from the lifted program
             let mut rng = hash_seed_rng(&salt);
             let length = rng.gen_range(config.push_vm.min_len, config.push_vm.max_len);
-            let ops = random_ops(&mut rng, config.push_vm.literal_rate, length);
+            let ops = random_ops(&mut rng, config);
 
             Self {
                 chromosome: LinearChromosome {
@@ -1291,14 +1434,14 @@ mod test {
     #[test]
     fn test_random_ops() {
         // first initialize things
-        let mut config = RoperConfig {
+        let mut roper_config = RoperConfig {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
             register_pattern: None,
             parsed_register_pattern: None,
             soup: None,
-            soup_size: None,
+            soup_size: Some(1024),
             arch: Arch::X86,
             mode: Mode::MODE_64,
             num_workers: 0,
@@ -1314,15 +1457,24 @@ mod test {
             bad_bytes: None,
             ..Default::default()
         };
+        let mut config = Config::default();
+        config.roper = roper_config;
+        config.push_vm = crate::configure::PushVm {
+            max_steps: 100,
+            min_len: 10,
+            max_len: 100,
+            literal_rate: 0.3,
+        };
+        loader::falcon_loader::load_from_path(&mut config.roper, true).expect("failed to load");
+        crate::roper::init_soup(&mut config).expect("Failed to init soup");
         crate::logger::init("test");
         println!("Loading, linking, and lifting...");
-        loader::falcon_loader::load_from_path(&mut config, true).expect("failed to load");
-        let ops = random_ops(&mut rand::thread_rng(), 0.5, 100);
+        let ops = random_ops(&mut rand::thread_rng(), &config);
         println!("{:#?}", ops);
         let mut machine = MachineState::default();
         let args = vec![];
         let res = machine.exec(&ops, &args, 1000);
-        println!("Result: {:#x?}", res);
         println!("Machine state: {:#?}", machine);
+        println!("Result: {:#x?}", res);
     }
 }
