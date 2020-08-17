@@ -32,7 +32,7 @@ pub trait Mutation {
         let len = chromosome.len();
         (0..len)
             .map(|i| {
-                if !levy_decision(&mut rng, len, config.mutation_exponent) {
+                if levy_decision(&mut rng, len, config.mutation_exponent) {
                     Some(Self::mutate_point(&mut chromosome[i], &config))
                 } else {
                     None
@@ -149,7 +149,11 @@ where
                 &self.parent_names[self.parentage[i]]
             };
             let allele = &self.chromosome[i];
-            let mutation = &self.mutations[i];
+            let mutation = if i >= self.mutations.len() {
+                None
+            } else {
+                self.mutations[i].as_ref()
+            };
             writeln!(
                 f,
                 "[{i}][{parent}] {allele:x?}{mutation}",
@@ -157,7 +161,6 @@ where
                 parent = parent,
                 allele = allele,
                 mutation = mutation
-                    .as_ref()
                     .map(|m| format!(" {:?}", m))
                     .unwrap_or_else(String::new),
             )?;

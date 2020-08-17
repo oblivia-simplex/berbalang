@@ -341,6 +341,8 @@ pub struct IOProblem {
     pub tag: u64,
 }
 
+pub struct SyscallProblem {}
+
 impl PartialOrd for IOProblem {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.tag.partial_cmp(&other.tag)

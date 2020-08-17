@@ -394,6 +394,9 @@ impl Weighted<'static> {
     }
 
     pub fn scalar(&self) -> f64 {
+        if self.scores.is_empty() {
+            return f64::MAX;
+        }
         let mut cache = self.cached_scalar.lock().unwrap();
         if let Some(val) = *cache {
             return val;

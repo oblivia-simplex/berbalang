@@ -8,7 +8,7 @@ selection = "Tournament"
 
 num_islands = 7
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
-mutation_rate = 0.05
+mutation_rate = 0.1
 mutation_exponent = 2.0
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
@@ -95,8 +95,8 @@ path = "./data/iris.tsv"
 use_push = true
 #arch = "X86"
 #mode = "MODE_64"
-#gadget_file = "./gadgets/sh_soup.json"
-soup_size = 0x10000
+gadget_file = "./gadgets/sshd_ropgadget.json"
+#soup_size = 0x10000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 num_workers = 70
@@ -108,7 +108,7 @@ record_basic_blocks = true
 record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
 #output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
-output_registers= ["EAX", "EBX", "ECX", "EDX"]
+output_registers= ["EAX", "EBX", "ECX"]
 randomize_registers = false 
   [roper.register_pattern] 
   #EAX = "0xb"

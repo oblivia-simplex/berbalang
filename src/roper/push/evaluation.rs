@@ -75,12 +75,16 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
     }
 }
 
-// TODO: impl Develop<push::Creature> for Evaluator.
-// It will look a lot like this, except that it will first generate the payload by executing the
-// pushvm code.
 impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
     fn develop(&self, mut creature: push::Creature) -> push::Creature {
         let args = vec![];
+
+        // TODO: evaluate per-problem.
+        // What has to be done to make this possible?
+        // - the payload needs to be changed from an Option container to a HashMap, associating each
+        //   problem with its own payload.
+        // - we then need to reconsider how profiles are collated and reported upon. They were originally
+        //   designed with multiple problems in mind, but we haven't really tested this out, yet.
 
         let mut machine = MachineState::default();
         if creature.payload.is_none() {
