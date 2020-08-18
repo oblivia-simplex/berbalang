@@ -326,8 +326,10 @@ impl Phenome for Creature {
         self.fitness.as_ref()
     }
 
-    fn scalar_fitness(&self) -> Option<f64> {
-        self.fitness.as_ref().map(Fitness::scalar)
+    fn scalar_fitness(&self, weighting: &str) -> Option<f64> {
+        self.fitness
+            .as_ref()
+            .map(|f| f.scalar_with_expression(weighting))
     }
 
     fn priority_fitness(&self, config: &Config) -> Option<f64> {
@@ -490,7 +492,11 @@ fn report(window: &Window<Creature>, counter: usize, config: &Config) {
         .map(|g| g.query_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
-    let avg_fit = frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+    let avg_fit = frame
+        .iter()
+        .filter_map(|g| g.scalar_fitness(&window.config.fitness.weighting))
+        .sum::<f64>()
+        / frame.len() as f64;
     log::info!(
         "[{}] Average length: {}, average genetic frequency: {}; average fitness: {}",
         counter,
@@ -647,7 +653,7 @@ mod evaluation {
                 }
             })
             .fold(0, |a, b| a + b);
-        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        let mut fitness = Weighted::new(&config.fitness.weighting);
         fitness.insert("error_rate", score as f64);
         // TODO: refactor types
         //creature.set_fitness((fitness, 0.0, 0.0, len));

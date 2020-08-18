@@ -109,6 +109,7 @@ pub struct FitnessConfig {
     pub priority: String,
     pub function: String,
     pub weights: Arc<HashMap<String, String>>,
+    pub weighting: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

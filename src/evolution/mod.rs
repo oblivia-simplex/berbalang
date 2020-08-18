@@ -299,9 +299,7 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
     /// This method is intended for reporting, not measuring, fitness.
     fn fitness(&self) -> Option<&Self::Fitness>;
 
-    fn scalar_fitness(&self) -> Option<f64>;
-
-    fn priority_fitness(&self, _config: &Config) -> Option<f64>;
+    fn scalar_fitness(&self, weighting: &str) -> Option<f64>;
 
     fn set_fitness(&mut self, f: Self::Fitness);
 

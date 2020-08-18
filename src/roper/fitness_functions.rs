@@ -23,7 +23,7 @@ where
             }
         }
         let register_novelty = stats::mean(scores.into_iter());
-        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        let mut fitness = Weighted::new(&config.fitness.weighting);
         fitness.insert("register_novelty", register_novelty);
         let gadgets_executed = profile.gadgets_executed.len();
         fitness.insert("gadgets_executed", gadgets_executed as f64);
@@ -46,7 +46,7 @@ where
             // assuming that when the register pattern task is activated, there's only one register state
             // to worry about. this may need to be adjusted in the future. bit sloppy now.
             let register_error = pattern.distance_from_register_state(&profile.registers[0]);
-            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
+            let mut weighted_fitness = Weighted::new(&config.fitness.weighting);
             weighted_fitness
                 .scores
                 .insert("register_error", register_error);
@@ -117,7 +117,7 @@ where
         if let Some(registers) = profile.registers.last() {
             let just_regs = registers.0.values().map(|v| v[0]).collect::<Vec<u64>>();
             let entropy = just_regs.entropy();
-            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
+            let mut weighted_fitness = Weighted::new(&config.fitness.weighting);
             weighted_fitness.insert("register_entropy", entropy);
             log::debug!("registers = {:x?}\n1/entropy = {}", just_regs, entropy);
 
@@ -151,7 +151,7 @@ where
             let score = conj.count_zeros() as f64;
             // ignore bits outside of the register's word size
             debug_assert!(score <= word_size as f64);
-            let mut weighted_fitness = Weighted::new(config.fitness.weights.clone());
+            let mut weighted_fitness = Weighted::new(&config.fitness.weighting);
             weighted_fitness.insert("zeroes", score);
             weighted_fitness.insert("gadgets_executed", profile.gadgets_executed.len() as f64);
 
@@ -196,7 +196,7 @@ where
         let code_size = get_static_memory_image().size_of_executable_memory();
         let code_coverage = 1.0 - num_addr_visit / code_size as f64;
 
-        let mut fitness = Weighted::new(config.fitness.weights.clone());
+        let mut fitness = Weighted::new(&config.fitness.weighting);
         fitness.insert("code_coverage", code_coverage);
         fitness.insert("code_frequency", avg_freq);
 

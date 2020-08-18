@@ -31,7 +31,9 @@ impl StatRecord {
             return StatRecord::default();
         }
         // let specimen_exec_ratio = specimen.execution_ratio();
-        let specimen_scalar_fitness = specimen.scalar_fitness().unwrap_or(1.0);
+        let specimen_scalar_fitness = specimen
+            .scalar_fitness(&window.config.fitness.weighting)
+            .unwrap_or(1.0);
         let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap_or(1.0);
         let specimen_register_error = specimen
             .fitness()
@@ -93,8 +95,11 @@ impl StatRecord {
         let length =
             frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame.len() as f64;
 
-        let scalar_fitness: f64 =
-            frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+        let scalar_fitness: f64 = frame
+            .iter()
+            .filter_map(|g| g.scalar_fitness(&window.config.fitness.weighting))
+            .sum::<f64>()
+            / frame.len() as f64;
         let priority_fitness: f64 = frame
             .iter()
             .filter_map(|g| g.priority_fitness(&window.config))

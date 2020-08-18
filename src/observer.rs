@@ -56,8 +56,11 @@ pub fn default_report_fn<P: Phenome + Genome>(window: &Window<P>, counter: usize
         .map(|g| g.query_genetic_frequency(&sketch))
         .sum::<f64>()
         / frame.len() as f64;
-    let avg_fit: f64 =
-        frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+    let avg_fit: f64 = frame
+        .iter()
+        .filter_map(|g| g.scalar_fitness(&window.config.fitness.weighting))
+        .sum::<f64>()
+        / frame.len() as f64;
     log::info!(
         "[{}] Average length: {}, average genetic frequency: {}, avg scalar fit: {}",
         counter,
@@ -144,9 +147,10 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         match &self.best {
             None => self.best = Some(thing.clone()),
             Some(champ) => {
-                if let (Some(champ_fit), Some(thing_fit)) =
-                    (champ.scalar_fitness(), thing.scalar_fitness())
-                {
+                if let (Some(champ_fit), Some(thing_fit)) = (
+                    champ.scalar_fitness(&self.config.fitness.weighting),
+                    thing.scalar_fitness(&self.config.fitness.weighting),
+                ) {
                     if thing_fit < champ_fit {
                         self.best = Some(thing.clone())
                     }
@@ -182,7 +186,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
     fn update_best(&mut self) {
         let mut updated = false;
         for specimen in self.frame.iter() {
-            if let Some(f) = specimen.scalar_fitness() {
+            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.weighting) {
                 match self.best.as_ref() {
                     None => {
                         updated = true;
@@ -190,7 +194,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                     }
                     Some(champ) => {
                         if f < champ
-                            .scalar_fitness()
+                            .scalar_fitness(&self.config.fitness.weighting)
                             .expect("There should be a fitness score here")
                         {
                             updated = true;

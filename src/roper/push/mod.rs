@@ -1441,8 +1441,10 @@ pub mod creature {
             self.fitness.as_ref()
         }
 
-        fn scalar_fitness(&self) -> Option<f64> {
-            self.fitness.as_ref().map(HasScalar::scalar)
+        fn scalar_fitness(&self, weighting: &str) -> Option<f64> {
+            self.fitness
+                .as_ref()
+                .map(|f| f.scalar_with_expression(weighting))
         }
 
         fn priority_fitness(&self, config: &Config) -> Option<f64> {

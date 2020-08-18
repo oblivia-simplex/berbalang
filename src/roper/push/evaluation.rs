@@ -121,7 +121,7 @@ impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
             .profile()
             .expect("Attempted to apply fitness function to undeveloped creature");
         if !profile.executable {
-            let mut fitness = Weighted::new(self.config.fitness.weights.clone());
+            let mut fitness = Weighted::new(&self.config.fitness.weighting);
             fitness.declare_failure();
             creature.set_fitness(fitness);
             creature

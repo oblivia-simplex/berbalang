@@ -65,12 +65,12 @@ impl Phenome for Genotype {
         self.fitness.as_ref()
     }
 
-    fn scalar_fitness(&self) -> Option<f64> {
+    fn scalar_fitness(&self, _weighting: &str) -> Option<f64> {
         self.fitness.as_ref().map(|v| v[0])
     }
 
-    fn priority_fitness(&self, _config: &Config) -> Option<f64> {
-        self.scalar_fitness()
+    fn priority_fitness(&self, config: &Config) -> Option<f64> {
+        self.scalar_fitness(&config.fitness.weighting)
     }
 
     fn set_fitness(&mut self, f: Fitness) {
@@ -94,7 +94,10 @@ impl Phenome for Genotype {
     }
 
     fn is_goal_reached(&self, config: &Config) -> bool {
-        (self.scalar_fitness().unwrap_or(std::f64::MAX) - config.fitness.target)
+        (self
+            .scalar_fitness(&config.fitness.weighting)
+            .unwrap_or(std::f64::MAX)
+            - config.fitness.target)
             <= std::f64::EPSILON
     }
 }

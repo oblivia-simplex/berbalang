@@ -41,6 +41,7 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 # You can use these to deprioritize weights as
 # time goes on.
 ##
+weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
 [fitness.weights]
 # uses fasteval to evaluate weighting expressions
 #important_writes = "100 - min(100, x*50)"

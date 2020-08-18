@@ -300,7 +300,8 @@ impl FitnessScore for ShuffleFit {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Weighted<'a> {
-    weights: Arc<HashMap<String, String>>,
+    // weights: Arc<HashMap<String, String>>,
+    weighting: String,
     //   #[serde(skip)]
     //   pub weights: HashMap<String, fasteval::Instruction>,
     //#[serde(skip)]
@@ -312,7 +313,7 @@ pub struct Weighted<'a> {
 
 impl PartialEq for Weighted<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.scores == other.scores && self.weights == other.weights
+        self.scores == other.scores && self.weighting == other.weighting
     }
 }
 
@@ -333,7 +334,7 @@ impl Clone for Weighted<'_> {
     fn clone(&self) -> Self {
         Self {
             cached_scalar: Mutex::new(None),
-            weights: self.weights.clone(),
+            weighting: self.weighting.clone(),
             scores: self.scores.clone(),
         }
     }
@@ -352,18 +353,18 @@ impl Clone for Weighted<'_> {
 //     Ok(res)
 // }
 
-fn apply_weighting(weighting: &str, score: f64) -> (bool, f64) {
-    let mut ns = BTreeMap::new();
-    let mut should_cache = true;
-    ns.insert("x", score);
-    if weighting.contains('E') {
-        should_cache = false;
-        ns.insert("E", get_epoch_counter() as f64);
-    }
-    let score =
-        fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression");
-    (should_cache, score)
-}
+// fn apply_weighting(weighting: &str, score: f64) -> (bool, f64) {
+//     let mut ns = BTreeMap::new();
+//     let mut should_cache = true;
+//     ns.insert("x", score);
+//     if weighting.contains('E') {
+//         should_cache = false;
+//         ns.insert("E", get_epoch_counter() as f64);
+//     }
+//     let score =
+//         fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression");
+//     (should_cache, score)
+// }
 
 // fn compile_weight_map(
 //     weights: &HashMap<String, String>,
@@ -379,10 +380,10 @@ fn apply_weighting(weighting: &str, score: f64) -> (bool, f64) {
 // }
 
 impl Weighted<'static> {
-    pub fn new(weights: Arc<HashMap<String, String>>) -> Self {
+    pub fn new(weighting: &str) -> Self {
         Self {
             //slab: Mutex::new(slab),
-            weights,
+            weighting: weighting.to_string(),
             //weights: weight_map,
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
@@ -397,31 +398,39 @@ impl Weighted<'static> {
         if self.scores.is_empty() {
             return f64::MAX;
         }
-        let mut cache = self.cached_scalar.lock().unwrap();
-        if let Some(val) = *cache {
-            return val;
+        // let mut cache = self.cached_scalar.lock().unwrap();
+        // if let Some(val) = *cache {
+        //     return val;
+        // }
+        // let mut should_cache = true;
+        // let val = self
+        //     .scores
+        //     .iter()
+        //     .sorted_by_key(|p| p.0)
+        //     // FIXME wasteful allocations here.
+        //     .map(|(k, score)| {
+        //         if let Some(weight) = self.weights.get(&(*k).to_string()) {
+        //             let (cache, score) = apply_weighting(weight, *score);
+        //             should_cache &= cache;
+        //             score
+        //         } else {
+        //             // if no weight is provided, just return the score as-is
+        //             *score
+        //         }
+        //     })
+        //     .sum::<f64>();
+        // if should_cache {
+        //     *cache = Some(val);
+        // }
+        self.scalar_with_expression(&self.weighting)
+    }
+
+    pub fn scalar_with_expression(&self, expr: &str) -> f64 {
+        let mut ns = BTreeMap::new();
+        for (factor, score) in self.scores.iter() {
+            ns.insert(*factor, *score);
         }
-        let mut should_cache = true;
-        let val = self
-            .scores
-            .iter()
-            .sorted_by_key(|p| p.0)
-            // FIXME wasteful allocations here.
-            .map(|(k, score)| {
-                if let Some(weight) = self.weights.get(&(*k).to_string()) {
-                    let (cache, score) = apply_weighting(weight, *score);
-                    should_cache &= cache;
-                    score
-                } else {
-                    // if no weight is provided, just return the score as-is
-                    *score
-                }
-            })
-            .sum::<f64>();
-        if should_cache {
-            *cache = Some(val);
-        }
-        val
+        fasteval::ez_eval(expr, &mut ns).expect("Failed to evaluate weighting expression")
     }
 
     pub fn declare_failure(&mut self) {
@@ -462,10 +471,10 @@ impl MapFit for Weighted<'static> {
     fn average(frame: &[&Self]) -> Self {
         debug_assert!(!frame.is_empty(), "Don't try to average empty frames");
         let mut map = HashMap::new();
-        let mut weights = None;
+        let mut weighting = None;
         for p in frame.iter() {
-            if weights.is_none() {
-                weights = Some(p.weights.clone());
+            if weighting.is_none() {
+                weighting = Some(p.weighting.clone());
             }
             for (&k, &v) in p.inner().iter() {
                 *(map.entry(k).or_insert(0.0)) += v;
@@ -475,9 +484,9 @@ impl MapFit for Weighted<'static> {
         for (_k, v) in map.iter_mut() {
             *v /= len;
         }
-        let weights = weights.unwrap();
+        let weighting = weighting.unwrap();
         Self {
-            weights,
+            weighting,
             scores: map,
             cached_scalar: Mutex::new(None),
         }
@@ -494,14 +503,11 @@ impl Index<&str> for Weighted<'static> {
 
 impl fmt::Debug for Weighted<'static> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Weighted:")?;
+        writeln!(f, "Scores:")?;
         for (attr, score) in self.scores.iter().sorted_by_key(|p| p.0) {
-            if let Some(weight) = self.weights.get(&attr.to_string()) {
-                writeln!(f, "    {}: {}, to be weighted by ({})", attr, score, weight)?;
-            } else {
-                writeln!(f, "    {}: {}, unweighted", attr, score)?;
-            }
+            writeln!(f, "    {}: {}", attr, score)?;
         }
+        writeln!(f, "Weighting expression: {}", self.weighting)?;
         writeln!(f, "Scalar: {}", self.scalar())
     }
 }
