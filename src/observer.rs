@@ -217,7 +217,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
     fn update_champion(&mut self) {
         let mut updated = false;
         for specimen in self.frame.iter() {
-            if let Some(f) = specimen.priority_fitness(&self.config) {
+            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.priority) {
                 match self.champion.as_ref() {
                     None => {
                         updated = true;
@@ -225,7 +225,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                     }
                     Some(champ) => {
                         if f < champ
-                            .priority_fitness(&self.config)
+                            .scalar_fitness(&self.config.fitness.priority)
                             .expect("there should be a fitness score here")
                         {
                             updated = true;

@@ -395,42 +395,31 @@ impl Weighted<'static> {
     }
 
     pub fn scalar(&self) -> f64 {
-        if self.scores.is_empty() {
-            return f64::MAX;
+        let mut cache = self.cached_scalar.lock().expect("poisoned");
+        if let Some(res) = *cache {
+            return res;
+        } else {
+            let res = self.scalar_with_expression(&self.weighting);
+            *cache = Some(res);
+            res
         }
-        // let mut cache = self.cached_scalar.lock().unwrap();
-        // if let Some(val) = *cache {
-        //     return val;
-        // }
-        // let mut should_cache = true;
-        // let val = self
-        //     .scores
-        //     .iter()
-        //     .sorted_by_key(|p| p.0)
-        //     // FIXME wasteful allocations here.
-        //     .map(|(k, score)| {
-        //         if let Some(weight) = self.weights.get(&(*k).to_string()) {
-        //             let (cache, score) = apply_weighting(weight, *score);
-        //             should_cache &= cache;
-        //             score
-        //         } else {
-        //             // if no weight is provided, just return the score as-is
-        //             *score
-        //         }
-        //     })
-        //     .sum::<f64>();
-        // if should_cache {
-        //     *cache = Some(val);
-        // }
-        self.scalar_with_expression(&self.weighting)
     }
 
     pub fn scalar_with_expression(&self, expr: &str) -> f64 {
+        if self.scores.is_empty() {
+            return f64::MAX;
+        }
         let mut ns = BTreeMap::new();
         for (factor, score) in self.scores.iter() {
             ns.insert(*factor, *score);
         }
-        fasteval::ez_eval(expr, &mut ns).expect("Failed to evaluate weighting expression")
+        match fasteval::ez_eval(expr, &mut ns) {
+            Err(e) => panic!(
+                "Failed to evaluate expression {:?} with scores {:?}: {:?}",
+                expr, self.scores, e
+            ),
+            Ok(res) => res,
+        }
     }
 
     pub fn declare_failure(&mut self) {

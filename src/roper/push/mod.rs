@@ -1447,11 +1447,6 @@ pub mod creature {
                 .map(|f| f.scalar_with_expression(weighting))
         }
 
-        fn priority_fitness(&self, config: &Config) -> Option<f64> {
-            let priority = &config.fitness.priority;
-            self.fitness().as_ref().and_then(|f| f.get(priority))
-        }
-
         fn set_fitness(&mut self, f: Self::Fitness) {
             self.fitness = Some(f)
         }
@@ -1473,7 +1468,7 @@ pub mod creature {
         }
 
         fn is_goal_reached(&self, config: &Config) -> bool {
-            self.priority_fitness(config)
+            self.scalar_fitness(&config.fitness.priority)
                 .map(|p| p - config.fitness.target <= std::f64::EPSILON)
                 .unwrap_or(false)
         }

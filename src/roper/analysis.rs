@@ -34,7 +34,9 @@ impl StatRecord {
         let specimen_scalar_fitness = specimen
             .scalar_fitness(&window.config.fitness.weighting)
             .unwrap_or(1.0);
-        let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap_or(1.0);
+        let specimen_priority_fitness = specimen
+            .scalar_fitness(&window.config.fitness.priority)
+            .unwrap_or(1.0);
         let specimen_register_error = specimen
             .fitness()
             .as_ref()
@@ -102,7 +104,7 @@ impl StatRecord {
             / frame.len() as f64;
         let priority_fitness: f64 = frame
             .iter()
-            .filter_map(|g| g.priority_fitness(&window.config))
+            .filter_map(|g| g.scalar_fitness(&window.config.fitness.priority))
             .sum::<f64>()
             / frame.len() as f64;
         let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();

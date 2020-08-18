@@ -69,10 +69,6 @@ impl Phenome for Genotype {
         self.fitness.as_ref().map(|v| v[0])
     }
 
-    fn priority_fitness(&self, config: &Config) -> Option<f64> {
-        self.scalar_fitness(&config.fitness.weighting)
-    }
-
     fn set_fitness(&mut self, f: Fitness) {
         self.fitness = Some(f);
     }

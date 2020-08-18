@@ -332,11 +332,6 @@ impl Phenome for Creature {
             .map(|f| f.scalar_with_expression(weighting))
     }
 
-    fn priority_fitness(&self, config: &Config) -> Option<f64> {
-        let priority = &config.fitness.priority;
-        self.fitness().as_ref().and_then(|f| f.get(priority))
-    }
-
     fn set_fitness(&mut self, f: Self::Fitness) {
         self.fitness = Some(f)
     }

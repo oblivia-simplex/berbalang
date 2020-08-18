@@ -23,10 +23,11 @@ max_length = 100
 num_epochs = 200 # = infinite
 
 [fitness]
-function = "register_conjunction"
+#function = "register_conjunction"
+function = "register_pattern"
 #function = "error_rate" # weird idea
 #function = "register_conjunction"
-priority = "zeroes" # could this be set by the ff?
+priority = "register_error + crash_count" # could this be set by the ff?
 #priority = "register_error"
 #function = "code_coverage"
 target = 0
@@ -41,20 +42,9 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 # You can use these to deprioritize weights as
 # time goes on.
 ##
-weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
-[fitness.weights]
-# uses fasteval to evaluate weighting expressions
-#important_writes = "100 - min(100, x*50)"
-gadgets_executed = "10*(10 - min(10, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
-register_novelty = "100 *x"
-mem_write_ratio = "0" #1.0 - x"
-#code_frequency = "x"
-#code_coverage = "100 * x"
-#genetic_freq = "0" #"min(2, x * 50)"
-#crash_count = "0"
-zeroes = "x"
-#code_frequency = "10*x" #x/2"
-
+#weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
+# weighting = "1"
+weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + register_error + crash_count"
 [tournament]
 num_offspring = 2
 num_parents = 2
@@ -89,11 +79,11 @@ dump_every = 1000
 path = "./data/iris.tsv"
 # FIXME: something fishy is happening with square! too many registers, and
 # it app<F2>ears that the machine is not
-# running!
+#g a1a1running!
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-use_push = true
+use_push = false
 #arch = "X86"
 #mode = "MODE_64"
 gadget_file = "./gadgets/sshd_ropgadget.json"
@@ -109,13 +99,13 @@ record_basic_blocks = true
 record_memory_writes = true
 #output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
 #output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
-output_registers= ["EAX", "EBX", "ECX"]
+output_registers= ["EAX", "EBX", "ECX", "EDX"]
 randomize_registers = false 
   [roper.register_pattern] 
-  #EAX = "0xb"
-  #EBX = "&'/bin"
-  #ECX = "&0"
-  #EDX = "0"
+  EAX = "0xb"
+  EBX = "&'/bin"
+  ECX = "&0"
+  EDX = "0"
 
   #RAX = "0x3b"                   # execve syscall number
   #RDI = "&'/bin/sh"
