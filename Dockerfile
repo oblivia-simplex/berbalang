@@ -14,6 +14,7 @@ COPY --from=0 /usr/src/berbalang/target/release/berbalang ./berbalang
 COPY ./start.sh .
 COPY ./trials.sh .
 COPY ./analysis .
+COPY ./binaries .
 COPY ./config.toml .
 
 CMD ["./start.sh"]
