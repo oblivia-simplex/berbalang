@@ -22,7 +22,7 @@ pub mod tournament;
 pub trait Mutation {
     type Allele;
 
-    fn mutate_point(allele: &mut Self::Allele) -> Self;
+    fn mutate_point(allele: &mut Self::Allele, config: &Config) -> Self;
 
     fn mutate(chromosome: &mut [Self::Allele], config: &Config) -> Vec<Option<Self>>
     where
@@ -32,8 +32,8 @@ pub trait Mutation {
         let len = chromosome.len();
         (0..len)
             .map(|i| {
-                if !levy_decision(&mut rng, len, config.mutation_exponent) {
-                    Some(Self::mutate_point(&mut chromosome[i]))
+                if levy_decision(&mut rng, len, config.mutation_exponent) {
+                    Some(Self::mutate_point(&mut chromosome[i], &config))
                 } else {
                     None
                 }
@@ -149,7 +149,11 @@ where
                 &self.parent_names[self.parentage[i]]
             };
             let allele = &self.chromosome[i];
-            let mutation = &self.mutations[i];
+            let mutation = if i >= self.mutations.len() {
+                None
+            } else {
+                self.mutations[i].as_ref()
+            };
             writeln!(
                 f,
                 "[{i}][{parent}] {allele:x?}{mutation}",
@@ -157,7 +161,6 @@ where
                 parent = parent,
                 allele = allele,
                 mutation = mutation
-                    .as_ref()
                     .map(|m| format!(" {:?}", m))
                     .unwrap_or_else(String::new),
             )?;
@@ -296,9 +299,7 @@ pub trait Phenome: Clone + Debug + Send + Serialize + Hash {
     /// This method is intended for reporting, not measuring, fitness.
     fn fitness(&self) -> Option<&Self::Fitness>;
 
-    fn scalar_fitness(&self) -> Option<f64>;
-
-    fn priority_fitness(&self, _config: &Config) -> Option<f64>;
+    fn scalar_fitness(&self, weighting: &str) -> Option<f64>;
 
     fn set_fitness(&mut self, f: Self::Fitness);
 

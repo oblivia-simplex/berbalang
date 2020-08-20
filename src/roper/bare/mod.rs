@@ -1,7 +1,5 @@
 use std::fmt;
-use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::io::{BufRead, BufReader};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use hashbrown::HashMap;
@@ -15,9 +13,7 @@ use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::{HasProfile, Profile};
-use crate::error::Error;
 use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
-use crate::fitness::{HasScalar, MapFit};
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::random::hash_seed_rng;
@@ -170,43 +166,6 @@ impl fmt::Debug for Creature {
     }
 }
 
-/// load binary before calling this function
-pub fn init_soup(config: &mut Config) -> Result<(), Error> {
-    let mut soup = Vec::new();
-    //might as well take the constants from the register pattern
-    if let Some(pattern) = config.roper.register_pattern() {
-        pattern.0.values().for_each(|w| soup.push(w.val))
-    }
-    if let Some(gadget_file) = config.roper.gadget_file.as_ref() {
-        // parse the gadget file
-        let reader = File::open(gadget_file).map(BufReader::new)?;
-
-        if gadget_file.ends_with(".json") {
-            log::info!("Deserializing soup from {}", gadget_file);
-            soup = serde_json::from_reader(reader)?;
-        } else {
-            log::info!("Parsing soup from {}", gadget_file);
-            for line in reader.lines() {
-                let word = line?.parse::<u64>()?;
-                soup.push(word)
-            }
-        }
-    } else if let Some(soup_size) = config.roper.soup_size.as_ref() {
-        let memory = loader::get_static_memory_image();
-        for addr in (0..(*soup_size)).map(|i| {
-            let mut hasher = fnv::FnvHasher::default();
-            i.hash(&mut hasher);
-            config.random_seed.hash(&mut hasher);
-            let seed = hasher.finish();
-            memory.random_address(Some(Perms::EXEC), seed)
-        }) {
-            soup.push(addr)
-        }
-    }
-    config.roper.soup = Some(soup);
-    Ok(())
-}
-
 fn try_to_ensure_exec(mut chromosome: Vec<u64>) -> Vec<u64> {
     // Now make sure that the head of the chromosome is executable
     chromosome.reverse();
@@ -325,7 +284,7 @@ pub enum WordMutation {
 impl Mutation for WordMutation {
     type Allele = u64;
 
-    fn mutate_point(allele: &mut Self::Allele) -> Self {
+    fn mutate_point(allele: &mut Self::Allele, _config: &Config) -> Self {
         let mut rng = thread_rng();
         let mutation = rand::random::<WordMutation>();
         let memory = get_static_memory_image();
@@ -393,17 +352,14 @@ impl Phenome for Creature {
         self.fitness.as_ref()
     }
 
-    fn scalar_fitness(&self) -> Option<f64> {
-        self.fitness.as_ref().map(HasScalar::scalar)
+    fn scalar_fitness(&self, weighting: &str) -> Option<f64> {
+        self.fitness
+            .as_ref()
+            .map(|f| f.scalar_with_expression(weighting))
     }
 
     fn name(&self) -> &str {
         self.chromosome.name.as_str()
-    }
-
-    fn priority_fitness(&self, config: &Config) -> Option<f64> {
-        let priority = &config.fitness.priority;
-        self.fitness().as_ref().and_then(|f| f.get(priority))
     }
 
     fn set_fitness(&mut self, f: Self::Fitness) {
@@ -435,7 +391,7 @@ impl Phenome for Creature {
     }
 
     fn is_goal_reached(&self, config: &Config) -> bool {
-        self.priority_fitness(config)
+        self.scalar_fitness(&config.fitness.priority)
             .map(|p| p - config.fitness.target <= std::f64::EPSILON)
             .unwrap_or(false)
     }

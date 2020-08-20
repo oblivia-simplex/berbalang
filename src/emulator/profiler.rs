@@ -69,7 +69,7 @@ pub struct Profiler<C: Cpu<'static>> {
     pub input: HashMap<Register<C>, u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Profile {
     pub paths: Vec<Vec<Block>>,
     //PrefixSet<Block>,
@@ -77,12 +77,11 @@ pub struct Profile {
     pub emulation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
     pub gadgets_executed: HashSet<u64>,
-    #[cfg(feature = "full_dump")]
-    pub writeable_memory: Vec<Vec<Seg>>,
     #[cfg(not(feature = "full_dump"))]
     #[serde(skip)]
     pub writeable_memory: Vec<Vec<Seg>>,
     pub write_logs: Vec<Vec<MemLogEntry>>,
+    pub executable: bool,
 }
 
 fn segqueue_to_vec<T>(sq: Arc<SegQueue<T>>) -> Vec<T> {
@@ -95,6 +94,32 @@ fn segqueue_to_vec<T>(sq: Arc<SegQueue<T>>) -> Vec<T> {
 }
 
 impl Profile {
+    // combine the information in two different profiles by absorbing the second
+    // into the first
+    pub fn combine(mut self, other: Self) -> Self {
+        let Self {
+            paths,
+            cpu_errors,
+            emulation_times,
+            registers,
+            gadgets_executed,
+            writeable_memory,
+            write_logs,
+            executable,
+        } = other;
+
+        self.paths.extend(paths.into_iter());
+        self.cpu_errors.extend(cpu_errors.into_iter());
+        self.emulation_times.extend(emulation_times.into_iter());
+        self.registers.extend(registers.into_iter());
+        self.gadgets_executed.extend(gadgets_executed.into_iter());
+        self.writeable_memory.extend(writeable_memory.into_iter());
+        self.write_logs.extend(write_logs.into_iter());
+        self.executable |= executable;
+
+        self
+    }
+
     pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
         //let mut write_trie = Trie::new();
         let mut paths = Vec::new(); // PrefixSet::new();
@@ -104,18 +129,6 @@ impl Profile {
         let mut gadgets_executed = HashSet::new();
         let writeable_memory_regions = Vec::new();
         let mut write_logs = Vec::new();
-
-        // Commented this out. It didn't seem to work, so no need to spend the time.
-        // Sort to remove any unpredictability introduced by parallelism
-        // profilers.sort_by_key(|p| {
-        //     let mut kvs = p
-        //         .input
-        //         .iter()
-        //         .map(|(k, v)| (format!("{:?}", k), *v))
-        //         .collect::<Vec<(String, u64)>>();
-        //     kvs.sort();
-        //     kvs
-        // });
 
         for Profiler {
             block_log,
@@ -128,31 +141,18 @@ impl Profile {
             ..
         } in profilers.into_iter()
         {
-            // paths.insert::<Vec<Block>>(
-            //     (*block_log.lock().unwrap())
-            //         .iter()
-            //         .map(Clone::clone)
-            //         //.map(|b| (b.entry, b.size))
-            //         .collect::<Vec<Block>>(),
-            // );
             paths.push(segqueue_to_vec(block_log));
             while let Ok(g) = gadget_log.pop() {
                 gadgets_executed.insert(g);
             }
-            // gadget_log.read().into_iter().for_each(|glog| {
-            //     glog.iter().for_each(|g| {
-            //         gadgets_executed.insert(*g);
-            //     })
-            // });
+
             if let Some(c) = cpu_error {
                 *cpu_errors.entry(c).or_insert(0) += 1;
             };
             computation_times.push(emulation_time);
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
-            // NOTE: I don't think we really need to hold onto the written memory, once the
-            // spidered register states are generated. This should save us a lot of RAM.
-            //writeable_memory_regions.push(written_memory);
+
             write_logs.push(segqueue_to_vec(write_log));
         }
 
@@ -164,6 +164,7 @@ impl Profile {
             registers: register_maps,
             writeable_memory: writeable_memory_regions,
             write_logs,
+            executable: true,
         }
     }
 

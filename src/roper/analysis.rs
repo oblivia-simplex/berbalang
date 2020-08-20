@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::configure::Config;
-use crate::emulator::profiler::HasProfile;
+use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::{MapFit, Weighted};
 use crate::get_epoch_counter;
@@ -19,6 +19,7 @@ pub struct StatRecord {
     pub uniq_exec_count: f64,
     pub ratio_written: f64,
     pub emulation_time: f64,
+    pub ratio_eligible: f64,
 }
 
 impl StatRecord {
@@ -30,8 +31,12 @@ impl StatRecord {
             return StatRecord::default();
         }
         // let specimen_exec_ratio = specimen.execution_ratio();
-        let specimen_scalar_fitness = specimen.scalar_fitness().unwrap_or(1.0);
-        let specimen_priority_fitness = specimen.priority_fitness(&window.config).unwrap_or(1.0);
+        let specimen_scalar_fitness = specimen
+            .scalar_fitness(&window.config.fitness.weighting)
+            .unwrap_or(1.0);
+        let specimen_priority_fitness = specimen
+            .scalar_fitness(&window.config.fitness.priority)
+            .unwrap_or(1.0);
         let specimen_register_error = specimen
             .fitness()
             .as_ref()
@@ -63,6 +68,7 @@ impl StatRecord {
             uniq_exec_count: specimen_uniq_exec_count,
             ratio_written: specimen_ratio_written,
             emulation_time: specimen_emulation_time,
+            ratio_eligible: 1.0,
         }
     }
 
@@ -70,16 +76,35 @@ impl StatRecord {
     where
         C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
     {
-        let frame = &window.frame;
+        let frame = &window
+            .frame
+            .iter()
+            .filter(|c| {
+                if let Some(&Profile {
+                    executable: true, ..
+                }) = c.profile()
+                {
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<&C>>();
+
+        let ratio_eligible = frame.len() as f64 / window.frame.len() as f64;
+        log::info!("Ratio eligible = {}", ratio_eligible);
 
         let length =
             frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame.len() as f64;
 
-        let scalar_fitness: f64 =
-            frame.iter().filter_map(|g| g.scalar_fitness()).sum::<f64>() / frame.len() as f64;
+        let scalar_fitness: f64 = frame
+            .iter()
+            .filter_map(|g| g.scalar_fitness(&window.config.fitness.weighting))
+            .sum::<f64>()
+            / frame.len() as f64;
         let priority_fitness: f64 = frame
             .iter()
-            .filter_map(|g| g.priority_fitness(&window.config))
+            .filter_map(|g| g.scalar_fitness(&window.config.fitness.priority))
             .sum::<f64>()
             / frame.len() as f64;
         let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();
@@ -107,6 +132,7 @@ impl StatRecord {
             register_error: fit_vec.get("register_error").unwrap_or_default(),
             ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
             emulation_time,
+            ratio_eligible,
         }
     }
 }

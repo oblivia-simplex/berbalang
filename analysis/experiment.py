@@ -25,6 +25,7 @@ def figure_out_data_dir(iteration, data_root, population_name, date=None):
     base_name = population_name
     iteration -= 1
     while dir == "" or os.path.exists(dir):
+        print(f"{dir} already exists. Trying {dir}...")
         iteration += 1
         population_name = f"{base_name}-{iteration}"
         dir = f"{data_root}/berbalang/Roper/Tournament/{date}/{population_name}"

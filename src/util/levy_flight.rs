@@ -29,10 +29,10 @@ mod test {
 
     #[test]
     fn test_levy_flight_rate() {
-        let rate = levy_flight_rate(10, 2.0);
+        let len = 100;
+        let rate = levy_flight_rate(len, 2.0);
         println!("rate = {}", rate);
 
-        let len = 2;
         let mut rng = thread_rng();
         for _ in 0..len {
             println!(

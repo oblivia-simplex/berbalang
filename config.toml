@@ -8,7 +8,7 @@ selection = "Tournament"
 
 num_islands = 7
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
-mutation_rate = 0.05
+mutation_rate = 0.1
 mutation_exponent = 2.0
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
@@ -18,15 +18,16 @@ min_init_len = 10
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x500
-max_length = 100
-num_epochs = 200 # = infinite
+pop_size = 0x3000
+max_length = 500
+num_epochs = 500 # = infinite
 
 [fitness]
-function = "register_conjunction"
+#function = "register_conjunction"
+function = "register_pattern"
 #function = "error_rate" # weird idea
 #function = "register_conjunction"
-priority = "zeroes" # could this be set by the ff?
+priority = "register_error + crash_count" # could this be set by the ff?
 #priority = "register_error"
 #function = "code_coverage"
 target = 0
@@ -41,20 +42,9 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 # You can use these to deprioritize weights as
 # time goes on.
 ##
-[fitness.weights]
-# uses fasteval to evaluate weighting expressions
-#important_writes = "100 - min(100, x*50)"
-gadgets_executed = "10*(5 - min(5, x))" # / ((1+E)/ 20)" #"-1 * min(3, x)"
-gadgets_executed = "0" #10 - min(10, x)"
-register_novelty = "1000 *x"
-mem_write_ratio = "0" #1.0 - x"
-#code_frequency = "x"
-#code_coverage = "100 * x"
-#genetic_freq = "0" #"min(2, x * 50)"
-#crash_count = "0"
-zeroes = "x"
-#code_frequency = "10*x" #x/2"
-
+#weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
+# weighting = "1"
+weighting = " (10000 * register_novelty) + 0.1 * register_error + (crash_count * (10 - min(10, gadgets_executed)))"
 [tournament]
 num_offspring = 2
 num_parents = 2
@@ -89,15 +79,15 @@ dump_every = 1000
 path = "./data/iris.tsv"
 # FIXME: something fishy is happening with square! too many registers, and
 # it app<F2>ears that the machine is not
-# running!
+#g a1a1running!
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
 use_push = true
 #arch = "X86"
 #mode = "MODE_64"
-#gadget_file = "./gadgets/sh_soup.json"
-soup_size = 0x10000
+gadget_file = "./gadgets/sshd_ropgadget.json"
+#soup_size = 0x10000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 num_workers = 70
@@ -112,10 +102,10 @@ record_memory_writes = true
 output_registers= ["EAX", "EBX", "ECX", "EDX"]
 randomize_registers = false 
   [roper.register_pattern] 
-  #EAX = "0xb"
-  #EBX = "&'/bin"
-  #ECX = "&0"
-  #EDX = "0"
+  EAX = "0xb"
+  EBX = "&'/bin"
+  ECX = "&0"
+  EDX = "0"
 
   #RAX = "0x3b"                   # execve syscall number
   #RDI = "&'/bin/sh"

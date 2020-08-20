@@ -53,8 +53,8 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Metropolis<E, P> {
         let variation = evaluator.develop(variation);
 
         let mut rng = hash_seed_rng(&specimen);
-        let vari_fit = variation.scalar_fitness().unwrap();
-        let spec_fit = specimen.scalar_fitness().unwrap();
+        let vari_fit = variation.scalar_fitness(&config.fitness.weighting).unwrap();
+        let spec_fit = specimen.scalar_fitness(&config.fitness.weighting).unwrap();
         let delta = if (vari_fit - spec_fit).abs() < std::f64::EPSILON {
             0.0
         } else {
@@ -70,7 +70,8 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Metropolis<E, P> {
             log::info!(
                 "[{}] best: {:?}. specimen: {}, variation: {} (delta {}), switching",
                 iteration,
-                best.as_ref().and_then(Phenome::scalar_fitness),
+                best.as_ref()
+                    .and_then(|p| p.scalar_fitness(&config.fitness.weighting)),
                 spec_fit,
                 vari_fit,
                 delta
@@ -80,7 +81,10 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Metropolis<E, P> {
 
         let mut updated_best = false;
         let best = match best {
-            Some(b) if specimen.scalar_fitness().unwrap() < b.scalar_fitness().unwrap() => {
+            Some(b)
+                if specimen.scalar_fitness(&config.fitness.weighting).unwrap()
+                    < b.scalar_fitness(&config.fitness.weighting).unwrap() =>
+            {
                 updated_best = true;
                 Some(specimen.clone())
             }

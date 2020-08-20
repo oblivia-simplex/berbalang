@@ -1,3 +1,5 @@
+use std::fmt;
+
 use falcon::il;
 use hashbrown::HashMap;
 use rand::prelude::SliceRandom;
@@ -10,7 +12,6 @@ use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
 use crate::util::architecture::{read_integer, write_integer, Perms};
-use std::fmt;
 
 pub mod evaluation;
 
@@ -21,6 +22,12 @@ pub type Output = Type;
 
 // TODO: define a distribution over these ops. WordConst should comprise about half
 // of any genome, I think, since without that, there's no ROP chain.
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Buffer {
+    Pointer(u64),
+    Vector(Vec<u8>),
+}
 
 /// Virtual
 /// Instruction
@@ -48,6 +55,8 @@ pub enum Op {
     WordDiv,
     WordMul,
     WordMod,
+    WordIncr,
+    WordDecr,
     WordOnes,
     WordShl,
     WordShr,
@@ -55,6 +64,9 @@ pub enum Op {
     // Treating the Word as an address
     WordDeref,
     WordSearch,
+    WordDisRegRead,
+    WordDisRegWrite,
+    WordDisInstId,
     //WordReadRegs,
     //WordWriteRegs,
     // TODO: there should be a way to map addresses to IL CFG Nodes
@@ -67,7 +79,7 @@ pub enum Op {
     WordToGadget,
     GadgetToWord,
 
-    //BufConst(&'static [u8]),
+    BufConst(Buffer),
     BufAt,
     // constant, by address
     BufLen,
@@ -107,10 +119,10 @@ pub enum Op {
 
     //FuncConst(&'static il::Function),
     FuncNamed(String),
-    FuncBlock,
-    FuncEntry,
-    FuncExit,
-    FuncAddr,
+    // FuncBlock,
+    // FuncEntry,
+    // FuncExit,
+    // FuncAddr,
     ExprEval,
 
     ExecIf,
@@ -130,7 +142,7 @@ pub enum Op {
     List(Vec<Op>),
 }
 
-static NON_CONSTANT_OPS: [Op; 52] = [
+static NON_CONSTANT_OPS: [Op; 103] = [
     Op::BoolAnd,
     Op::BoolOr,
     Op::BoolNot,
@@ -145,6 +157,8 @@ static NON_CONSTANT_OPS: [Op; 52] = [
     Op::WordMul,
     Op::WordMod,
     Op::WordOnes,
+    Op::WordIncr,
+    Op::WordDecr,
     Op::WordShl,
     Op::WordShr,
     Op::WordDeref,
@@ -155,19 +169,19 @@ static NON_CONSTANT_OPS: [Op; 52] = [
     Op::WordReadable,
     Op::WordWriteable,
     Op::WordExecutable,
+    Op::WordDisRegRead,
+    Op::WordDisRegWrite,
+    Op::WordDisInstId,
     Op::WordToGadget,
     Op::GadgetToWord,
     //Op::BufConst(&'static [u8]),
-    Op::BufAt,
-    Op::BufLen,
-    Op::BufIndex,
-    Op::BufPack,
-    Op::BufHead,
-    Op::BufTail,
+    // Op::BufAt,
+    // Op::BufLen,
+    // Op::BufIndex,
+    // Op::BufPack,
+    // Op::BufHead,
+    // Op::BufTail,
     // Op::BufSearch,
-    Op::BufDisRegRead,
-    Op::BufDisRegWrite,
-    Op::BufDisInstId,
     // floats need to be encoded as u64 to preserve Op::Hash
     // Op::FloatLog,
     // Op::FloatSin,
@@ -186,20 +200,93 @@ static NON_CONSTANT_OPS: [Op; 52] = [
     Op::BlockAddr,
     Op::BlockSuccs,
     Op::BlockPreds,
-    Op::FuncBlock,
-    Op::FuncEntry,
-    Op::FuncExit,
-    Op::FuncAddr,
+    // Op::FuncBlock,
+    // Op::FuncEntry,
+    // Op::FuncExit,
+    // Op::FuncAddr,
     Op::ExprEval,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
     Op::ExecIf,
     Op::ExecK,
     Op::ExecS,
     Op::ExecY,
     Op::Nop,
+    // Generics
+    Op::Eq(Type::Word),
+    Op::Rot(Type::Word),
+    Op::Swap(Type::Word),
+    Op::Drop(Type::Word),
+    Op::Dup(Type::Word),
+    Op::Eq(Type::Bool),
+    Op::Rot(Type::Bool),
+    Op::Swap(Type::Bool),
+    Op::Drop(Type::Bool),
+    Op::Dup(Type::Bool),
+    Op::Eq(Type::Buf),
+    Op::Rot(Type::Buf),
+    Op::Swap(Type::Buf),
+    Op::Drop(Type::Buf),
+    Op::Dup(Type::Buf),
+    Op::Eq(Type::Scalar),
+    Op::Rot(Type::Scalar),
+    Op::Swap(Type::Scalar),
+    Op::Drop(Type::Scalar),
+    Op::Dup(Type::Scalar),
+    // Op::Eq(Type::Float),
+    // Op::Rot(Type::Float),
+    // Op::Swap(Type::Float),
+    // Op::Drop(Type::Float),
+    // Op::Dup(Type::Float),
+    Op::Eq(Type::Expression),
+    Op::Rot(Type::Expression),
+    Op::Swap(Type::Expression),
+    Op::Drop(Type::Expression),
+    Op::Dup(Type::Expression),
+    Op::Eq(Type::Block),
+    Op::Rot(Type::Block),
+    Op::Swap(Type::Block),
+    Op::Drop(Type::Block),
+    Op::Dup(Type::Block),
+    Op::Eq(Type::Instruction),
+    Op::Rot(Type::Instruction),
+    Op::Swap(Type::Instruction),
+    Op::Drop(Type::Instruction),
+    Op::Dup(Type::Instruction),
+    // Op::Eq(Type::Function),
+    // Op::Rot(Type::Function),
+    // Op::Swap(Type::Function),
+    // Op::Drop(Type::Function),
+    // Op::Dup(Type::Function),
+    Op::Eq(Type::Gadget),
+    Op::Rot(Type::Gadget),
+    Op::Swap(Type::Gadget),
+    Op::Drop(Type::Gadget),
+    Op::Dup(Type::Gadget),
+    Op::Eq(Type::Exec),
+    Op::Rot(Type::Exec),
+    Op::Swap(Type::Exec),
+    Op::Drop(Type::Exec),
+    // Op::Dup(Type::Exec),
+    Op::Eq(Type::Code),
+    Op::Rot(Type::Code),
+    Op::Swap(Type::Code),
+    Op::Drop(Type::Code),
+    Op::Dup(Type::Code),
 ];
 
-fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
+fn random_ops<R: Rng>(rng: &mut R, config: &Config) -> Vec<Op> {
     let mut ops = Vec::new();
+
+    let count = rng.gen_range(config.push_vm.min_len, config.push_vm.max_len);
 
     let memory = get_static_memory_image();
     let program = memory.il_program.as_ref().unwrap();
@@ -210,8 +297,8 @@ fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
         .collect();
 
     for _ in 0..count {
-        if rng.gen_range(0.0, 1.0) < literal_rate {
-            match rng.gen_range(0, 3) {
+        if rng.gen_range(0.0, 1.0) < config.push_vm.literal_rate {
+            match rng.gen_range(0, 2) {
                 0 => {
                     // functions
                     let f = function_names
@@ -222,12 +309,14 @@ fn random_ops<R: Rng>(rng: &mut R, literal_rate: f64, count: usize) -> Vec<Op> {
                 }
                 1 => {
                     // addresses
-                    let addr = memory.random_address(None, rng.gen::<u64>());
-                    ops.push(Op::WordConst(addr))
-                }
-                2 => {
-                    // boolean
-                    ops.push(Op::BoolConst(rng.gen::<bool>()))
+                    let addr = config
+                        .roper
+                        .soup
+                        .as_ref()
+                        .expect("No soup?!")
+                        .choose(rng)
+                        .expect("Failed to choose word from soup.");
+                    ops.push(Op::WordConst(*addr))
                 }
                 // 3 => {
                 //     // float
@@ -359,49 +448,151 @@ impl Op {
             }
 
             // Byte buffer operations
+            BufConst(b) => mach.push(Buf(b.clone())),
             BufAt => {
                 if let Word(a) = mach.pop(&Type::Word) {
-                    let memory = loader::get_static_memory_image();
-                    if let Some(buf) = memory.try_dereference(a, None) {
-                        mach.push(Buf(buf))
-                    }
+                    mach.push(Buf(Buffer::Pointer(a)))
                 }
             }
             BufLen => {
                 if let Buf(a) = mach.pop(&Type::Buf) {
-                    mach.push(Word(a.len() as u64))
+                    let len = match a {
+                        Buffer::Vector(v) => v.len(),
+                        Buffer::Pointer(p) => {
+                            let memory = get_static_memory_image();
+                            if let Some(buf) = memory.try_dereference(p, None) {
+                                buf.len()
+                            } else {
+                                0
+                            }
+                        }
+                    };
+                    mach.push(Word(len as u64))
                 }
             }
             BufHead => {
                 if let (Buf(buf), Word(n)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
-                    if buf.len() > 0 {
-                        let n = n as usize % buf.len();
-                        mach.push(Buf(&buf[0..n]))
+                    match buf {
+                        Buffer::Vector(v) => {
+                            if v.len() > 0 {
+                                let n = n as usize % v.len();
+                                mach.push(Buf(Buffer::Vector(v[0..n].to_vec())))
+                            }
+                        }
+                        Buffer::Pointer(p) => {
+                            mach.push(Buf(Buffer::Pointer(p))) // Not much to do here. It's awkward. maybe refactor this later
+                        }
                     }
                 }
             }
             BufIndex => {
                 if let (Buf(buf), Word(i)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
-                    if buf.len() > 0 {
-                        let i = i as usize;
-                        let b = buf[i % buf.len()];
-                        mach.push(Word(b as u64));
+                    match buf {
+                        Buffer::Vector(v) => {
+                            if v.len() > 0 {
+                                let i = i as usize;
+                                let b = v[i % v.len()];
+                                mach.push(Word(b as u64));
+                            }
+                        }
+                        Buffer::Pointer(p) => {
+                            let memory = get_static_memory_image();
+                            if let Some(slice) = memory.try_dereference(p, None) {
+                                let i = i as usize;
+                                let b = slice[i % slice.len()];
+                                mach.push(Word(b as u64));
+                            }
+                        }
                     }
                 }
             }
             BufPack => {
                 if let Buf(b) = mach.pop(&Type::Buf) {
                     let memory = loader::get_static_memory_image();
-                    if let Some(n) = read_integer(b, memory.endian, memory.word_size) {
-                        mach.push(Word(n))
+                    match b {
+                        Buffer::Pointer(p) => {
+                            if let Some(slice) = memory.try_dereference(p, None) {
+                                if let Some(n) =
+                                    read_integer(slice, memory.endian, memory.word_size)
+                                {
+                                    mach.push(Word(n));
+                                    mach.push(Buf(Buffer::Pointer(p + memory.word_size as u64)))
+                                }
+                            }
+                        }
+                        Buffer::Vector(v) => {
+                            if let Some(n) = read_integer(&v, memory.endian, memory.word_size) {
+                                mach.push(Word(n));
+                                if v.len() > memory.word_size {
+                                    mach.push(Buf(Buffer::Vector(v[memory.word_size..].to_vec())))
+                                }
+                            }
+                        }
                     }
                 }
             }
             BufTail => {
                 if let (Buf(b), Word(n)) = (mach.pop(&Type::Buf), mach.pop(&Type::Word)) {
-                    if b.len() > 0 {
-                        let n = n as usize % b.len();
-                        mach.push(Buf(b[n..].as_ref()))
+                    match b {
+                        Buffer::Vector(v) => {
+                            if v.len() > 0 {
+                                let n = n as usize % v.len();
+                                mach.push(Buf(Buffer::Vector(v[n..].to_vec())))
+                            }
+                        }
+                        Buffer::Pointer(p) => mach.push(Buf(Buffer::Pointer(p + n))),
+                    }
+                }
+            }
+            WordDisRegRead => {
+                if let Word(w) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(w, None) {
+                        if let Some(disassembler) = memory.disasm.as_ref() {
+                            if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                                for inst in insts.iter() {
+                                    if let Ok(details) = disassembler.insn_detail(&inst) {
+                                        for reg in details.regs_read() {
+                                            let n = reg.0 as u64;
+                                            mach.push(Word(n))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WordDisRegWrite => {
+                if let Word(w) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(w, None) {
+                        if let Some(disassembler) = memory.disasm.as_ref() {
+                            if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                                for inst in insts.iter() {
+                                    if let Ok(details) = disassembler.insn_detail(&inst) {
+                                        for reg in details.regs_write() {
+                                            let n = reg.0 as u64;
+                                            mach.push(Word(n))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WordDisInstId => {
+                if let Word(w) = mach.pop(&Type::Word) {
+                    let memory = loader::get_static_memory_image();
+                    if let Some(buf) = memory.try_dereference(w, None) {
+                        if let Some(disassembler) = memory.disasm.as_ref() {
+                            if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                                for inst in insts.iter() {
+                                    mach.push(Word(inst.id().0 as u64))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -409,7 +600,16 @@ impl Op {
                 if let Buf(buf) = mach.pop(&Type::Buf) {
                     let memory = loader::get_static_memory_image();
                     if let Some(disassembler) = memory.disasm.as_ref() {
-                        if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                        if let Ok(insts) = match buf {
+                            Buffer::Vector(v) => disassembler.disas(&v, 0, Some(1)),
+                            Buffer::Pointer(p) => {
+                                if let Some(slice) = memory.try_dereference(p, None) {
+                                    disassembler.disas(slice, 0, Some(1))
+                                } else {
+                                    disassembler.disas(&vec![], 0, Some(1))
+                                }
+                            }
+                        } {
                             for inst in insts.iter() {
                                 if let Ok(details) = disassembler.insn_detail(&inst) {
                                     for reg in details.regs_read() {
@@ -426,7 +626,16 @@ impl Op {
                 if let Buf(buf) = mach.pop(&Type::Buf) {
                     let memory = loader::get_static_memory_image();
                     if let Some(disassembler) = memory.disasm.as_ref() {
-                        if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
+                        if let Ok(insts) = match buf {
+                            Buffer::Vector(v) => disassembler.disas(&v, 0, Some(1)),
+                            Buffer::Pointer(p) => {
+                                if let Some(slice) = memory.try_dereference(p, None) {
+                                    disassembler.disas(slice, 0, Some(1))
+                                } else {
+                                    disassembler.disas(&vec![], 0, Some(1))
+                                }
+                            }
+                        } {
                             for inst in insts.iter() {
                                 if let Ok(details) = disassembler.insn_detail(&inst) {
                                     for reg in details.regs_write() {
@@ -443,9 +652,22 @@ impl Op {
                 if let Buf(buf) = mach.pop(&Type::Buf) {
                     let memory = loader::get_static_memory_image();
                     if let Some(disassembler) = memory.disasm.as_ref() {
-                        if let Ok(insts) = disassembler.disas(buf, 0, Some(1)) {
-                            for inst in insts.iter() {
-                                mach.push(Word(inst.id().0 as u64))
+                        match buf {
+                            Buffer::Pointer(p) => {
+                                if let Some(slice) = memory.try_dereference(p, None) {
+                                    if let Ok(insts) = disassembler.disas(slice, 0, Some(1)) {
+                                        for inst in insts.iter() {
+                                            mach.push(Word(inst.id().0 as u64))
+                                        }
+                                    }
+                                }
+                            }
+                            Buffer::Vector(v) => {
+                                if let Ok(insts) = disassembler.disas(&v, 0, Some(1)) {
+                                    for inst in insts.iter() {
+                                        mach.push(Word(inst.id().0 as u64))
+                                    }
+                                }
                             }
                         }
                     }
@@ -520,6 +742,16 @@ impl Op {
                     if b != 0 {
                         mach.push(Word(a % b))
                     }
+                }
+            }
+            WordIncr => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    mach.push(Word(a.wrapping_add(1)))
+                }
+            }
+            WordDecr => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    mach.push(Word(a.wrapping_sub(1)))
                 }
             }
             WordOnes => {
@@ -664,45 +896,51 @@ impl Op {
                     }
                 }
             }
-            // Given a Function and a CFG index, get the block at that index
-            FuncBlock => {
-                if let (Function(f), Word(i)) = (mach.pop(&Type::Function), mach.pop(&Type::Word)) {
-                    let index = i as usize;
-                    if let Ok(block) = f.block(index) {
-                        mach.push(Block(block));
-                    }
-                }
-            }
-            FuncEntry => {
-                if let Function(f) = mach.pop(&Type::Function) {
-                    if let Some(i) = f.control_flow_graph().entry() {
-                        if let Ok(block) = f.block(i) {
-                            mach.push(Block(block));
-                        }
-                    }
-                }
-            }
-            FuncExit => {
-                if let Function(f) = mach.pop(&Type::Function) {
-                    if let Some(i) = f.control_flow_graph().exit() {
-                        if let Ok(block) = f.block(i) {
-                            mach.push(Block(block));
-                        }
-                    }
-                }
-            }
-            FuncAddr => {
-                if let Function(f) = mach.pop(&Type::Function) {
-                    let addr = f.address();
-                    mach.push(Word(addr));
-                }
-            }
+            // // Given a Function and a CFG index, get the block at that index
+            // FuncBlock => {
+            //     if let (Function(f), Word(i)) = (mach.pop(&Type::Function), mach.pop(&Type::Word)) {
+            //         let index = i as usize;
+            //         if let Ok(block) = f.block(index) {
+            //             mach.push(Block(block));
+            //         }
+            //     }
+            // }
+            // FuncEntry => {
+            //     if let Function(f) = mach.pop(&Type::Function) {
+            //         if let Some(i) = f.control_flow_graph().entry() {
+            //             if let Ok(block) = f.block(i) {
+            //                 mach.push(Block(block));
+            //             }
+            //         }
+            //     }
+            // }
+            // FuncExit => {
+            //     if let Function(f) = mach.pop(&Type::Function) {
+            //         let cfg = f.control_flow_graph();
+            //         if let Some(i) = cfg.exit() {
+            //             if let Ok(block) = f.block(i) {
+            //                 let tail_index = block.index();
+            //                 if let Ok(indices) = cfg.predecessor_indices(tail_index) {
+            //                     for head_index in indices {
+            //                         if let Ok(block) = cfg.block(head_index) {
+            //                             mach.push(Block(block));
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
             FuncNamed(name) => {
                 let memory = get_static_memory_image();
-                if let Some(ref program) = memory.il_program {
-                    if let Some(func) = program.function_by_name(name) {
-                        mach.push(Function(func))
-                    }
+                let program = memory
+                    .il_program
+                    .as_ref()
+                    .expect("No IR program structure!");
+                let func = program.function_by_name(name).expect("Bad function name");
+                let cfg = func.control_flow_graph();
+                for block in cfg.blocks() {
+                    mach.push(Block(block));
                 }
             }
 
@@ -729,6 +967,7 @@ impl Op {
                     let head_index = b.index();
                     let cfg = f.control_flow_graph();
                     if let Ok(indices) = cfg.successor_indices(head_index) {
+                        println!("{:?} has {} successors", Block(b), indices.len());
                         for tail_index in indices {
                             if let Ok(block) = cfg.block(tail_index) {
                                 if let Ok(edge) = cfg.edge(head_index, tail_index) {
@@ -736,6 +975,7 @@ impl Op {
                                         mach.push(Expression(condition.clone()))
                                     }
                                 }
+                                println!("Pushing successor {:?}", Block(block));
                                 mach.push(Block(block));
                             }
                         }
@@ -764,17 +1004,28 @@ impl Op {
 
             InstIsLoad => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
+                    if let il::Operation::Load { dst, index } = a.operation() {
+                        mach.push(Expression(index.clone()));
+                        mach.push(Scalar(dst.clone()));
+                    }
                     mach.push(Bool(a.is_load()))
                 }
             }
             InstIsStore => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
-                    mach.push(Bool(a.is_store()))
+                    if let il::Operation::Store { index, src } = a.operation() {
+                        mach.push(Expression(index.clone()));
+                        mach.push(Expression(src.clone()));
+                    }
+                    mach.push(Bool(a.is_store()));
                 }
             }
             InstIsBranch => {
                 if let Instruction(a) = mach.pop(&Type::Instruction) {
-                    mach.push(Bool(a.is_branch()))
+                    if let il::Operation::Branch { target } = a.operation() {
+                        mach.push(Expression(target.clone()));
+                    }
+                    mach.push(Bool(a.is_branch()));
                 }
             }
             InstAddr => {
@@ -834,7 +1085,7 @@ impl From<&Val> for Type {
 pub enum Val {
     Null,
     Word(u64),
-    Buf(&'static [u8]),
+    Buf(Buffer),
     Bool(bool),
     Exec(Op),
     Code(Op),
@@ -856,9 +1107,10 @@ impl fmt::Debug for Val {
             Null => write!(f, "Null"),
             Word(w) => write!(f, "Word(0x{:x})", w),
             Buf(b) => {
-                let i = 16.min(b.len());
-                let ellipsis = if i < b.len() { "..." } else { "" };
-                write!(f, "Buf({:x?}{})", &b[..i], ellipsis)
+                write!(f, "Buf({:x?})", b)
+                // let i = 16.min(b.len());
+                // let ellipsis = if i < b.len() { "..." } else { "" };
+                // write!(f, "Buf({:x?}{})", &b[..i], ellipsis)
             }
             Bool(b) => write!(f, "Bool({:?})", b),
             Exec(op) => write!(f, "Exec({:?})", op),
@@ -1005,7 +1257,6 @@ pub mod creature {
     use crate::emulator::pack::Pack;
     use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
-    use crate::fitness::{HasScalar, MapFit};
     use crate::roper::Fitness;
     use crate::util;
     use crate::util::architecture::Endian;
@@ -1023,10 +1274,9 @@ pub mod creature {
 
         // TODO: should we have a pointer to the config here?
         // we might want to take certain parameters into consideration, like the literal rate
-        fn mutate_point(allele: &mut Self::Allele) -> Self {
+        fn mutate_point(allele: &mut Self::Allele, config: &Config) -> Self {
             let mut rng = thread_rng();
-            let literal_rate = 0.5; // TODO: parameterize
-            let new_allele = random_ops(&mut rng, literal_rate, 1).pop().unwrap();
+            let new_allele = random_ops(&mut rng, config).pop().unwrap();
             *allele = new_allele;
             OpMutation::RandomOp
         }
@@ -1036,7 +1286,14 @@ pub mod creature {
     pub struct Creature {
         pub chromosome: LinearChromosome<Op, OpMutation>,
         pub tag: u64,
+        // TODO: this should become a hashmap associating problems with payloads
         pub payload: Option<Vec<u64>>,
+        // But then we need some way to map the problems to the profiles. not just
+        // flat vecs. I think we may need to refactor the profile struct, which could
+        // get a bit messy. For the best, though.
+        // We don't need to hold the problems themselves, here. An index into a problem
+        // table held in Config would be just fine. We can always get a pointer to Config
+        // in scope.
         pub profile: Option<Profile>,
         #[serde(borrow)]
         pub fitness: Option<Fitness<'static>>,
@@ -1140,7 +1397,7 @@ pub mod creature {
             // First, let's get some information from the lifted program
             let mut rng = hash_seed_rng(&salt);
             let length = rng.gen_range(config.push_vm.min_len, config.push_vm.max_len);
-            let ops = random_ops(&mut rng, config.push_vm.literal_rate, length);
+            let ops = random_ops(&mut rng, config);
 
             Self {
                 chromosome: LinearChromosome {
@@ -1197,17 +1454,18 @@ pub mod creature {
         type Fitness = Fitness<'static>;
         type Problem = ();
 
+        fn generate_description(&mut self) {
+            self.description = Some(format!("{:#?}", self))
+        }
+
         fn fitness(&self) -> Option<&Self::Fitness> {
             self.fitness.as_ref()
         }
 
-        fn scalar_fitness(&self) -> Option<f64> {
-            self.fitness.as_ref().map(HasScalar::scalar)
-        }
-
-        fn priority_fitness(&self, config: &Config) -> Option<f64> {
-            let priority = &config.fitness.priority;
-            self.fitness().as_ref().and_then(|f| f.get(priority))
+        fn scalar_fitness(&self, weighting: &str) -> Option<f64> {
+            self.fitness
+                .as_ref()
+                .map(|f| f.scalar_with_expression(weighting))
         }
 
         fn set_fitness(&mut self, f: Self::Fitness) {
@@ -1231,7 +1489,7 @@ pub mod creature {
         }
 
         fn is_goal_reached(&self, config: &Config) -> bool {
-            self.priority_fitness(config)
+            self.scalar_fitness(&config.fitness.priority)
                 .map(|p| p - config.fitness.target <= std::f64::EPSILON)
                 .unwrap_or(false)
         }
@@ -1291,14 +1549,14 @@ mod test {
     #[test]
     fn test_random_ops() {
         // first initialize things
-        let mut config = RoperConfig {
+        let roper_config = RoperConfig {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
             register_pattern: None,
             parsed_register_pattern: None,
             soup: None,
-            soup_size: None,
+            soup_size: Some(1024),
             arch: Arch::X86,
             mode: Mode::MODE_64,
             num_workers: 0,
@@ -1314,15 +1572,24 @@ mod test {
             bad_bytes: None,
             ..Default::default()
         };
+        let mut config = Config::default();
+        config.roper = roper_config;
+        config.push_vm = crate::configure::PushVm {
+            max_steps: 100,
+            min_len: 10,
+            max_len: 100,
+            literal_rate: 0.3,
+        };
+        loader::falcon_loader::load_from_path(&mut config.roper, true).expect("failed to load");
+        crate::roper::init_soup(&mut config).expect("Failed to init soup");
         crate::logger::init("test");
         println!("Loading, linking, and lifting...");
-        loader::falcon_loader::load_from_path(&mut config, true).expect("failed to load");
-        let ops = random_ops(&mut rand::thread_rng(), 0.5, 100);
+        let ops = random_ops(&mut rand::thread_rng(), &config);
         println!("{:#?}", ops);
         let mut machine = MachineState::default();
         let args = vec![];
         let res = machine.exec(&ops, &args, 1000);
-        println!("Result: {:#x?}", res);
         println!("Machine state: {:#?}", machine);
+        println!("Result: {:#x?}", res);
     }
 }

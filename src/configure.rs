@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::path::Path;
-use std::sync::Arc;
 
 use chrono::prelude::*;
 use hashbrown::HashMap;
@@ -40,7 +39,7 @@ fn default_one() -> f64 {
     1.0
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
     pub job: Job,
     pub selection: Selection,
@@ -108,7 +107,7 @@ pub struct FitnessConfig {
     pub dynamic: bool,
     pub priority: String,
     pub function: String,
-    pub weights: Arc<HashMap<String, String>>,
+    pub weighting: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -138,7 +137,7 @@ fn random_population_name() -> String {
     crate::util::name::random(2, seed)
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ObserverConfig {
     pub dump_population: bool,
     pub dump_soup: bool,
