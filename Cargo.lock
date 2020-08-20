@@ -570,6 +570,7 @@ dependencies = [
 [[package]]
 name = "falcon"
 version = "0.4.12"
+source = "git+https://github.com/oblivia-simplex/falcon#3f5734e1e14344e2a760ea48cd90eb7e8fe10d45"
 dependencies = [
  "base64",
  "bitflags",
@@ -586,9 +587,9 @@ dependencies = [
 
 [[package]]
 name = "falcon_capstone"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6c0abdbef52287631857fdf958e6580b17664130e3dfae52f65d7a2f16a6eb5"
+checksum = "439a9afdfe8bef88ab81cb4043d8c3fa9f7f8663570cd9b32f2f080bff6dd251"
 dependencies = [
  "bindgen",
  "libc",

@@ -75,5 +75,5 @@ unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "dev
 #[patch."https://github.com/oblivia-simplex/non-dominated-sort-rs".non-dominated-sort]
 #path = "../non-dominated-sort-rs"
 
-[patch."https://github.com/oblivia-simplex/falcon".falcon]
-path = "../falcon"
+#[patch."https://github.com/oblivia-simplex/falcon".falcon]
+#path = "../falcon"
