@@ -18,9 +18,9 @@ min_init_len = 10
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x500
-max_length = 100
-num_epochs = 200 # = infinite
+pop_size = 0x3000
+max_length = 500
+num_epochs = 500 # = infinite
 
 [fitness]
 #function = "register_conjunction"
@@ -44,7 +44,7 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 ##
 #weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
 # weighting = "1"
-weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + register_error + crash_count"
+weighting = " (10000 * register_novelty) + 0.1 * register_error + (crash_count * (10 - min(10, gadgets_executed)))"
 [tournament]
 num_offspring = 2
 num_parents = 2
@@ -83,7 +83,7 @@ path = "./data/iris.tsv"
 #path = "./data/agaricus-lepiota.tsv"
 
 [roper]
-use_push = false
+use_push = true
 #arch = "X86"
 #mode = "MODE_64"
 gadget_file = "./gadgets/sshd_ropgadget.json"

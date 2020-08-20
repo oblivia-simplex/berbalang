@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::path::Path;
-use std::sync::Arc;
 
 use chrono::prelude::*;
 use hashbrown::HashMap;
@@ -340,8 +339,6 @@ pub struct IOProblem {
     // Ditto
     pub tag: u64,
 }
-
-pub struct SyscallProblem {}
 
 impl PartialOrd for IOProblem {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {

@@ -55,6 +55,8 @@ pub enum Op {
     WordDiv,
     WordMul,
     WordMod,
+    WordIncr,
+    WordDecr,
     WordOnes,
     WordShl,
     WordShr,
@@ -140,7 +142,7 @@ pub enum Op {
     List(Vec<Op>),
 }
 
-static NON_CONSTANT_OPS: [Op; 91] = [
+static NON_CONSTANT_OPS: [Op; 103] = [
     Op::BoolAnd,
     Op::BoolOr,
     Op::BoolNot,
@@ -155,6 +157,8 @@ static NON_CONSTANT_OPS: [Op; 91] = [
     Op::WordMul,
     Op::WordMod,
     Op::WordOnes,
+    Op::WordIncr,
+    Op::WordDecr,
     Op::WordShl,
     Op::WordShr,
     Op::WordDeref,
@@ -201,6 +205,16 @@ static NON_CONSTANT_OPS: [Op; 91] = [
     // Op::FuncExit,
     // Op::FuncAddr,
     Op::ExprEval,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
+    Op::ExecIf,
     Op::ExecIf,
     Op::ExecK,
     Op::ExecS,
@@ -730,6 +744,16 @@ impl Op {
                     }
                 }
             }
+            WordIncr => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    mach.push(Word(a.wrapping_add(1)))
+                }
+            }
+            WordDecr => {
+                if let Word(a) = mach.pop(&Type::Word) {
+                    mach.push(Word(a.wrapping_sub(1)))
+                }
+            }
             WordOnes => {
                 if let Word(a) = mach.pop(&Type::Word) {
                     mach.push(Word(a.count_ones() as u64))
@@ -915,10 +939,8 @@ impl Op {
                     .expect("No IR program structure!");
                 let func = program.function_by_name(name).expect("Bad function name");
                 let cfg = func.control_flow_graph();
-                if let Some(i) = cfg.entry() {
-                    if let Ok(entry_block) = func.block(i) {
-                        mach.push(Block(entry_block));
-                    }
+                for block in cfg.blocks() {
+                    mach.push(Block(block));
                 }
             }
 
@@ -1235,7 +1257,6 @@ pub mod creature {
     use crate::emulator::pack::Pack;
     use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
-    use crate::fitness::{HasScalar, MapFit};
     use crate::roper::Fitness;
     use crate::util;
     use crate::util::architecture::Endian;

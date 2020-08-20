@@ -4,16 +4,13 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::ops::Index;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-use hashbrown::HashMap;
 use itertools::Itertools;
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
 
-use crate::get_epoch_counter;
-
-pub type FitnessMap<'a> = HashMap<&'a str, f64>;
+pub type FitnessMap<'a> = BTreeMap<&'a str, f64>;
 
 pub trait HasScalar {
     fn scalar(&self) -> f64;
@@ -33,11 +30,11 @@ pub trait FitnessScore:
 impl FitnessScore for Vec<f64> {}
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Pareto<'a>(#[serde(borrow)] FitnessMap<'a>);
+pub struct Pareto<'a>(#[serde(borrow)] BTreeMap<&'a str, f64>);
 
 impl Pareto<'static> {
     pub fn new() -> Self {
-        Pareto(HashMap::new())
+        Pareto(BTreeMap::new())
     }
 
     pub fn values(&self) -> impl Iterator<Item = &f64> {
@@ -52,25 +49,25 @@ impl HasScalar for Pareto<'static> {
 }
 
 impl MapFit for Pareto<'static> {
-    fn inner_mut(&mut self) -> &mut FitnessMap<'static> {
+    fn inner_mut(&mut self) -> &mut BTreeMap<&'static str, f64> {
         &mut self.0
     }
 
-    fn inner(&self) -> &FitnessMap<'static> {
+    fn inner(&self) -> &BTreeMap<&'static str, f64> {
         &self.0
     }
 
-    fn from_map(map: FitnessMap<'static>) -> Self {
+    fn from_map(map: BTreeMap<&'static str, f64>) -> Self {
         Self(map)
     }
 }
 
 pub trait MapFit {
-    fn inner_mut(&mut self) -> &mut FitnessMap<'static>;
+    fn inner_mut(&mut self) -> &mut BTreeMap<&'static str, f64>;
 
-    fn inner(&self) -> &FitnessMap<'static>;
+    fn inner(&self) -> &BTreeMap<&'static str, f64>;
 
-    fn from_map(map: FitnessMap<'static>) -> Self
+    fn from_map(map: BTreeMap<&'static str, f64>) -> Self
     where
         Self: Sized;
 
@@ -86,7 +83,7 @@ pub trait MapFit {
     where
         Self: Sized,
     {
-        let mut map = HashMap::new();
+        let mut map = FitnessMap::new();
         for p in frame.iter() {
             for (&k, &v) in p.inner().iter() {
                 *(map.entry(k).or_insert(0.0)) += v;
@@ -150,16 +147,10 @@ static UNNAMED_OBJECTIVES: [&str; 10] = [
 
 impl From<Vec<f64>> for Pareto<'static> {
     fn from(vec: Vec<f64>) -> Self {
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         for (i, v) in vec.iter().enumerate() {
             map.insert(UNNAMED_OBJECTIVES[i], *v);
         }
-        Pareto(map)
-    }
-}
-
-impl From<FitnessMap<'static>> for Pareto<'static> {
-    fn from(map: FitnessMap<'static>) -> Self {
         Pareto(map)
     }
 }
@@ -221,11 +212,11 @@ impl fmt::Debug for Pareto<'_> {
 pub type Lexical<T> = Vec<T>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ShuffleFit(#[serde(borrow)] FitnessMap<'static>);
+pub struct ShuffleFit(#[serde(borrow)] BTreeMap<&'static str, f64>);
 
 impl ShuffleFit {
     pub fn new() -> Self {
-        Self(HashMap::new())
+        Self(FitnessMap::new())
     }
 
     pub fn values(&self) -> impl Iterator<Item = &f64> {
@@ -249,15 +240,15 @@ impl HasScalar for ShuffleFit {
 }
 
 impl MapFit for ShuffleFit {
-    fn inner_mut(&mut self) -> &mut FitnessMap<'static> {
+    fn inner_mut(&mut self) -> &mut BTreeMap<&'static str, f64> {
         &mut self.0
     }
 
-    fn inner(&self) -> &FitnessMap<'static> {
+    fn inner(&self) -> &BTreeMap<&'static str, f64> {
         &self.0
     }
 
-    fn from_map(map: FitnessMap<'static>) -> Self {
+    fn from_map(map: BTreeMap<&'static str, f64>) -> Self {
         Self(map)
     }
 }
@@ -290,8 +281,8 @@ impl Index<&str> for ShuffleFit {
     }
 }
 
-impl From<FitnessMap<'static>> for ShuffleFit {
-    fn from(map: FitnessMap<'static>) -> Self {
+impl From<BTreeMap<&'static str, f64>> for ShuffleFit {
+    fn from(map: BTreeMap<&'static str, f64>) -> Self {
         Self::from_map(map)
     }
 }
@@ -300,14 +291,14 @@ impl FitnessScore for ShuffleFit {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Weighted<'a> {
-    // weights: Arc<HashMap<String, String>>,
+    // weights: Arc<FitnessMap<String, String>>,
     weighting: String,
     //   #[serde(skip)]
-    //   pub weights: HashMap<String, fasteval::Instruction>,
+    //   pub weights: FitnessMap<String, fasteval::Instruction>,
     //#[serde(skip)]
     //slab: Mutex<Slab>,
     #[serde(borrow)]
-    pub scores: HashMap<&'a str, f64>,
+    pub scores: BTreeMap<&'a str, f64>,
     cached_scalar: Mutex<Option<f64>>,
 }
 
@@ -367,11 +358,11 @@ impl Clone for Weighted<'_> {
 // }
 
 // fn compile_weight_map(
-//     weights: &HashMap<String, String>,
+//     weights: &FitnessMap<String, String>,
 //     mut slab: &mut Slab,
-// ) -> HashMap<String, fasteval::Instruction> {
+// ) -> FitnessMap<String, fasteval::Instruction> {
 //     let parser = fasteval::Parser::new();
-//     let mut weight_map = HashMap::new();
+//     let mut weight_map = FitnessMap::new();
 //     for (attr, weight) in weights.iter() {
 //         let compiled = compile_weight_expression(weight, &mut slab, &parser);
 //         weight_map.insert(attr.clone(), compiled);
@@ -409,10 +400,7 @@ impl Weighted<'static> {
         if self.scores.is_empty() {
             return f64::MAX;
         }
-        let mut ns = BTreeMap::new();
-        for (factor, score) in self.scores.iter() {
-            ns.insert(*factor, *score);
-        }
+        let mut ns = self.scores.clone();
         match fasteval::ez_eval(expr, &mut ns) {
             Err(e) => panic!(
                 "Failed to evaluate expression {:?} with scores {:?}: {:?}",
@@ -442,15 +430,15 @@ impl PartialOrd for Weighted<'static> {
 impl FitnessScore for Weighted<'static> {}
 
 impl MapFit for Weighted<'static> {
-    fn inner_mut(&mut self) -> &mut FitnessMap<'static> {
+    fn inner_mut(&mut self) -> &mut BTreeMap<&'static str, f64> {
         &mut self.scores
     }
 
-    fn inner(&self) -> &FitnessMap<'static> {
+    fn inner(&self) -> &BTreeMap<&'static str, f64> {
         &self.scores
     }
 
-    fn from_map(_map: FitnessMap<'static>) -> Self
+    fn from_map(_map: BTreeMap<&'static str, f64>) -> Self
     where
         Self: Sized,
     {
@@ -459,7 +447,7 @@ impl MapFit for Weighted<'static> {
 
     fn average(frame: &[&Self]) -> Self {
         debug_assert!(!frame.is_empty(), "Don't try to average empty frames");
-        let mut map = HashMap::new();
+        let mut map = FitnessMap::new();
         let mut weighting = None;
         for p in frame.iter() {
             if weighting.is_none() {
@@ -503,7 +491,6 @@ impl fmt::Debug for Weighted<'static> {
 
 #[cfg(test)]
 mod test {
-    use crate::hashmap;
     use crate::pareto;
 
     use super::*;

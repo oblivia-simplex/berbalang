@@ -14,7 +14,6 @@ use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
-use crate::fitness::{HasScalar, MapFit};
 use crate::roper::Fitness;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 use crate::util::random::hash_seed_rng;

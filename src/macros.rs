@@ -31,9 +31,23 @@ macro_rules! hashmap {
 }
 
 #[macro_export]
+macro_rules! btreemap {
+    ($($key:expr => $val:expr$(,)?)*) => {
+        {
+            let mut map = ::std::collections::BTreeMap::new();
+            $(
+                let _ = map.insert($key.into(), $val);
+            )*
+            map
+        }
+    }
+
+}
+
+#[macro_export]
 macro_rules! pareto {
     ($($key:expr => $val:expr, $(,)?)*) => {
-        Pareto(hashmap!{$( $key => $val, )*})
+        Pareto(crate::btreemap!{$( $key => $val, )*})
     }
 }
 
