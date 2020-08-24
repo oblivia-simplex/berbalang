@@ -11,11 +11,13 @@ BINARIES=$PWD/binaries
 mkdir -p "$BINARIES"
 
 EXPERIMENTS="$1"
-[ -n "$1" ] || EXPERIMENTS=$PWD/experiments
-mkdir -p "$EXPERIMENTS"
 
 NUMBER_OF_TRIALS="$2"
-[ -n "$2" ] || NUMBER_OF_TRIALS=10
+
+if [ -z "$NUMBER_OF_TRIALS" ]; then
+  echo "Usage: $0 <experiment specification directory> <number of trials>"
+  exit 1
+fi
 
 if [ -n "$REBUILD" ]; then
   docker build -t berbalang .
