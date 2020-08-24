@@ -1,6 +1,5 @@
 #! /usr/bin/env python3
 
-import fire
 import glob
 import os
 import pytz
@@ -55,6 +54,7 @@ def sequential_runs(config_paths, num_trials, data_root):
 
 def runs_for_config_dir(dir, trials, log_to):
     configs = glob.glob(f"{dir}/*.toml")
+    print(f"Found configuration files: {configs}")
     sequential_runs(
         config_paths=configs,
         num_trials=trials,
@@ -62,4 +62,13 @@ def runs_for_config_dir(dir, trials, log_to):
     )
 
 
-fire.Fire(runs_for_config_dir)
+#fire.Fire(runs_for_config_dir)
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print(f"Usage: {sys.argv[0]} <experiment directory> <number of trials> <logging directory>")
+        sys.exit(1)
+    experiment_directory = sys.argv[1]
+    number_of_trials = int(sys.argv[2])
+    logging_directory = sys.argv[3]
+    print(f"Experiment directory: {experiment_directory}\nNumber of trials: {number_of_trials}\nLogging directory: {logging_directory}")
+    runs_for_config_dir(experiment_directory, number_of_trials, logging_directory)
