@@ -1,0 +1,130 @@
+##############################
+# Documentation forthcoming! #
+##############################
+
+#random_seed = 0xdeadbeef
+job = "Roper"
+selection = "Tournament" 
+
+num_islands = 7
+#job = "LinearGp"
+#selection = "Roulette"
+#selection = "Lexicase"
+#selection = "Metropolis"
+## should be between 1 and 3
+# The mutation_exponent is the lambda for a Levy Flight mutation pattern.
+mutation_exponent = 3.0
+crossover_period = 2
+crossover_rate = 1.0 # versus clone
+max_init_len = 100
+min_init_len = 10
+# bigger populations seem like the way to go. 
+# TODO: experiment with shrinking populations:
+# large initial populations, with permadeath
+# and a minimal limit set.
+pop_size = 0x300
+max_length = 100
+num_epochs = 300 # = infinite
+# season length is only used by 
+# SeasonalSketch, which I don't
+# think actually works
+# add this:
+
+[fitness]
+function = "register_pattern"
+#function = "register_conjunction"
+#priority = "zeroes" # could this be set by the ff?
+priority = "register_error"
+#function = "code_coverage"
+target = 0
+eval_by_case = false
+dynamic = false # TODO: use this to decide whether to re-evaluate fitness
+# as distinct, sometimes, from execution.
+#
+###
+# The variables available to use here are:
+# x := the unweighted fitness score
+# E := the current epoch.
+# You can use these to deprioritize weights as
+# time goes on.
+##
+[fitness.weights]
+# uses fasteval to evaluate weighting expressions
+#important_writes = "100 - min(100, x*50)"
+#gadgets_executed = "10*(5 - min(5, x))/E" # / ((1+E)/ 20)" #"-1 * min(3, x)"
+gadgets_executed = "0" #(5 - min(5,x))"
+register_error = "x"
+register_novelty = "1000 * x"
+mem_write_ratio = "0" #1.0 - x"
+#code_frequency = "x"
+#code_coverage = "100 * x"
+#genetic_freq = "0" #"min(2, x * 50)"
+#crash_count = "0"
+zeroes = "x"
+#code_frequency = "10*x" #x/2"
+
+[tournament]
+num_offspring = 2
+num_parents = 2
+tournament_size = 6
+# todo: plot diversity and fitness wrt radius changes.
+# maybe experiment with dynamic radius adjustments
+# as a response to loss of diversity
+geographic_radius = 20
+migration_rate = 0.02
+
+[roulette]
+# Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
+weight_decay = 0.8
+
+[hello]
+target = "Mares eat oats and does eat oats and little lambs eat ivy."
+
+
+[linear_gp]
+max_steps = 0x1000
+
+[observer]
+dump_population = true
+dump_soup = true 
+data_directory = "~/logs"
+window_size  = 1000
+report_every = 4000
+dump_every = 1000
+
+[data]
+path = "./data/iris.tsv"
+# FIXME: something fishy is happening with square! too many registers, and
+# it app<F2>ears that the machine is not
+# running!
+#path = "./data/agaricus-lepiota.tsv"
+
+[roper]
+arch = "X86"
+mode = "MODE_32"
+#gadget_file = "./gadgets/sh_soup.json"
+soup_size = 0x10000
+binary_path = "./binaries/X86/MODE_32/sshd"
+#binary_path = "/tmp/ldconfig"
+num_workers = 81
+num_emulators = 71
+max_emu_steps = 0x10_000
+millisecond_timeout = 100
+emulator_stack_size = 0x1000
+record_basic_blocks = true
+record_memory_writes = true
+#output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+#output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
+output_registers= ["EAX", "EBX", "ECX", "EDX"]
+  [roper.register_pattern] 
+  EAX = "0xb"
+  EBX = "&'/bin"
+  ECX = "&0"
+  EDX = "0"
+
+#  RAX = "0x3b"                   # execve syscall number
+#  RSI = "&&0"                  # an empty argv array
+#
+
+[push_vm]
+max_steps = 0x1000
