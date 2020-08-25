@@ -6,7 +6,7 @@
 job = "Roper"
 selection = "Tournament" 
 
-num_islands = 7
+num_islands = 16
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
 mutation_rate = 0.1
 mutation_exponent = 2.0
@@ -90,8 +90,8 @@ gadget_file = "./gadgets/sshd_ropgadget.json"
 #soup_size = 0x10000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
-num_workers = 70
-num_emulators = 60
+#num_workers = 70 # will take num_cpus::get 
+#num_emulators = 60
 max_emu_steps = 0x10_000
 millisecond_timeout = 100
 emulator_stack_size = 0x1000

@@ -7,15 +7,12 @@ mkdir -p "$LOGS"
 GADGETS=$PWD/gadgets
 mkdir -p "$GADGETS"
 
-BINARIES=$PWD/binaries
-mkdir -p "$BINARIES"
-
 EXPERIMENTS="$1"
-
-NUMBER_OF_TRIALS="$2"
+BINARIES="$2"
+NUMBER_OF_TRIALS="$3"
 
 if [ -z "$NUMBER_OF_TRIALS" ]; then
-  echo "Usage: $0 <experiment specification directory> <number of trials>"
+  echo "Usage: $0 <experiment specification directory> <binaries directory> <number of trials>"
   exit 1
 fi
 

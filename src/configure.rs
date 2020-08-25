@@ -28,7 +28,7 @@ impl Default for Job {
 }
 
 fn default_num_islands() -> usize {
-    1
+    num_cpus::get()
 }
 
 fn default_random_seed() -> u64 {
@@ -254,7 +254,7 @@ pub struct RoperConfig {
     pub mode: unicorn::Mode,
     #[serde(default = "default_num_workers")]
     pub num_workers: usize,
-    #[serde(default = "default_num_workers")]
+    #[serde(default = "default_num_emu")]
     pub num_emulators: usize,
     #[serde(default = "default_wait_limit")]
     pub wait_limit: u64,
@@ -285,9 +285,14 @@ impl RoperConfig {
     }
 }
 
-const fn default_num_workers() -> usize {
-    8
+fn default_num_workers() -> usize {
+    num_cpus::get()
 }
+
+fn default_num_emu() -> usize {
+    default_num_workers() + 1
+}
+
 const fn default_wait_limit() -> u64 {
     200
 }
