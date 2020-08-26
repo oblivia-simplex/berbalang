@@ -1,0 +1,64 @@
+Name: cukes-bacon-hider-deads, from island 4
+Generation: 15
+[0][melee-coots-alway-enter] 0x000812bcc3 (READ | EXEC) * 
+[1][clays-tents-vomit-petty] 0x00080ef361 (READ | EXEC) 
+[2][melee-coots-alway-enter] 0x000811d66c (READ | EXEC) 
+[3][melee-coots-alway-enter] 0x00080495b6 (READ | EXEC) 
+[4][melee-coots-alway-enter] 0x00080e1c4b (READ | EXEC) 
+[5][clays-tents-vomit-petty] 0x00b24d654c 
+[6][melee-coots-alway-enter] 0x0008070231 (READ | EXEC) 
+[7][melee-coots-alway-enter] 0x00080860f0 (READ | EXEC) 
+[8][clays-tents-vomit-petty] 0x00081e5cce (READ | EXEC) 
+[9][melee-coots-alway-enter] 0x000814e2e0 (READ | EXEC) 
+[10][clays-tents-vomit-petty] 0x0008165e96 (READ | EXEC) 
+[11][melee-coots-alway-enter] 0x000811a3d5 (READ | EXEC) 
+[12][clays-tents-vomit-petty] 0x000808b5c4 (READ | EXEC) * 
+[13][clays-tents-vomit-petty] 0x000817cd62 (READ | EXEC) 
+[14][melee-coots-alway-enter] 0x0008158b72 (READ | EXEC) 
+[15][melee-coots-alway-enter] 0x0008056a39 (READ | EXEC) 
+[16][melee-coots-alway-enter] 0x00080e7d76 (READ | EXEC) 
+[17][melee-coots-alway-enter] 0x0008190b24 (READ | EXEC) 
+[18][melee-coots-alway-enter] 0x00080d003b (READ | EXEC) 
+[19][clays-tents-vomit-petty] 0x00081c8c98 (READ | EXEC) AddressSub
+[20][melee-coots-alway-enter] 0x000806e37b (READ | EXEC) 
+[21][melee-coots-alway-enter] 0x00080fa819 (READ | EXEC) 
+[22][melee-coots-alway-enter] 0x00081cb00e (READ | EXEC) 
+[23][melee-coots-alway-enter] 0x000806b856 (READ | EXEC) 
+Trace:
+----
+812bcc3:	 e9 dd fe ff ff                                  jmp 0x812bba5
+
+----
+812bcc3:	 e9 dd fe ff ff                                  jmp 0x812bba5
+
+812bba5:	 83 ca ff                                        or edx, 0xffffffff
+812bba8:	 e9 3d 01 00 00                                  jmp 0x812bcea
+
+812bcea:	 83 c4 20                                        add esp, 0x20
+812bced:	 89 d0                                           mov eax, edx
+812bcef:	 5b                                              pop ebx
+812bcf0:	 5e                                              pop esi
+812bcf1:	 5f                                              pop edi
+812bcf2:	 c3                                              ret 
+
+----
+
+
+
+Spidered register state:
+EAX: 0xffffffff
+EBX: 0xffffffff
+ECX: 0xffffffff
+EDX: 0xffffffff
+
+CPU Error code(s): {READ_UNMAPPED: 1}
+Fitness: Some(
+    Weighted:
+        gadgets_executed: 2, to be weighted by (0)
+        mem_write_ratio: 0, to be weighted by (0)
+        register_novelty: 0.00017277125086385625, to be weighted by (0)
+        zeroes: 0, to be weighted by (x)
+    Scalar: 0
+    ,
+)
+
