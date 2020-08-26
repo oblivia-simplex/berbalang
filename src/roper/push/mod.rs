@@ -119,10 +119,11 @@ pub enum Op {
 
     //FuncConst(&'static il::Function),
     FuncNamed(String),
-    // FuncBlock,
+    FuncBlocks,
+    // FuncConstants,
     // FuncEntry,
     // FuncExit,
-    // FuncAddr,
+    FuncAddr,
     ExprEval,
 
     ExecIf,
@@ -142,7 +143,7 @@ pub enum Op {
     List(Vec<Op>),
 }
 
-static NON_CONSTANT_OPS: [Op; 103] = [
+static NON_CONSTANT_OPS: [Op; 109] = [
     Op::BoolAnd,
     Op::BoolOr,
     Op::BoolNot,
@@ -200,7 +201,8 @@ static NON_CONSTANT_OPS: [Op; 103] = [
     Op::BlockAddr,
     Op::BlockSuccs,
     Op::BlockPreds,
-    // Op::FuncBlock,
+    Op::FuncBlocks,
+    // Op::FuncConstants,
     // Op::FuncEntry,
     // Op::FuncExit,
     // Op::FuncAddr,
@@ -261,11 +263,11 @@ static NON_CONSTANT_OPS: [Op; 103] = [
     Op::Swap(Type::Instruction),
     Op::Drop(Type::Instruction),
     Op::Dup(Type::Instruction),
-    // Op::Eq(Type::Function),
-    // Op::Rot(Type::Function),
-    // Op::Swap(Type::Function),
-    // Op::Drop(Type::Function),
-    // Op::Dup(Type::Function),
+    Op::Eq(Type::Function),
+    Op::Rot(Type::Function),
+    Op::Swap(Type::Function),
+    Op::Drop(Type::Function),
+    Op::Dup(Type::Function),
     Op::Eq(Type::Gadget),
     Op::Rot(Type::Gadget),
     Op::Swap(Type::Gadget),
@@ -897,14 +899,14 @@ impl Op {
                 }
             }
             // // Given a Function and a CFG index, get the block at that index
-            // FuncBlock => {
-            //     if let (Function(f), Word(i)) = (mach.pop(&Type::Function), mach.pop(&Type::Word)) {
-            //         let index = i as usize;
-            //         if let Ok(block) = f.block(index) {
-            //             mach.push(Block(block));
-            //         }
-            //     }
-            // }
+            FuncBlocks => {
+                if let Function(f) = mach.pop(&Type::Function) {
+                    let cfg = f.control_flow_graph();
+                    for block in cfg.blocks() {
+                        mach.push(Block(block));
+                    }
+                }
+            }
             // FuncEntry => {
             //     if let Function(f) = mach.pop(&Type::Function) {
             //         if let Some(i) = f.control_flow_graph().entry() {
@@ -938,12 +940,37 @@ impl Op {
                     .as_ref()
                     .expect("No IR program structure!");
                 let func = program.function_by_name(name).expect("Bad function name");
-                let cfg = func.control_flow_graph();
-                for block in cfg.blocks() {
-                    mach.push(Block(block));
-                }
+                mach.push(Function(func));
             }
 
+            FuncAddr => {
+                if let Function(func) = mach.pop(&Type::Function) {
+                    let addr = func.address();
+                    mach.push(Word(addr));
+                }
+            }
+            //
+            // Not very useful, and ill-conceived. each constant analyser corresponds to a sinle
+            // proram location. fuck i miss my  key. my jee key. arhhh.
+
+            // FuncConstants => {
+            //     if let Function(func) = mach.pop(&Type::Function) {
+            //         if let Ok(constant_analyser) = falcon::analysis::constants::constants(func) {
+            //             for c in constant_analyser.values() {
+            //                 println!("Got constant analyser for {:?}", Function(func));
+            //                 while let Some(Scalar(s)) = mach.pop_opt(&Type::Scalar) {
+            //                     println!("Tryin to analyse scalar {:?}", s);
+            //                     if let Some(v) = c.scalar(&s) {
+            //                         if let Some(w) = v.value_u64() {
+            //                             println!("Resolved constant! {:?} -> {}", v, w);
+            //                             mach.push(Word(w));
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
             BlockAddr => {
                 if let Block(a) = mach.pop(&Type::Block) {
                     if let Some(addr) = a.address() {
@@ -967,7 +994,7 @@ impl Op {
                     let head_index = b.index();
                     let cfg = f.control_flow_graph();
                     if let Ok(indices) = cfg.successor_indices(head_index) {
-                        println!("{:?} has {} successors", Block(b), indices.len());
+                        // println!("{:?} has {} successors", Block(b), indices.len());
                         for tail_index in indices {
                             if let Ok(block) = cfg.block(tail_index) {
                                 if let Ok(edge) = cfg.edge(head_index, tail_index) {
@@ -975,7 +1002,7 @@ impl Op {
                                         mach.push(Expression(condition.clone()))
                                     }
                                 }
-                                println!("Pushing successor {:?}", Block(block));
+                                // println!("Pushing successor {:?}", Block(block));
                                 mach.push(Block(block));
                             }
                         }

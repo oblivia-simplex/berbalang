@@ -528,7 +528,7 @@ pub mod falcon_loader {
     use unicorn::{Arch, Mode};
 
     use crate::util;
-    use crate::util::dump::{ron_dump, ron_undump};
+    use crate::util::dump::ron_undump;
 
     // A wrapper around falcon's loader.
     use super::*;
@@ -637,7 +637,7 @@ pub mod falcon_loader {
                     .program()
                     .expect("Failed to lift il::Program from ElfLinker");
                 log::info!("Finished lifting program.");
-                ron_dump(&program, cached_path).expect("Failed to dump il::Program");
+                // ron_dump(&program, cached_path).expect("Failed to dump il::Program");
                 program
             };
 

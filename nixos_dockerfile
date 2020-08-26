@@ -1,0 +1,21 @@
+FROM nixos/nix
+
+WORKDIR /usr/src/berbalang
+COPY . .
+RUN ./builder.sh
+
+
+FROM nixos/nix
+
+WORKDIR /root/
+RUN nix-env -i unicorn-emulator
+RUN nix-env -i bash
+RUN nix-env -i python3-3.8.2 
+
+COPY --from=0 /usr/src/berbalang/target/release/berbalang ./berbalang
+ 
+COPY ./start.sh .
+COPY ./trials.sh .
+COPY ./analysis ./analysis
+
+CMD ["./start.sh"]

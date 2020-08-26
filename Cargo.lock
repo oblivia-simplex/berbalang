@@ -115,6 +115,7 @@ dependencies = [
  "itertools",
  "log",
  "non-dominated-sort",
+ "num_cpus",
  "object-pool",
  "paste",
  "pergola",

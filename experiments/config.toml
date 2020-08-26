@@ -1,0 +1,120 @@
+##############################
+# Documentation forthcoming! #
+##############################
+
+#random_seed = 0xdeadbeef
+job = "Roper"
+selection = "Tournament" 
+
+num_islands = 16
+# The mutation_exponent is the lambda for a Levy Flight mutation pattern.
+mutation_rate = 0.1
+mutation_exponent = 2.0
+crossover_period = 2
+crossover_rate = 1.0 # versus clone
+max_init_len = 15
+min_init_len = 10
+# bigger populations seem like the way to go. 
+# TODO: experiment with shrinking populations:
+# large initial populations, with permadeath
+# and a minimal limit set.
+pop_size = 0x3000
+max_length = 500
+num_epochs = 500 # = infinite
+
+[fitness]
+#function = "register_conjunction"
+function = "register_pattern"
+#function = "error_rate" # weird idea
+#function = "register_conjunction"
+priority = "register_error + crash_count" # could this be set by the ff?
+#priority = "register_error"
+#function = "code_coverage"
+target = 0
+eval_by_case = false
+dynamic = false # TODO: use this to decide whether to re-evaluate fitness
+# as distinct, sometimes, from execution.
+#
+###
+# The variables available to use here are:
+# x := the unweighted fitness score
+# E := the current epoch.
+# You can use these to deprioritize weights as
+# time goes on.
+##
+#weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
+# weighting = "1"
+weighting = " (10000 * register_novelty) + 0.1 * register_error + (crash_count * (4 - min(3, gadgets_executed)))"
+[tournament]
+num_offspring = 2
+num_parents = 2
+tournament_size = 5
+# todo: plot diversity and fitness wrt radius changes.
+# maybe experiment with dynamic radius adjustments
+# as a response to loss of diversity
+geographic_radius = 13
+migration_rate = 0.02
+
+
+[roulette]
+# Should be a float greater than 0.0 and less than 1.0. The lower the value, the more elitist the selection.
+weight_decay = 0.8
+
+[hello]
+target = "Mares eat oats and does eat oats and little lambs eat ivy."
+
+
+[linear_gp]
+max_steps = 0x1000
+
+[observer]
+dump_population = true
+dump_soup = true 
+data_directory = "~/logs"
+window_size  = 1000
+report_every = 1000
+dump_every = 1000
+
+[data]
+path = "./data/iris.tsv"
+# FIXME: something fishy is happening with square! too many registers, and
+# it app<F2>ears that the machine is not
+#g a1a1running!
+#path = "./data/agaricus-lepiota.tsv"
+
+[roper]
+use_push = true
+#arch = "X86"
+#mode = "MODE_64"
+gadget_file = "./gadgets/sshd_ropgadget.json"
+#soup_size = 0x10000
+binary_path = "./binaries/X86/MODE_32/sshd"
+#binary_path = "/tmp/ldconfig"
+#num_workers = 70 # will take num_cpus::get 
+#num_emulators = 60
+max_emu_steps = 0x10_000
+millisecond_timeout = 100
+emulator_stack_size = 0x1000
+record_basic_blocks = true
+record_memory_writes = true
+#output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
+#output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
+output_registers= ["EAX", "EBX", "ECX", "EDX"]
+randomize_registers = false 
+  [roper.register_pattern] 
+  EAX = "0xb"
+  EBX = "&'/bin"
+  ECX = "&0"
+  EDX = "0"
+
+  #RAX = "0x3b"                   # execve syscall number
+  #RDI = "&'/bin/sh"
+  #RSI = "&&0"                  # an empty argv array
+  #RDX = "&&0"                  # an empty argv array
+
+
+[push_vm]
+max_steps = 0x1000
+min_len = 20
+max_len = 1000
+literal_rate = 0.5
