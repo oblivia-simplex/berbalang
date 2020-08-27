@@ -3,7 +3,6 @@
 ##################################
 
 FROM rust:1.45-slim as build
-#FROM fredrikfornwall/rust-static-builder:1.45.2 as build
 
 # First, install some build dependencies 
 RUN apt-get update && apt-get install -y build-essential clang llvm-dev python unzip wget
@@ -22,7 +21,9 @@ RUN make && make install && rm -rf /usr/src/capstone
 
 # Then, build berbalang
 WORKDIR /usr/src/berbalang
-COPY . .
+COPY ./Cargo.toml .
+COPY ./Cargo.lock .
+COPY ./src ./src
 RUN cargo build --release
 RUN find target/release -type f -maxdepth 2 -executable -exec strip -s {} +
 

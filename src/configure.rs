@@ -28,7 +28,7 @@ impl Default for Job {
 }
 
 fn default_num_islands() -> usize {
-    num_cpus::get()
+    num_cpus::get() / 2
 }
 
 fn default_random_seed() -> u64 {
