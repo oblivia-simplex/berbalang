@@ -25,9 +25,9 @@ pub struct Evaluator<C: Cpu<'static> + 'static> {
 impl<C: 'static + Cpu<'static>> Evaluator<C> {
     pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, Sketches, Config>) -> Self {
         let mut config = config.clone();
-        config.roper.parse_register_pattern();
+        config.roper.parse_register_patterns();
         let hatch_config = Arc::new(config.roper.clone());
-        let register_pattern = config.roper.register_pattern();
+        let register_pattern = config.roper.register_patterns();
         let output_registers: Vec<Register<C>> = {
             let mut out_reg: Vec<Register<C>> = config
                 .roper

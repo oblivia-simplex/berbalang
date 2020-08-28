@@ -73,10 +73,11 @@ pub struct Profiler<C: Cpu<'static>> {
 pub struct Profile {
     pub paths: Vec<Vec<Block>>,
     //PrefixSet<Block>,
-    pub cpu_errors: HashMap<unicorn::Error, usize>,
+    // TODO: cpu_errors should be a vector of Option<usize>
+    pub cpu_errors: Vec<Option<usize>>,
     pub emulation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
-    pub gadgets_executed: HashSet<u64>,
+    pub gadgets_executed: Vec<HashSet<u64>>,
     #[cfg(not(feature = "full_dump"))]
     #[serde(skip)]
     pub writeable_memory: Vec<Vec<Seg>>,
@@ -123,10 +124,10 @@ impl Profile {
     pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
         //let mut write_trie = Trie::new();
         let mut paths = Vec::new(); // PrefixSet::new();
-        let mut cpu_errors = HashMap::new();
+        let mut cpu_errors = Vec::new();
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
-        let mut gadgets_executed = HashSet::new();
+        let mut gadgets_executed = Vec::new();
         let writeable_memory_regions = Vec::new();
         let mut write_logs = Vec::new();
 
@@ -142,13 +143,14 @@ impl Profile {
         } in profilers.into_iter()
         {
             paths.push(segqueue_to_vec(block_log));
+            let mut executed = HashSet::new();
             while let Ok(g) = gadget_log.pop() {
-                gadgets_executed.insert(g);
+                executed.insert(g);
             }
+            gadgets_executed.push(executed);
+            // NOTE: changing gadgets_executed to a vec of hashsets
 
-            if let Some(c) = cpu_error {
-                *cpu_errors.entry(c).or_insert(0) += 1;
-            };
+            cpu_errors.push(cpu_error);
             computation_times.push(emulation_time);
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));

@@ -33,7 +33,7 @@ pub type Register<C> = <C as Cpu<'static>>::Reg;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct RegisterValue {
     pub val: u64,
-    deref: usize,
+    pub deref: usize,
 }
 
 impl From<u64> for RegisterValue {
@@ -486,8 +486,8 @@ mod test {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_pattern: None,
-            parsed_register_pattern: None,
+            register_patterns: None,
+            parsed_register_patterns: None,
             soup: None,
             soup_size: None,
             arch: Arch::X86,

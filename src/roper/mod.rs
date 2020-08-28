@@ -45,7 +45,7 @@ mod push;
 pub fn init_soup(config: &mut Config) -> Result<(), Error> {
     let mut soup = Vec::new();
     //might as well take the constants from the register pattern
-    if let Some(pattern) = config.roper.register_pattern() {
+    if let Some(pattern) = config.roper.register_patterns() {
         pattern.0.values().for_each(|w| soup.push(w.val))
     }
     if let Some(gadget_file) = config.roper.gadget_file.as_ref() {

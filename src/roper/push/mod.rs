@@ -2,6 +2,7 @@ use std::fmt;
 
 use falcon::il;
 use hashbrown::HashMap;
+use itertools::Itertools;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ pub use creature::Creature;
 use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
+use crate::emulator::register_pattern::RegisterPattern;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 
 pub mod evaluation;
@@ -1274,6 +1276,25 @@ impl MachineState {
     }
 }
 
+// We want a way to prime the machine with the specification of a problem.
+// For example, we should be able to take a register pattern, and transform it
+// into a set of arguments to be fed into the machine.
+fn register_pattern_to_push_args(rp: &RegisterPattern) -> Vec<Val> {
+    // it doesn't exactly matter which register is which, I think, so long
+    // as they're handled in a predictable order. One order is as good as
+    // another, from this perspective, so we'll use the simplest: alphabetical,
+    // by register name.
+    let mut args = Vec::new();
+    for (_reg, rval) in rp.0.iter().sorted_by_key(|p| p.0) {
+        args.push(Val::Word(rval.val));
+        // alternately, to do this in an easier way, if deref > 0, then
+        // first search memory for an occurrence of val, and then return the
+        // address.
+        args.push(Val::Word(rval.deref as u64));
+    }
+    args
+}
+
 pub mod creature {
     use std::fmt;
     use std::hash::{Hash, Hasher};
@@ -1580,8 +1601,8 @@ mod test {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_pattern: None,
-            parsed_register_pattern: None,
+            register_patterns: None,
+            parsed_register_patterns: None,
             soup: None,
             soup_size: Some(1024),
             arch: Arch::X86,

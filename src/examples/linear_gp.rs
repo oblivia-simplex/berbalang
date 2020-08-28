@@ -7,7 +7,7 @@ use std::{fmt, iter};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, IOProblem, Selection};
+use crate::configure::{ClassificationProblem, Config, Selection};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
@@ -270,7 +270,7 @@ fn random_chromosome<H: Hash>(config: &Config, seed: H) -> Genotype {
         .collect()
 }
 
-pub type Answer = Vec<IOProblem>;
+pub type Answer = Vec<ClassificationProblem>;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Creature {
@@ -320,7 +320,7 @@ impl Debug for Creature {
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
-    type Problem = IOProblem;
+    type Problem = ClassificationProblem;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -507,7 +507,7 @@ fn report(window: &Window<Creature>, counter: usize, config: &Config) {
     }
 }
 
-fn parse_data(path: &str) -> Option<Vec<IOProblem>> {
+fn parse_data(path: &str) -> Option<Vec<ClassificationProblem>> {
     if let Ok(mut reader) = csv::ReaderBuilder::new().delimiter(b'\t').from_path(path) {
         let mut problems = Vec::new();
         let mut tag = 0;
@@ -517,7 +517,7 @@ fn parse_data(path: &str) -> Option<Vec<IOProblem>> {
                     row.deserialize(None).expect("Error parsing row in data");
                 let output = vals.pop().expect("Missing output field");
                 let input = vals;
-                problems.push(IOProblem { input, output, tag });
+                problems.push(ClassificationProblem { input, output, tag });
                 tag += 1;
             }
         }
@@ -596,7 +596,7 @@ mod evaluation {
 
         let mut results = iterator
             .map(
-                |IOProblem {
+                |ClassificationProblem {
                      input,
                      output: _expected,
                      tag,
@@ -611,14 +611,14 @@ mod evaluation {
                         .map(|i| return_regs[i])
                         .fold(0, i32::max);
 
-                    IOProblem {
+                    ClassificationProblem {
                         input: input.clone(),
                         output,
                         tag: *tag,
                     }
                 },
             )
-            .collect::<Vec<IOProblem>>();
+            .collect::<Vec<ClassificationProblem>>();
         // Sort by tag to avoid any non-seeded randomness
         results.sort_by_key(|p| p.tag);
         creature.store_answers(results);

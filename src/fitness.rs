@@ -6,6 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Index;
 use std::sync::Mutex;
 
+use bitflags::_core::ops::{Add, Div};
 use itertools::Itertools;
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
@@ -305,6 +306,34 @@ pub struct Weighted<'a> {
 impl PartialEq for Weighted<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.scores == other.scores && self.weighting == other.weighting
+    }
+}
+
+impl std::ops::Add for Weighted<'_> {
+    type Output = Weighted<'_>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut res = self.clone();
+        for (k, v) in rhs.scores.iter() {
+            res.scores[k] += *v;
+        }
+        res
+    }
+}
+
+impl std::ops::Div for Weighted<'_> {
+    type Output = Weighted<'_>;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        assert!(
+            rhs.abs() > std::f64::EPSILON,
+            "Cannot divide Weighted by zero"
+        );
+        let mut res = self.clone();
+        for k in res.scores.keys() {
+            res.scores[k] /= rhs
+        }
+        res
     }
 }
 

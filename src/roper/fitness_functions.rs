@@ -33,6 +33,10 @@ where
     creature
 }
 
+// TODO: I'm in the middle of the somewhat tedious process of refactoring
+// the code so that it handles batches of problems, and not single problems.
+// As it stands, I think the code is in an inconsistent state. First thing on
+// Monday morning, we'll get this sorted out.
 pub fn register_pattern_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
     C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
@@ -42,34 +46,33 @@ where
     if let Some(ref profile) = creature.profile() {
         //sketch.insert(&profile.registers);
         //let reg_freq = sketch.query(&profile.registers);
-        if let Some(pattern) = config.roper.register_pattern() {
-            // assuming that when the register pattern task is activated, there's only one register state
-            // to worry about. this may need to be adjusted in the future. bit sloppy now.
-            let register_error = pattern.distance_from_register_state(&profile.registers[0]);
+        //if let Some(pattern) = config.roper.register_patterns() {
+        let number_of_cases = profile.registers.len();
+        let mut fitness = Weighted::new(&config.fitness.weighting);
+        for (idx, pattern) in config.roper.register_patterns().enumerate() {
+            debug_assert!(idx < profile.registers.len());
+            let register_error = pattern.distance_from_register_state(&profile.registers[idx]);
             let mut weighted_fitness = Weighted::new(&config.fitness.weighting);
             weighted_fitness
                 .scores
                 .insert("register_error", register_error);
 
             // Calculate the novelty of register state errors
-            let iter = profile
-                .registers
+            let iter = pattern
+                .incorrect_register_states(&profile.registers[idx])
                 .iter()
-                .map(|r| pattern.incorrect_register_states(r))
-                .flatten()
-                .map(|p| {
-                    sketch.register_error.insert(p);
-                    sketch.register_error.query(p)
+                .map(|goof| {
+                    sketch.register_error.insert(goof);
+                    sketch.register_error.query(goof)
                 });
-
             let register_novelty = stats::mean(iter);
+
             weighted_fitness.insert("register_novelty", register_novelty);
 
             // Measure write novelty
-            let mem_scores = profile
-                .write_logs
+            debug_assert!(idx < profile.write_logs.len());
+            let mem_scores = profile.write_logs[idx]
                 .iter()
-                .flatten()
                 .map(|m| {
                     sketch.memory_writes.insert(m);
                     sketch.memory_writes.query(m)
@@ -80,16 +83,11 @@ where
             } else {
                 stats::mean(mem_scores.into_iter())
             };
+
             weighted_fitness.insert("mem_write_novelty", mem_write_novelty);
 
-            // // get the number of times a referenced value, aside from 0, has been written
-            // // to memory
-            // let writes_of_referenced_values =
-            //     pattern.count_writes_of_referenced_values(&profile, true);
-            // weighted_fitness.insert("important_writes", writes_of_referenced_values as f64);
-
             // how many times did it crash?
-            let crashes = profile.cpu_errors.values().sum::<usize>() as f64;
+            let crashes = profile.cpu_errors.iter().filter(Option::is_some).count() as f64;
             weighted_fitness.insert("crash_count", crashes);
 
             let gadgets_executed = profile.gadgets_executed.len();
@@ -100,12 +98,10 @@ where
             //creature.record_genetic_frequency(sketch);
 
             //weighted_fitness.scores.insert("genetic_freq", gen_freq);
-
-            creature.set_fitness(weighted_fitness);
-        } else {
-            log::error!("No register pattern?");
+            fitness = fitness + weighted_fitness;
         }
     }
+    creature.set_fitness(fitness / number_of_cases as f64);
     creature
 }
 

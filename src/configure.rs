@@ -64,7 +64,7 @@ pub struct Config {
     pub mutation_exponent: f64,
     pub observer: ObserverConfig,
     pub pop_size: usize,
-    pub problems: Option<Vec<IOProblem>>,
+    pub problems: Option<Vec<ClassificationProblem>>,
     #[serde(default)]
     pub roulette: RouletteConfig,
     #[serde(default)]
@@ -241,9 +241,9 @@ pub struct RoperConfig {
     pub output_registers: Vec<String>,
     #[serde(default)]
     pub randomize_registers: bool,
-    pub register_pattern: Option<RegisterPatternConfig>,
+    pub register_patterns: Vec<RegisterPatternConfig>,
     #[serde(skip)]
-    pub parsed_register_pattern: Option<RegisterPattern>,
+    pub parsed_register_patterns: Vec<RegisterPattern>,
     #[serde(default = "Default::default")]
     pub soup: Option<Vec<u64>>,
     pub soup_size: Option<usize>,
@@ -274,14 +274,14 @@ pub struct RoperConfig {
 }
 
 impl RoperConfig {
-    pub fn parse_register_pattern(&mut self) {
-        if let Some(ref rp) = self.register_pattern {
-            self.parsed_register_pattern = Some(rp.into());
+    pub fn parse_register_patterns(&mut self) {
+        for rp in self.register_patterns.iter() {
+            self.parsed_register_patterns.push(rp.into())
         }
     }
 
-    pub fn register_pattern(&self) -> Option<&RegisterPattern> {
-        self.parsed_register_pattern.as_ref()
+    pub fn register_patterns(&self) -> &[RegisterPattern] {
+        &self.parsed_register_patterns
     }
 }
 
@@ -308,8 +308,8 @@ impl Default for RoperConfig {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_pattern: None,
-            parsed_register_pattern: None,
+            register_patterns: None,
+            parsed_register_patterns: None,
             soup: None,
             soup_size: None,
             arch: unicorn::Arch::X86,
@@ -337,7 +337,7 @@ impl Config {
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash, Serialize)]
-pub struct IOProblem {
+pub struct ClassificationProblem {
     pub input: Vec<i32>,
     // TODO make this more generic
     pub output: i32,
@@ -345,13 +345,13 @@ pub struct IOProblem {
     pub tag: u64,
 }
 
-impl PartialOrd for IOProblem {
+impl PartialOrd for ClassificationProblem {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.tag.partial_cmp(&other.tag)
     }
 }
 
-impl Ord for IOProblem {
+impl Ord for ClassificationProblem {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tag.cmp(&other.tag)
     }
@@ -369,4 +369,10 @@ impl Default for Selection {
     fn default() -> Self {
         Self::Tournament
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum Problem {
+    Classification(ClassificationProblem),
+    RegisterSpecification(RegisterPattern),
 }
