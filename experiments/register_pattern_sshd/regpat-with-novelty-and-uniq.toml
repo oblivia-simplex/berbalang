@@ -15,11 +15,11 @@ num_epochs = 300
 
 [fitness]
 function = "register_pattern"
-priority = "register_error + crash_count"
+priority = "register_error + crash_count * 5"
 target = 0
 eval_by_case = false
 dynamic = false # TODO: use this to decide whether to re-evaluate fitness
-weighting = "(5 - min(5, gadgets_executed)) + register_error + (register_novelty * 1000) + crash_count"
+weighting = "(5 - min(5, gadgets_executed)) + register_error + (register_novelty * 1000) + crash_count * 5"
 
 [tournament]
 num_offspring = 2

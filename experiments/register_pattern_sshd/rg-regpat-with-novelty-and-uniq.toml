@@ -19,7 +19,7 @@ priority = "register_error + crash_count * 5"
 target = 0
 eval_by_case = false
 dynamic = false # TODO: use this to decide whether to re-evaluate fitness
-weighting = "register_error + (register_novelty * 1000) + crash_count * 5"
+weighting = "(5 - min(5, gadgets_executed)) + register_error + (register_novelty * 1000) + crash_count * 5"
 
 [tournament]
 num_offspring = 2

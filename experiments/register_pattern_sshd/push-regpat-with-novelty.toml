@@ -19,7 +19,7 @@ priority = "register_error + crash_count * 5"
 target = 0
 eval_by_case = false
 dynamic = false # TODO: use this to decide whether to re-evaluate fitness
-weighting = "register_error + (register_novelty * 1000) + crash_count * 5"
+weighting = "register_novelty * 1000 + register_error + crash_count * 5"
 
 [tournament]
 num_offspring = 2
@@ -38,7 +38,7 @@ dump_every = 1000
 
 [roper]
 randomize_registers = true
-use_push = false
+use_push = true
 arch = "X86"
 mode = "MODE_32"
 gadget_file = "./gadgets/sshd_ropgadget.json"
@@ -54,3 +54,10 @@ output_registers= ["EAX", "EBX", "ECX", "EDX"]
   EBX = "&'/bin"
   ECX = "&0"
   EDX = "0"
+
+
+[push_vm]
+max_steps = 0x1000
+min_len = 20
+max_len = 1000
+literal_rate = 0.5

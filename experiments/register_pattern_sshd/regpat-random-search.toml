@@ -15,11 +15,11 @@ num_epochs = 300
 
 [fitness]
 function = "register_pattern"
-priority = "register_error + crash_count * 5"
+priority = "register_error + (5 * crash_count)"
 target = 0
 eval_by_case = false
-dynamic = false # TODO: use this to decide whether to re-evaluate fitness
-weighting = "register_error + (register_novelty * 1000) + crash_count * 5"
+dynamic = false 
+weighting = "1" # For random search. Nothing matters.
 
 [tournament]
 num_offspring = 2
@@ -41,7 +41,7 @@ randomize_registers = true
 use_push = false
 arch = "X86"
 mode = "MODE_32"
-gadget_file = "./gadgets/sshd_ropgadget.json"
+soup_size = 0x10000
 binary_path = "./binaries/X86/MODE_32/sshd"
 max_emu_steps = 0x10_000
 millisecond_timeout = 100
