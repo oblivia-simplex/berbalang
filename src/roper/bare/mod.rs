@@ -129,7 +129,7 @@ impl fmt::Debug for Creature {
             let was_it_executed = self
                 .profile
                 .as_ref()
-                .map(|p| p.gadgets_executed.contains(&allele))
+                .map(|p| p.was_this_executed(allele))
                 .unwrap_or(false);
             let mutation = self.chromosome.mutations[i];
             writeln!(

@@ -49,7 +49,7 @@ where
         //if let Some(pattern) = config.roper.register_patterns() {
         let number_of_cases = profile.registers.len();
         let mut fitness = Weighted::new(&config.fitness.weighting);
-        for (idx, pattern) in config.roper.register_patterns().enumerate() {
+        for (idx, pattern) in config.roper.register_patterns().iter().enumerate() {
             debug_assert!(idx < profile.registers.len());
             let register_error = pattern.distance_from_register_state(&profile.registers[idx]);
             let mut weighted_fitness = Weighted::new(&config.fitness.weighting);
@@ -58,14 +58,15 @@ where
                 .insert("register_error", register_error);
 
             // Calculate the novelty of register state errors
-            let iter = pattern
-                .incorrect_register_states(&profile.registers[idx])
-                .iter()
-                .map(|goof| {
-                    sketch.register_error.insert(goof);
-                    sketch.register_error.query(goof)
-                });
-            let register_novelty = stats::mean(iter);
+            let register_novelty = stats::mean(
+                pattern
+                    .incorrect_register_states(&profile.registers[idx])
+                    .iter()
+                    .map(|goof| {
+                        sketch.register_error.insert(goof);
+                        sketch.register_error.query(goof)
+                    }),
+            );
 
             weighted_fitness.insert("register_novelty", register_novelty);
 
@@ -87,8 +88,8 @@ where
             weighted_fitness.insert("mem_write_novelty", mem_write_novelty);
 
             // how many times did it crash?
-            let crashes = profile.cpu_errors.iter().filter(Option::is_some).count() as f64;
-            weighted_fitness.insert("crash_count", crashes);
+            let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
+            weighted_fitness.insert("crash_count", crashes as f64);
 
             let gadgets_executed = profile.gadgets_executed.len();
             weighted_fitness.insert("gadgets_executed", gadgets_executed as f64);
@@ -100,8 +101,9 @@ where
             //weighted_fitness.scores.insert("genetic_freq", gen_freq);
             fitness = fitness + weighted_fitness;
         }
+        fitness.scale_by(number_of_cases as f64);
+        creature.set_fitness(fitness);
     }
-    creature.set_fitness(fitness / number_of_cases as f64);
     creature
 }
 

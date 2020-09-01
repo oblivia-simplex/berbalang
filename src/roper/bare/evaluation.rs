@@ -24,27 +24,16 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
         let mut config = config.clone();
         config.roper.parse_register_patterns();
         let hatch_config = Arc::new(config.roper.clone());
-        let register_pattern = config.roper.register_patterns();
         let output_registers: Vec<Register<C>> = {
-            let mut out_reg: Vec<Register<C>> = config
+            config
                 .roper
-                .output_registers
-                .iter()
-                .map(|s| s.parse().ok().expect("Failed to parse output register"))
-                .collect::<Vec<_>>();
-            if let Some(pat) = register_pattern {
-                let arch_specific_pat: UnicornRegisterState<C> =
-                    pat.try_into().expect("Failed to parse register pattern");
-                let regs_in_pat = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
-                out_reg.extend_from_slice(&regs_in_pat);
-                out_reg.dedup();
-                out_reg
-            } else {
-                out_reg
-                //todo!("implement a conversion method from problem sets to register maps");
-            }
+                .registers_to_check()
+                .into_iter()
+                // running error through ok() because it can't be formatted with Debug
+                .map(|r| r.parse().ok().expect("Failed to parse register name"))
+                .collect::<Vec<_>>()
         };
-        let inputs = if config.roper.randomize_registers {
+        let initial_register_states = if config.roper.randomize_registers {
             vec![util::architecture::random_register_state::<u64, C>(
                 &output_registers,
                 config.random_seed,
@@ -57,7 +46,7 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
         };
         let hatchery: Hatchery<C, Creature> = Hatchery::new(
             hatch_config,
-            Arc::new(inputs),
+            Arc::new(initial_register_states),
             Arc::new(output_registers),
             None,
         );

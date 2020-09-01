@@ -209,8 +209,8 @@ type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
 impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
     pub fn new(
         config: Arc<RoperConfig>,
-        inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
-        output_registers: Arc<Vec<Register<C>>>,
+        register_inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
+        output_registers: Ar1c<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: Option<EmuPrepFn<C>>,
     ) -> Self {
@@ -256,11 +256,11 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                 let thread_pool = t_pool.lock().expect("Failed to unlock thread_pool mutex");
                 let emulator_pool = e_pool.clone();
                 let memory = mem.clone();
-                let inputs = inputs.clone();
+                let register_inputs = register_inputs.clone();
                 let disas = disas.clone();
                 // let's get a clean context to use here.
                 thread_pool.execute(move || {
-                    let profile = inputs.par_iter().map(|input| {
+                    let profile = register_inputs.par_iter().map(|input| {
                         // Acquire an emulator from the pool.
                         let mut emu: Reusable<'_, C> = emulator_pool.pull();
                         // Initialize the profiler

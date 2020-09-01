@@ -101,16 +101,7 @@ record_memory_writes = true
 #output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
 output_registers= ["EAX", "EBX", "ECX", "EDX"]
 randomize_registers = false 
-  [roper.register_pattern] 
-  EAX = "0xb"
-  EBX = "&'/bin"
-  ECX = "&0"
-  EDX = "0"
-
-  #RAX = "0x3b"                   # execve syscall number
-  #RDI = "&'/bin/sh"
-  #RSI = "&&0"                  # an empty argv array
-  #RDX = "&&0"                  # an empty argv array
+register_pattern_file = "./experiments/register_pattern_sshd/register_patterns.txt"
 
 
 [push_vm]

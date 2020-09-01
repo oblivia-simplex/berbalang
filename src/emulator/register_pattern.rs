@@ -18,6 +18,24 @@ use crate::util::architecture::Endian;
 use crate::util::bitwise;
 use crate::util::bitwise::nybble;
 
+/// Parse the register pattern config file
+pub fn parse_register_pattern_file(path: &str) -> Result<Vec<RegisterPattern>, Error> {
+    let data = std::fs::read_to_string(path)?;
+    let res = parse_register_patterns(&data);
+    log::info!("Parsed register patterns: {:#?}", res);
+    res
+}
+
+pub fn parse_register_patterns(data: &str) -> Result<Vec<RegisterPattern>, Error> {
+    data.split("\n---")
+        .into_iter()
+        .map(|chunk| {
+            let rp_conf = RegisterPatternConfig(toml::from_str(chunk)?);
+            Ok(rp_conf.into())
+        })
+        .collect::<Result<Vec<RegisterPattern>, Error>>()
+}
+
 pub type Register<C> = <C as Cpu<'static>>::Reg;
 
 // TODO:
@@ -486,8 +504,6 @@ mod test {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_patterns: None,
-            parsed_register_patterns: None,
             soup: None,
             soup_size: None,
             arch: Arch::X86,

@@ -1558,7 +1558,7 @@ pub mod creature {
                     let executed = self
                         .profile
                         .as_ref()
-                        .map(|p| p.gadgets_executed.contains(w))
+                        .map(|p| p.was_this_executed(*w))
                         .unwrap_or(false);
                     writeln!(
                         f,
@@ -1601,8 +1601,6 @@ mod test {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_patterns: None,
-            parsed_register_patterns: None,
             soup: None,
             soup_size: Some(1024),
             arch: Arch::X86,

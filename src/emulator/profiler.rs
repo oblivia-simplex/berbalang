@@ -10,6 +10,7 @@ use crossbeam::queue::SegQueue;
 use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+pub use unicorn::unicorn_const::Error as UCError;
 use unicorn::Cpu;
 
 use crate::emulator::loader;
@@ -74,7 +75,7 @@ pub struct Profile {
     pub paths: Vec<Vec<Block>>,
     //PrefixSet<Block>,
     // TODO: cpu_errors should be a vector of Option<usize>
-    pub cpu_errors: Vec<Option<usize>>,
+    pub cpu_errors: Vec<Option<UCError>>,
     pub emulation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
     pub gadgets_executed: Vec<HashSet<u64>>,
@@ -184,7 +185,7 @@ impl Profile {
         self.paths.iter().map(move |path| {
             path.par_iter()
                 .map(|b| {
-                    let prefix = if gadgets_executed.contains(&b.entry) {
+                    let prefix = if self.was_this_executed(b.entry) {
                         "----\n"
                     } else {
                         ""
@@ -227,6 +228,15 @@ impl Profile {
                 entry.value == w // could return hamming score instead
             })
             .collect()
+    }
+
+    pub fn was_this_executed(&self, w: u64) -> bool {
+        for gads in self.gadgets_executed.iter() {
+            if gads.contains(&w) {
+                return true;
+            }
+        }
+        false
     }
 }
 

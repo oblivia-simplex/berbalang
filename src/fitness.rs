@@ -6,7 +6,6 @@ use std::hash::{Hash, Hasher};
 use std::ops::Index;
 use std::sync::Mutex;
 
-use bitflags::_core::ops::{Add, Div};
 use itertools::Itertools;
 use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
@@ -309,29 +308,15 @@ impl PartialEq for Weighted<'_> {
     }
 }
 
-impl std::ops::Add for Weighted<'_> {
-    type Output = Weighted<'_>;
+impl std::ops::Add for Weighted<'static> {
+    type Output = Weighted<'static>;
 
     fn add(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
         for (k, v) in rhs.scores.iter() {
-            res.scores[k] += *v;
-        }
-        res
-    }
-}
-
-impl std::ops::Div for Weighted<'_> {
-    type Output = Weighted<'_>;
-
-    fn div(self, rhs: f64) -> Self::Output {
-        assert!(
-            rhs.abs() > std::f64::EPSILON,
-            "Cannot divide Weighted by zero"
-        );
-        let mut res = self.clone();
-        for k in res.scores.keys() {
-            res.scores[k] /= rhs
+            if let Some(s) = res.scores.get_mut(*k) {
+                *s += *v
+            }
         }
         res
     }
@@ -407,6 +392,12 @@ impl Weighted<'static> {
             //weights: weight_map,
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
+        }
+    }
+
+    pub fn scale_by(&mut self, factor: f64) {
+        for (_, v) in self.scores.iter_mut() {
+            *v /= factor
         }
     }
 

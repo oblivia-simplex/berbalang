@@ -664,8 +664,6 @@ mod test {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_patterns: None,
-            parsed_register_patterns: None,
             soup: None,
             soup_size: None,
             arch: Arch::X86,

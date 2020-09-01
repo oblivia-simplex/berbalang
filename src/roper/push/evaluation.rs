@@ -27,7 +27,7 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
         let mut config = config.clone();
         config.roper.parse_register_patterns();
         let hatch_config = Arc::new(config.roper.clone());
-        let register_pattern = config.roper.register_patterns();
+        let register_patterns = config.roper.register_patterns();
         let output_registers: Vec<Register<C>> = {
             let mut out_reg: Vec<Register<C>> = config
                 .roper
@@ -35,7 +35,10 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
                 .iter()
                 .map(|s| s.parse().ok().expect("Failed to parse output register"))
                 .collect::<Vec<_>>();
-            if let Some(pat) = register_pattern {
+            // This is a bit of a hack, where we assume that all the register patterns
+            // use the same registers. It can be FIXME'd later, so that we gather ALL the
+            // registers used. But let's keep things simple for now.
+            if let Some(pat) = register_patterns.last() {
                 let arch_specific_pat: UnicornRegisterState<C> =
                     pat.try_into().expect("Failed to parse register pattern");
                 let regs_in_pat = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();

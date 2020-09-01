@@ -3,10 +3,12 @@ use std::fmt::Debug;
 use std::path::Path;
 
 use chrono::prelude::*;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
+use crate::emulator::register_pattern::{
+    parse_register_pattern_file, RegisterPattern, RegisterPatternConfig,
+};
 use crate::error::Error;
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -241,7 +243,7 @@ pub struct RoperConfig {
     pub output_registers: Vec<String>,
     #[serde(default)]
     pub randomize_registers: bool,
-    pub register_patterns: Vec<RegisterPatternConfig>,
+    pub register_pattern_file: String,
     #[serde(skip)]
     pub parsed_register_patterns: Vec<RegisterPattern>,
     #[serde(default = "Default::default")]
@@ -275,13 +277,26 @@ pub struct RoperConfig {
 
 impl RoperConfig {
     pub fn parse_register_patterns(&mut self) {
-        for rp in self.register_patterns.iter() {
-            self.parsed_register_patterns.push(rp.into())
-        }
+        let ps = parse_register_pattern_file(&self.register_pattern_file)
+            .expect("Failed to parse register pattern file");
+        self.parsed_register_patterns = ps;
     }
 
     pub fn register_patterns(&self) -> &[RegisterPattern] {
         &self.parsed_register_patterns
+    }
+
+    pub fn registers_to_check(&self) -> Vec<String> {
+        let mut set = HashSet::new();
+        for r in self.output_registers.iter() {
+            set.insert(r.clone());
+        }
+        for rp in self.parsed_register_patterns.iter() {
+            for r in rp.0.keys() {
+                set.insert(r.clone());
+            }
+        }
+        set.into_iter().collect::<Vec<String>>()
     }
 }
 
@@ -308,8 +323,8 @@ impl Default for RoperConfig {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_patterns: None,
-            parsed_register_patterns: None,
+            register_pattern_file: String::new(),
+            parsed_register_patterns: vec![],
             soup: None,
             soup_size: None,
             arch: unicorn::Arch::X86,
