@@ -6,26 +6,25 @@ use unicorn::Cpu;
 use crate::configure::Config;
 use crate::emulator::hatchery::Hatchery;
 use crate::emulator::profiler::{HasProfile, Profile};
-use crate::emulator::register_pattern::{Register, UnicornRegisterState};
+use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::Weighted;
 use crate::ontogenesis::{Develop, FitnessFn};
 use crate::roper::push;
-use crate::roper::push::{Creature, MachineState};
+use crate::roper::push::{register_pattern_to_push_args, Creature, MachineState, Val};
 use crate::roper::Sketches;
 use crate::util;
 
 pub struct Evaluator<C: Cpu<'static> + 'static> {
     config: Arc<Config>,
-    hatchery: Hatchery<C, push::Creature>,
+    hatchery: Hatchery<C, Vec<u64>>,
     sketches: Sketches,
     fitness_fn: Box<FitnessFn<push::Creature, Sketches, Config>>,
 }
 
 impl<C: 'static + Cpu<'static>> Evaluator<C> {
     pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, Sketches, Config>) -> Self {
-        let mut config = config.clone();
-        config.roper.parse_register_patterns();
+        let config = config.clone();
         let hatch_config = Arc::new(config.roper.clone());
         let register_patterns = config.roper.register_patterns();
         let output_registers: Vec<Register<C>> = {
@@ -50,20 +49,17 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
                 //todo!("implement a conversion method from problem sets to register maps");
             }
         };
-        let inputs = if config.roper.randomize_registers {
-            vec![util::architecture::random_register_state::<u64, C>(
+        let initial_register_state = if config.roper.randomize_registers {
+            util::architecture::random_register_state::<u64, C>(
                 &output_registers,
                 config.random_seed,
-            )]
+            )
         } else {
-            vec![util::architecture::constant_register_state::<C>(
-                &output_registers,
-                1_u64,
-            )]
+            util::architecture::constant_register_state::<C>(&output_registers, 1_u64)
         };
-        let hatchery: Hatchery<C, Creature> = Hatchery::new(
+        let hatchery: Hatchery<C, Vec<u64>> = Hatchery::new(
             hatch_config,
-            Arc::new(inputs),
+            Arc::new(initial_register_state),
             Arc::new(output_registers),
             None,
         );
@@ -78,45 +74,56 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
     }
 }
 
+pub fn problem_to_payload(
+    creature: &push::Creature,
+    problem: &RegisterPattern,
+    steps: usize,
+) -> Vec<u64> {
+    let args = register_pattern_to_push_args(&problem);
+    let mut machine = MachineState::default();
+    machine.exec(creature.chromosome(), &args, steps)
+}
+
 impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
     fn develop(&self, mut creature: push::Creature) -> push::Creature {
-        let args = vec![];
-
-        // TODO: evaluate per-problem.
-        // What has to be done to make this possible?
-        // - the payload needs to be changed from an Option container to a HashMap, associating each
-        //   problem with its own payload.
-        // - we then need to reconsider how profiles are collated and reported upon. They were originally
-        //   designed with multiple problems in mind, but we haven't really tested this out, yet.
-
-        let mut machine = MachineState::default();
-        if creature.payload.is_none() {
-            let payload = machine.exec(creature.chromosome(), &args, self.config.push_vm.max_steps);
-            creature.payload = Some(payload);
-        }
-        // a maximal (very bad) fitness value should be assigned if the payload is empty
-        // so we can skip evaluation in this case.
-
-        if creature.profile.is_none() {
-            let empty_payload = creature.payload.as_ref().map(Vec::is_empty);
-            if let Some(false) = empty_payload {
-                let (mut creature, profile) = self
-                    .hatchery
-                    .execute(creature)
-                    .expect("Failed to evaluate creature");
-                creature.profile = Some(profile);
-                creature
-            } else {
-                // this will mark the profile as non-executable
-                // log::warn!("Creature with empty payload. declaring it a complete failure");
-                let profile = Profile::default();
-                debug_assert!(!profile.executable);
-                creature.profile = Some(profile);
-                creature
+        // TODO: make this a bit more generic, so we don't assume we're doing a register pattern task
+        // for now, this doesn't matter -- we haven't defined any other kinds of tasks
+        if creature.fitness.is_none() {
+            let mut payloads = Vec::new();
+            for register_pattern in self.config.roper.register_patterns() {
+                let payload =
+                    problem_to_payload(&creature, register_pattern, self.config.push_vm.max_steps);
+                payloads.push(payload);
             }
-        } else {
-            creature
+
+            // TODO refactor bare roper in a similar fashion. just send the payload,
+            // not the whole creature.
+            let mut used_payloads = Vec::new();
+            for payload in payloads.into_iter() {
+                if !payload.is_empty() {
+                    let (payload, profile) = self
+                        .hatchery
+                        .execute(payload)
+                        .expect("Failed to evaluate creature");
+                    creature.add_profile(profile);
+                    used_payloads.push(payload);
+                } else {
+                    // this will mark the profile as non-executable
+                    let profile = Profile::default();
+                    debug_assert!(!profile.executable);
+                    used_payloads.push(payload);
+                    creature.payloads = used_payloads;
+                    creature.add_profile(profile);
+                    return creature;
+                }
+            }
+            creature.payloads = used_payloads;
+            log::debug!(
+                "Finished developing creature. profile: {:#x?}",
+                creature.profile
+            );
         }
+        creature
     }
 
     fn apply_fitness_function(&mut self, mut creature: push::Creature) -> push::Creature {

@@ -1335,7 +1335,7 @@ pub mod creature {
         pub chromosome: LinearChromosome<Op, OpMutation>,
         pub tag: u64,
         // TODO: this should become a hashmap associating problems with payloads
-        pub payload: Option<Vec<u64>>,
+        pub payloads: Vec<Vec<u64>>,
         // But then we need some way to map the problems to the profiles. not just
         // flat vecs. I think we may need to refactor the profile struct, which could
         // get a bit messy. For the best, though.
@@ -1351,68 +1351,6 @@ pub mod creature {
         pub description: Option<String>,
     }
 
-    impl Pack for Creature {
-        fn pack(
-            &self,
-            word_size: usize,
-            endian: Endian,
-            byte_filter: Option<&HashMap<u8, u8>>,
-        ) -> Vec<u8> {
-            if let Some(ref payload) = self.payload {
-                let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
-                    (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
-                    (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
-                    (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),
-                    (Endian::Big, 4) => BigEndian::write_u32(&mut bytes, word as u32),
-                    (Endian::Little, 2) => LittleEndian::write_u16(&mut bytes, word as u16),
-                    (Endian::Big, 2) => BigEndian::write_u16(&mut bytes, word as u16),
-                    (_, _) => unimplemented!("I think we've covered the bases"),
-                };
-                let mut ptr = 0;
-                let mut buffer = vec![0_u8; payload.len() * word_size];
-                for word in payload {
-                    packer(word, &mut buffer[ptr..]);
-                    ptr += word_size;
-                }
-
-                if let Some(byte_filter) = byte_filter {
-                    buffer
-                        .into_iter()
-                        .map(|b| {
-                            if let Some(x) = byte_filter.get(&b) {
-                                *x
-                            } else {
-                                b
-                            }
-                        })
-                        .collect::<Vec<u8>>()
-                } else {
-                    buffer
-                }
-            } else {
-                panic!("Cannot pack Creature before generating payload")
-            }
-        }
-
-        fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
-            let memory = loader::get_static_memory_image();
-            if let Some(ref payload) = self.payload {
-                payload
-                    .iter()
-                    .filter(|a| {
-                        memory
-                            .perm_of_addr(**a)
-                            .map(|p| p.intersects(Perms::EXEC))
-                            .unwrap_or(false)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-            } else {
-                vec![]
-            }
-        }
-    }
-
     impl HasProfile for Creature {
         fn profile(&self) -> Option<&Profile> {
             self.profile.as_ref()
@@ -1425,7 +1363,15 @@ pub mod creature {
         }
     }
 
-    impl Creature {}
+    impl Creature {
+        pub fn add_profile(&mut self, profile: Profile) {
+            if let Some(ref mut p) = self.profile {
+                p.absorb(profile)
+            } else {
+                self.profile = Some(profile)
+            }
+        }
+    }
 
     impl Genome for Creature {
         type Allele = Op;
@@ -1457,7 +1403,7 @@ pub mod creature {
                     generation: 0,
                 },
                 tag: rng.gen::<u64>(),
-                payload: None,
+                payloads: vec![],
                 profile: None,
                 fitness: None,
                 front: None,
@@ -1479,7 +1425,7 @@ pub mod creature {
             Self {
                 chromosome,
                 tag: thread_rng().gen::<u64>(),
-                payload: None,
+                payloads: vec![],
                 profile: None,
                 fitness: None,
                 front: None,
@@ -1547,8 +1493,10 @@ pub mod creature {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             writeln!(f, "Native island {}", self.native_island)?;
             writeln!(f, "{:?}", self.chromosome)?;
+            writeln!(f, "{} payloads", self.payloads.len())?;
 
-            if let Some(ref payload) = self.payload {
+            for (p_num, payload) in self.payloads.iter().enumerate() {
+                writeln!(f, "payload {}, of length {}", p_num, payload.len())?;
                 let memory = get_static_memory_image();
                 for (i, w) in payload.iter().enumerate() {
                     let perms = memory
@@ -1562,25 +1510,30 @@ pub mod creature {
                         .unwrap_or(false);
                     writeln!(
                         f,
-                        "[{i}] 0x{word:010x}{perms}{executed}",
+                        "[{p_num}:{i}] 0x{word:010x}{perms}{executed}",
+                        p_num = p_num,
                         i = i,
                         word = w,
                         perms = perms,
                         executed = if executed { " *" } else { "" },
                     )?;
                 }
-                if let Some(ref profile) = self.profile {
-                    writeln!(f, "Trace:")?;
-                    for path in profile.disas_paths() {
-                        writeln!(f, "{}", path)?;
-                    }
-                    for state in &profile.registers {
-                        writeln!(f, "\nSpidered register state:\n{:?}", state)?;
-                    }
-                    writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
-                }
-                writeln!(f, "Fitness: {:#?}", self.fitness())?;
             }
+            if let Some(ref profile) = self.profile {
+                for (i, path) in profile.disas_paths().enumerate() {
+                    writeln!(f, "Trace for payload {}:", i)?;
+                    writeln!(f, "{}", path)?;
+                }
+                for (i, state) in profile.registers.iter().enumerate() {
+                    writeln!(
+                        f,
+                        "\nSpidered register state for payload {}:\n{:?}",
+                        i, state
+                    )?;
+                }
+                writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
+            }
+            writeln!(f, "Fitness: {:#?}", self.fitness())?;
             Ok(())
         }
     }

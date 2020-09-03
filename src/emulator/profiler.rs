@@ -86,6 +86,54 @@ pub struct Profile {
     pub executable: bool,
 }
 
+// FIXME: refactor so that we don't have any code duplication between
+// this method and collate. Or just get rid of collate entirely, I guess.
+
+impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
+    fn from(p: Profiler<C>) -> Self {
+        let mut paths = Vec::new(); // PrefixSet::new();
+        let mut cpu_errors = Vec::new();
+        let mut computation_times = Vec::new();
+        let mut register_maps = Vec::new();
+        let mut gadgets_executed = Vec::new();
+        let writeable_memory_regions = Vec::new();
+        let mut write_logs = Vec::new();
+
+        let Profiler {
+            block_log,
+            write_log,
+            cpu_error,
+            emulation_time,
+            registers,
+            gadget_log,
+            written_memory,
+            ..
+        } = p;
+        paths.push(segqueue_to_vec(block_log));
+        let mut executed = HashSet::new();
+        while let Ok(g) = gadget_log.pop() {
+            executed.insert(g);
+        }
+        gadgets_executed.push(executed);
+        cpu_errors.push(cpu_error);
+        computation_times.push(emulation_time);
+        register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
+
+        write_logs.push(segqueue_to_vec(write_log));
+
+        Self {
+            paths,
+            cpu_errors,
+            emulation_times: computation_times,
+            gadgets_executed,
+            registers: register_maps,
+            writeable_memory: writeable_memory_regions,
+            write_logs,
+            executable: true,
+        }
+    }
+}
+
 fn segqueue_to_vec<T>(sq: Arc<SegQueue<T>>) -> Vec<T> {
     let mut v = vec![];
     while let Ok(x) = sq.pop() {
@@ -98,7 +146,7 @@ fn segqueue_to_vec<T>(sq: Arc<SegQueue<T>>) -> Vec<T> {
 impl Profile {
     // combine the information in two different profiles by absorbing the second
     // into the first
-    pub fn combine(mut self, other: Self) -> Self {
+    pub fn absorb(&mut self, other: Self) {
         let Self {
             paths,
             cpu_errors,
@@ -117,9 +165,7 @@ impl Profile {
         self.gadgets_executed.extend(gadgets_executed.into_iter());
         self.writeable_memory.extend(writeable_memory.into_iter());
         self.write_logs.extend(write_logs.into_iter());
-        self.executable |= executable;
-
-        self
+        self.executable &= executable;
     }
 
     pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
@@ -181,7 +227,6 @@ impl Profile {
     }
 
     pub fn disas_paths(&self) -> impl Iterator<Item = String> + '_ {
-        let gadgets_executed = self.gadgets_executed.clone();
         self.paths.iter().map(move |path| {
             path.par_iter()
                 .map(|b| {

@@ -81,6 +81,8 @@ fn main() {
     let population_name = std::env::args().nth(2);
     let mut config = Config::from_path(&config_file, population_name)
         .unwrap_or_else(|e| panic!("Failed to generate Config from {:?}: {:?}", &config_file, e));
+    logger::init(&config.observer.population_name);
+    config.roper.parse_register_patterns();
     if let Ok(n) = std::env::var("BERBALANG_LIMIT_THREADS") {
         limit_threads(
             n.parse()
@@ -90,8 +92,6 @@ fn main() {
     } else if cfg!(feature = "disassemble_trace") {
         limit_threads(1, &mut config);
     }
-
-    logger::init(&config.observer.population_name);
 
     match config.job {
         Job::LinearGp => {

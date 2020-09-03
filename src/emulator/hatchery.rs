@@ -209,8 +209,8 @@ type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
 impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
     pub fn new(
         config: Arc<RoperConfig>,
-        register_inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
-        output_registers: Ar1c<Vec<Register<C>>>,
+        register_inputs: Arc<HashMap<Register<C>, u64>>,
+        output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: Option<EmuPrepFn<C>>,
     ) -> Self {
@@ -260,20 +260,19 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                 let disas = disas.clone();
                 // let's get a clean context to use here.
                 thread_pool.execute(move || {
-                    let profile = register_inputs.par_iter().map(|input| {
                         // Acquire an emulator from the pool.
                         let mut emu: Reusable<'_, C> = emulator_pool.pull();
                         // Initialize the profiler
-                        let mut profiler = Profiler::new(&output_registers, &input);
+                    let mut profiler = Profiler::new(&output_registers, &register_inputs);
                         // Restore the context. TODO: define an emulator pool struct that handles this
 
                         // load the inputs
-                        for (reg, val) in input.iter() {
-                            emu.reg_write(*reg, *val).expect("Failed to load registers");
-                        }
+                    for (reg, val) in register_inputs.iter() {
+                        emu.reg_write(*reg, *val).expect("Failed to load registers");
+                    }
                         // Pedantically check to make sure the registers are initialized
                         if true || cfg!(debug_assertions) {
-                            for (r,expected) in input.iter() {
+                            for (r, expected) in register_inputs.iter() {
                                 // TODO: figure out why the context restore isn't taking care of this
                                 emu.reg_write(*r, *expected).expect("Failed to write regsiter");
                                 // let val = emu.reg_read(*r).expect("Failed to read register!");
@@ -352,8 +351,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                                 });
                             });
                         }
-                        profiler
-                    }).collect::<Vec<Profiler<C>>>().into(); // into Profile
+                    let profile = profiler.into();
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
                     our_tx.send((payload, profile)).map_err(Error::from).expect("TX Failure in pipeline");

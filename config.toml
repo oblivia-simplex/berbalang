@@ -44,7 +44,8 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 ##
 #weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
 # weighting = "1"
-weighting = " (10000 * register_novelty) + 0.1 * register_error + (crash_count * (4 - min(3, gadgets_executed)))"
+weighting = "constancy_penalty * 10 + (1000 * register_novelty) + register_error + (crash_count * (4 - min(3, gadgets_executed)))"
+
 [tournament]
 num_offspring = 2
 num_parents = 2
@@ -75,20 +76,13 @@ window_size  = 1000
 report_every = 1000
 dump_every = 1000
 
-[data]
-path = "./data/iris.tsv"
-# FIXME: something fishy is happening with square! too many registers, and
-# it app<F2>ears that the machine is not
-#g a1a1running!
-#path = "./data/agaricus-lepiota.tsv"
-
 [roper]
 use_push = true
 #arch = "X86"
 #mode = "MODE_64"
-gadget_file = "./gadgets/sshd_ropgadget.json"
-#soup_size = 0x10000
-binary_path = "./binaries/X86/MODE_32/sshd"
+#gadget_file = "./gadgets/sshd_ropgadget.json"
+soup_size = 0x10000
+binary_path = "./binaries/X86/MODE_32/tshark"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 
 #num_emulators = 60
@@ -97,15 +91,13 @@ millisecond_timeout = 100
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
-#output_registers = ["RBX", "RCX", "R10", "RDI", "RSI", "RSP", "RBP", "RIP", "RAX" ]
-#output_registers = ["EAX", "EBX", "ECX", "EDX", "EBP", "ESP", "EIP" ]
 output_registers= ["EAX", "EBX", "ECX", "EDX"]
-randomize_registers = false 
+randomize_registers = true
 register_pattern_file = "./experiments/register_pattern_sshd/register_patterns.txt"
 
 
 [push_vm]
 max_steps = 0x1000
 min_len = 20
-max_len = 1000
-literal_rate = 0.5
+max_len = 100
+literal_rate = 0.2

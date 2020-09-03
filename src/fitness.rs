@@ -311,6 +311,8 @@ impl PartialEq for Weighted<'_> {
 impl std::ops::Add for Weighted<'static> {
     type Output = Weighted<'static>;
 
+    /// There's a bit of a catch, here: the rhs needs to have all the keys that we're going to use.
+    /// I should probably mark this as a FIXME, because it has very counterintuitive results.
     fn add(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
         for (k, v) in rhs.scores.iter() {
@@ -403,6 +405,10 @@ impl Weighted<'static> {
 
     pub fn insert(&mut self, key: &'static str, val: f64) {
         self.scores.insert(key, val);
+    }
+
+    pub fn insert_or_add(&mut self, key: &'static str, val: f64) {
+        *self.scores.entry(key).or_insert(0.0) += val
     }
 
     pub fn scalar(&self) -> f64 {

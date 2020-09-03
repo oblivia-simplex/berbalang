@@ -49,13 +49,22 @@ where
         //if let Some(pattern) = config.roper.register_patterns() {
         let number_of_cases = profile.registers.len();
         let mut fitness = Weighted::new(&config.fitness.weighting);
+        // If the specimen doesn't report the right number of register states, then
+        // something must have gone wrong in execution. Mark that specimen as a total
+        // failure, and exit the function.
+        if number_of_cases != config.roper.register_patterns().len() {
+            log::error!(
+                "Creature has only {} register states! Expecting {}!",
+                number_of_cases,
+                config.roper.register_patterns().len()
+            );
+            creature.set_fitness(fitness);
+            return creature;
+        }
         for (idx, pattern) in config.roper.register_patterns().iter().enumerate() {
-            debug_assert!(idx < profile.registers.len());
             let register_error = pattern.distance_from_register_state(&profile.registers[idx]);
             let mut weighted_fitness = Weighted::new(&config.fitness.weighting);
-            weighted_fitness
-                .scores
-                .insert("register_error", register_error);
+            weighted_fitness.insert_or_add("register_error", register_error);
 
             // Calculate the novelty of register state errors
             let register_novelty = stats::mean(
@@ -68,7 +77,7 @@ where
                     }),
             );
 
-            weighted_fitness.insert("register_novelty", register_novelty);
+            weighted_fitness.insert_or_add("register_novelty", register_novelty);
 
             // Measure write novelty
             debug_assert!(idx < profile.write_logs.len());
@@ -85,23 +94,35 @@ where
                 stats::mean(mem_scores.into_iter())
             };
 
-            weighted_fitness.insert("mem_write_novelty", mem_write_novelty);
+            weighted_fitness.insert_or_add("mem_write_novelty", mem_write_novelty);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
-            weighted_fitness.insert("crash_count", crashes as f64);
+            weighted_fitness.insert_or_add("crash_count", crashes as f64);
 
             let gadgets_executed = profile.gadgets_executed.len();
-            weighted_fitness.insert("gadgets_executed", gadgets_executed as f64);
+            weighted_fitness.insert_or_add("gadgets_executed", gadgets_executed as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
             //let gen_freq = creature.query_genetic_frequency(sketch);
             //creature.record_genetic_frequency(sketch);
 
             //weighted_fitness.scores.insert("genetic_freq", gen_freq);
-            fitness = fitness + weighted_fitness;
+            log::debug!("adding {:?} to {:?}", weighted_fitness, fitness);
+            // NB: There's a quirk in the fitness addition implementation that makes it
+            // non-commutative, in the general case. FIXME
+            fitness = weighted_fitness + fitness;
+            log::debug!("Result is {:?}", fitness);
         }
         fitness.scale_by(number_of_cases as f64);
+        // Now add a constancy penalty if appropriate
+        let mut regs = profile.registers.clone();
+        regs.dedup();
+        fitness.insert(
+            "constancy_penalty",
+            (profile.registers.len() - regs.len()) as f64,
+        );
+        log::debug!("Setting creature fitness to {:#?}", fitness);
         creature.set_fitness(fitness);
     }
     creature
