@@ -35,7 +35,7 @@ lxc exec berbalang-builder -- '/root/build-script.sh'
 mkdir -p tmp
 pushd tmp
 echo "Pulling build artefacts from berbalang-builder"
-lxc file pull berbalang-builder/berbalang.tar.xz .
+lxc file pull berbalang-builder/berbalang.tar.gz .
 
 container_exists=$(lxc config show "${container_name}" || true)
 
@@ -60,5 +60,5 @@ lxc launch images:debian/buster "${container_name}"
 # Sleep 5 to wait for the container to settle before trying to push files to it
 sleep 5
 
-lxc file push berbalang.tar.xz "${container_name}"
-lxc exec "${container_name}" -- "tar xvf /berbalang.tar.xz -C /"
+lxc file push berbalang.tar.gz "${container_name}/"
+lxc exec "${container_name}" -- "tar xvf /berbalang.tar.gz -C /"
