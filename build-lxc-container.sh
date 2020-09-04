@@ -3,6 +3,7 @@
 
 err () {
   echo "Error at line $LINENO"
+  exit 1
 }
 
 trap err ERR
@@ -55,6 +56,9 @@ fi
 
 echo "Creating container ${container_name}"
 lxc launch images:debian/buster "${container_name}"
+
+# Sleep 5 to wait for the container to settle before trying to push files to it
+sleep 5
 
 lxc file push berbalang.tar.xz "${container_name}"
 lxc exec "${container_name}" -- "tar xvf /berbalang.tar.xz -C /"
