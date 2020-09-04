@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-set -e
+err () {
+  echo "Error at line $LINENO"
+}
+
+trap err ERR
 
 build_dependency () {
   download_url="${1}"
