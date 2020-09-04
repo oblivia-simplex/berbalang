@@ -2,29 +2,25 @@
 # Adapted from the Dockerfile
 
 err () {
-  echo "Error at line $LINENO"
   exit 1
 }
 
 trap err ERR
 
 if [ $# -ne 1 ]; then
-  echo "You need to supply a container name! Optionally you can supply the path to the berbalang repo."
-  echo "If you don't supply a path to the berbalang repo, PWD is going to be assumed."
+  echo "You need to supply a container name"
   echo "Usage:"
-  echo "$0 <container name> [/path/to/berbalang/repo]"
+  echo "$0 <container name>"
   exit 1
 else
-  PWD=$(pwd)
   container_name="${1}"
-  berbalang_repo_path="${2:=${PWD}}"
 fi
 
 ##################################
 # First, build the builder image #
 ##################################
 echo "Starting berbalang container creation"
-echo "Container name: ${container_name}\nBerbalang repo path: ${berbalang_repo_path}"
+echo "Container name: ${container_name}"
 echo "If you see Error: not found after this line, it just means it didn't find the berbalang-builder container already in the cluster"
 builder_exists=$(lxc config show berbalang-builder || true)
 
@@ -69,10 +65,11 @@ sleep 5
 
 echo "Pushing files to ${container_name}"
 lxc file push berbalang.tar.gz "${container_name}/"
+popd
 lxc exec "${container_name}" -- tar xvf /berbalang.tar.gz -C /
-lxc file push "${berbalang_repo_path}/start.sh" "${container_name}/root/"
-lxc file push "${berbalang_repo_path}/trials.sh" "${container_name}/root/"
-lxc file push --recursive "${berbalang_repo_path}/analysis" "${container_name}/root/analysis"
+lxc file push start.sh "${container_name}/root/"
+lxc file push trials.sh "${container_name}/root/"
+lxc file push --recursive analysis "${container_name}/root/"
 printf "***********************************************************************************"
 printf "* container name: %-50s                *" "${container_name}"
 printf "* Your berbalang container is now ready!                                          *"
