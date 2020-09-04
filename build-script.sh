@@ -21,7 +21,7 @@ sleep 5
 echo "Updating the cache"
 apt update -y
 echo "Installing tooling"
-apt install -y build-essential clang llvm-dev python unzip wget
+apt install -y build-essential clang llvm-dev python unzip wget curl git
 
 mkdir -p /tmp/work
 pushd /tmp/work
@@ -31,3 +31,15 @@ build_dependency https://github.com/unicorn-engine/unicorn/archive/1.0.1.zip "un
 
 echo "Building capstone disassembly library"
 build_dependency https://github.com/aquynh/capstone/archive/4.0.2.tar.gz "tar -xvzf" capstone_src.tar.gz capstone-4.0.2
+
+echo "Installing rustup"
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh
+sh rustup-init.sh -y
+rm -f ./rustup-init.sh
+source "${HOME}/.cargo/env"
+
+echo "Building berbalang"
+git clone https://github.com/oblivia-simplex/berbalang
+pushd berbalang
+cargo build --release
+find target/release -maxdepth 2 -type f -executable -exec strip -s {} +
