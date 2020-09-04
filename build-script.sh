@@ -2,6 +2,7 @@
 
 err () {
   echo "Error at line $LINENO"
+  exit 1
 }
 
 trap err ERR
