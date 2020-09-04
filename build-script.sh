@@ -55,7 +55,7 @@ cp -v target/release/berbalang /root/berbalang
 
 echo "Creating tarball to be pulled by lxc"
 pushd /
-tar cvJf berbalang.tar.xz /root/berbalang /usr/lib/libunicorn*
+tar cvzf berbalang.tar.gz /root/berbalang /usr/lib/libunicorn*
 
 echo "################################"
 echo "# Building berbalang finished! #"
