@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 err () {
-  echo "Error at line $LINENO"
   exit 1
 }
 
