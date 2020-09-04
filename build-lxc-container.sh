@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Adapted from the Dockerfile
 
-set -e
+err () {
+  echo "Error at line $LINENO"
+}
+
+trap err ERR
 
 if [ $# -ne 1 ]; then
   echo "You need to supply a container name!"
