@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Adapted from the Dockerfile
 
+set -e
+
 ##################################
 # First, build the builder image #
 ##################################
