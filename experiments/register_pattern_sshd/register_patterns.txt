@@ -1,0 +1,14 @@
+# execve("/bin", NULL, NULL);
+
+EAX = "0xb"
+EBX = "&'/bin"
+ECX = "&0"
+EDX = "0"
+ 
+#---
+# write(stdout, "hi!");
+
+# EAX = "0x4"
+# EBX = "0x1"
+# ECX = "&'hi!"
+# EDX = "0x3"

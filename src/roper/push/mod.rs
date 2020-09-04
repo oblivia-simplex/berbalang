@@ -1355,6 +1355,14 @@ pub mod creature {
         fn profile(&self) -> Option<&Profile> {
             self.profile.as_ref()
         }
+
+        fn add_profile(&mut self, profile: Profile) {
+            if let Some(ref mut p) = self.profile {
+                p.absorb(profile)
+            } else {
+                self.profile = Some(profile)
+            }
+        }
     }
 
     impl Hash for Creature {
@@ -1363,15 +1371,7 @@ pub mod creature {
         }
     }
 
-    impl Creature {
-        pub fn add_profile(&mut self, profile: Profile) {
-            if let Some(ref mut p) = self.profile {
-                p.absorb(profile)
-            } else {
-                self.profile = Some(profile)
-            }
-        }
-    }
+    impl Creature {}
 
     impl Genome for Creature {
         type Allele = Op;

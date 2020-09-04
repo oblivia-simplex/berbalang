@@ -242,6 +242,8 @@ pub struct RoperConfig {
     #[serde(default)]
     pub output_registers: Vec<String>,
     #[serde(default)]
+    pub input_registers: Vec<String>,
+    #[serde(default)]
     pub randomize_registers: bool,
     pub register_pattern_file: String,
     #[serde(skip)]

@@ -44,6 +44,14 @@ impl HasProfile for Creature {
     fn profile(&self) -> Option<&Profile> {
         self.profile.as_ref()
     }
+
+    fn add_profile(&mut self, profile: Profile) {
+        if let Some(ref mut p) = self.profile {
+            p.absorb(profile)
+        } else {
+            self.profile = Some(profile)
+        }
+    }
 }
 
 impl Hash for Creature {

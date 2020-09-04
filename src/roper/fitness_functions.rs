@@ -100,7 +100,7 @@ where
             let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
             weighted_fitness.insert_or_add("crash_count", crashes as f64);
 
-            let gadgets_executed = profile.gadgets_executed.len();
+            let gadgets_executed = profile.gadgets_executed[idx].len();
             weighted_fitness.insert_or_add("gadgets_executed", gadgets_executed as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.

@@ -19,7 +19,7 @@ use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::{Profile, Profiler};
-use crate::emulator::register_pattern::Register;
+use crate::emulator::register_pattern::{Register, RegisterState};
 use crate::error::Error;
 
 //use std::sync::atomic::{AtomicUsize, Ordering};
@@ -152,13 +152,20 @@ impl<C: Cpu<'static>> EmuPool<C> {
     }
 }
 
+type InboundTx<T, C> = SyncSender<(T, Option<HashMap<Register<C>, u64>>)>;
+type InboundRx<T, C> = Receiver<(T, Option<HashMap<Register<C>, u64>>)>;
+type OutboundTx<T> = SyncSender<(T, Profile)>;
+type OutboundRx<T> = Receiver<(T, Profile)>;
+type InboundChannel<T, C> = (InboundTx<T, C>, InboundRx<T, C>);
+type OutboundChannel<T> = (OutboundTx<T>, OutboundRx<T>);
+
 pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
     emu_pool: Arc<EmuPool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
     config: Arc<RoperConfig>,
     memory: Arc<Option<Pin<Vec<Seg>>>>,
-    tx: SyncSender<X>,
-    rx: Receiver<(X, Profile)>,
+    tx: InboundTx<X, C>,
+    rx: OutboundRx<X>,
     handle: JoinHandle<()>,
     disassembler: Arc<Disassembler>,
 }
@@ -203,13 +210,10 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
     }
 }
 
-type InboundChannel<T> = (SyncSender<T>, Receiver<T>);
-type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
-
 impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
     pub fn new(
         config: Arc<RoperConfig>,
-        register_inputs: Arc<HashMap<Register<C>, u64>>,
+        initial_register_state: Arc<HashMap<Register<C>, u64>>,
         output_registers: Arc<Vec<Register<C>>>,
         // TODO: we might want to set some callbacks with this function.
         emu_prep_fn: Option<EmuPrepFn<C>>,
@@ -217,7 +221,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
         let disassembler = Arc::new(
             Disassembler::new(config.arch, config.mode).expect("Failed to build disassembler"),
         );
-        let (tx, our_rx): InboundChannel<X> = sync_channel(config.num_workers);
+        let (tx, our_rx): InboundChannel<X, C> = sync_channel(config.num_workers);
         let (our_tx, rx): OutboundChannel<X> = sync_channel(config.num_workers);
 
         let static_memory = loader::get_static_memory_image();
@@ -247,7 +251,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                     .collect::<HashMap<u8, u8>>()
             }));
         let handle = spawn(move || {
-            for payload in our_rx.iter() {
+            for (payload, args) in our_rx.iter() {
                 let emu_prep_fn = emu_prep_fn.clone();
                 let config = parameters.clone();
                 let bad_bytes = bad_bytes.clone();
@@ -256,23 +260,27 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                 let thread_pool = t_pool.lock().expect("Failed to unlock thread_pool mutex");
                 let emulator_pool = e_pool.clone();
                 let memory = mem.clone();
-                let register_inputs = register_inputs.clone();
+                let initial_register_state = if let Some(args) = args {
+                    Arc::new(args)
+                } else {
+                    initial_register_state.clone()
+                };
                 let disas = disas.clone();
                 // let's get a clean context to use here.
                 thread_pool.execute(move || {
                         // Acquire an emulator from the pool.
                         let mut emu: Reusable<'_, C> = emulator_pool.pull();
                         // Initialize the profiler
-                    let mut profiler = Profiler::new(&output_registers, &register_inputs);
+                    let mut profiler = Profiler::new(&output_registers, &initial_register_state);
                         // Restore the context. TODO: define an emulator pool struct that handles this
 
                         // load the inputs
-                    for (reg, val) in register_inputs.iter() {
+                    for (reg, val) in initial_register_state.iter() {
                         emu.reg_write(*reg, *val).expect("Failed to load registers");
                     }
                         // Pedantically check to make sure the registers are initialized
                         if true || cfg!(debug_assertions) {
-                            for (r, expected) in register_inputs.iter() {
+                            for (r, expected) in initial_register_state.iter() {
                                 // TODO: figure out why the context restore isn't taking care of this
                                 emu.reg_write(*r, *expected).expect("Failed to write regsiter");
                                 // let val = emu.reg_read(*r).expect("Failed to read register!");
@@ -370,25 +378,13 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
         }
     }
 
-    pub fn execute(&self, payload: X) -> Result<(X, Profile), Error> {
-        self.tx.send(payload)?;
-        self.rx.recv().map_err(Error::from)
-    }
-
-    pub fn execute_batch<I: Iterator<Item = X>>(
+    pub fn execute(
         &self,
-        payloads: I,
-    ) -> Result<Vec<(X, Profile)>, Error> {
-        let mut count = 0;
-        for x in payloads {
-            self.tx.send(x)?;
-            count += 1;
-        }
-        let mut res = Vec::new();
-        for _ in 0..count {
-            res.push(self.rx.recv()?)
-        }
-        Ok(res)
+        payload: X,
+        args: Option<HashMap<Register<C>, u64>>,
+    ) -> Result<(X, Profile), Error> {
+        self.tx.send((payload, args))?;
+        self.rx.recv().map_err(Error::from)
     }
 }
 // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
@@ -742,62 +738,62 @@ mod test {
     }
 
     // FIXME - currently broken for want for full Pack impl for Vec<u8> #[test]
-    fn test_hatchery() {
-        env_logger::init();
-        let config = RoperConfig {
-            gadget_file: None,
-            num_workers: 500,
-            num_emulators: 510,
-            wait_limit: 50,
-            mode: unicorn::Mode::MODE_64,
-            arch: unicorn::Arch::X86,
-            max_emu_steps: Some(0x10000),
-            millisecond_timeout: Some(100),
-            record_basic_blocks: true,
-            record_memory_writes: false,
-            emulator_stack_size: 0x1000,
-            binary_path: "/bin/sh".to_string(),
-            soup: None,
-            soup_size: None,
-            ..Default::default()
-        };
-        fn random_rop() -> Vec<u8> {
-            let mut rng = thread_rng();
-            let addresses: Vec<u64> = iter::repeat(())
-                .take(100)
-                .map(|()| rng.gen_range(0x41_b000_u64, 0x4a_5fff_u64))
-                .collect();
-            let mut packed = vec![0_u8; addresses.len() * 8];
-            LittleEndian::write_u64_into(&addresses, &mut packed);
-            packed
-        }
-
-        let expected_num = 0x100;
-        let mut counter = 0;
-        let code_iterator = iter::repeat(()).take(expected_num).map(|()| random_rop());
-
-        use RegisterX86::*;
-        let output_registers = Arc::new(vec![RAX, RSP, RIP, RBP, RBX, RCX, EFLAGS]);
-        let mut inputs = vec![hashmap! { RCX => 0xdead_beef, RDX => 0xcafe_babe }];
-        for _ in 0..100 {
-            inputs.push(hashmap! { RCX => rand::random(), RAX => rand::random() });
-        }
-        let hatchery: Hatchery<CpuX86<'_>, Code> =
-            Hatchery::new(Arc::new(config), Arc::new(inputs), output_registers, None);
-
-        let results = hatchery.execute_batch(code_iterator);
-        for (_code, profile) in results.expect("boo") {
-            log::info!("[{}] Output: {:#?}", counter, profile.paths);
-            counter += 1;
-        }
-        // for code in code_iterator {
-        //     counter += 1;
-        //     let code_in = code.clone();
-        //     let (code_out, profile) = hatchery.execute(code).expect("execution failure");
-        //     assert_eq!(code_in, code_out); // should fail sometimes
-        //     log::info!("[{}] Output: {:#?}", counter, profile.paths);
-        // }
-        assert_eq!(counter, expected_num);
-        log::info!("FINISHED");
-    }
+    // fn test_hatchery() {
+    //     env_logger::init();
+    //     let config = RoperConfig {
+    //         gadget_file: None,
+    //         num_workers: 500,
+    //         num_emulators: 510,
+    //         wait_limit: 50,
+    //         mode: unicorn::Mode::MODE_64,
+    //         arch: unicorn::Arch::X86,
+    //         max_emu_steps: Some(0x10000),
+    //         millisecond_timeout: Some(100),
+    //         record_basic_blocks: true,
+    //         record_memory_writes: false,
+    //         emulator_stack_size: 0x1000,
+    //         binary_path: "/bin/sh".to_string(),
+    //         soup: None,
+    //         soup_size: None,
+    //         ..Default::default()
+    //     };
+    //     fn random_rop() -> Vec<u8> {
+    //         let mut rng = thread_rng();
+    //         let addresses: Vec<u64> = iter::repeat(())
+    //             .take(100)
+    //             .map(|()| rng.gen_range(0x41_b000_u64, 0x4a_5fff_u64))
+    //             .collect();
+    //         let mut packed = vec![0_u8; addresses.len() * 8];
+    //         LittleEndian::write_u64_into(&addresses, &mut packed);
+    //         packed
+    //     }
+    //
+    //     let expected_num = 0x100;
+    //     let mut counter = 0;
+    //     let code_iterator = iter::repeat(()).take(expected_num).map(|()| random_rop());
+    //
+    //     use RegisterX86::*;
+    //     let output_registers = Arc::new(vec![RAX, RSP, RIP, RBP, RBX, RCX, EFLAGS]);
+    //     let mut inputs = vec![hashmap! { RCX => 0xdead_beef, RDX => 0xcafe_babe }];
+    //     for _ in 0..100 {
+    //         inputs.push(hashmap! { RCX => rand::random(), RAX => rand::random() });
+    //     }
+    //     let hatchery: Hatchery<CpuX86<'_>, Code> =
+    //         Hatchery::new(Arc::new(config), Arc::new(inputs), output_registers, None);
+    //
+    //     let results = hatchery.execute_batch(code_iterator);
+    //     for (_code, profile) in results.expect("boo") {
+    //         log::info!("[{}] Output: {:#?}", counter, profile.paths);
+    //         counter += 1;
+    //     }
+    //     // for code in code_iterator {
+    //     //     counter += 1;
+    //     //     let code_in = code.clone();
+    //     //     let (code_out, profile) = hatchery.execute(code).expect("execution failure");
+    //     //     assert_eq!(code_in, code_out); // should fail sometimes
+    //     //     log::info!("[{}] Output: {:#?}", counter, profile.paths);
+    //     // }
+    //     assert_eq!(counter, expected_num);
+    //     log::info!("FINISHED");
+    // }
 }

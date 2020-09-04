@@ -103,7 +103,7 @@ impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
                 if !payload.is_empty() {
                     let (payload, profile) = self
                         .hatchery
-                        .execute(payload)
+                        .execute(payload, None)
                         .expect("Failed to evaluate creature");
                     creature.add_profile(profile);
                     used_payloads.push(payload);

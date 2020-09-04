@@ -354,6 +354,8 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
 
 pub trait HasProfile {
     fn profile(&self) -> Option<&Profile>;
+
+    fn add_profile(&mut self, profile: Profile);
 }
 
 #[cfg(test)]

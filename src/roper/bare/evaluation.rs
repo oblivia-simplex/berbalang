@@ -11,6 +11,7 @@ use crate::{
 };
 
 use super::*;
+use crate::configure::ClassificationProblem;
 
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
@@ -57,43 +58,70 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
     }
 }
 
+// TODO: refactor classification problems substantially.
+// TODO: Cache this function. Memoize.
+fn classification_problem_to_register_map<C: 'static + Cpu<'static>>(
+    problem: &ClassificationProblem,
+    input_registers: &Vec<String>,
+) -> HashMap<Register<C>, u64> {
+    let mut reg_map = HashMap::new();
+    for (reg, val) in input_registers.iter().zip(problem.input.iter()) {
+        let reg: Register<C> = reg.into();
+        let val: u64 = *val as u64;
+        reg_map.insert(reg, val);
+    }
+    reg_map
+}
+
 // And refactor the modules a bit.
 impl<'a, C: 'static + Cpu<'static>> Develop<Creature> for Evaluator<C> {
-    fn develop(&self, creature: Creature) -> Creature {
-        if creature.profile.is_none() {
-            let (mut creature, profile) = self
-                .hatchery
-                .execute(creature)
-                .expect("Failed to evaluate creature");
-            creature.profile = Some(profile);
-            creature
-        } else {
-            creature
+    fn develop(&self, mut creature: Creature) -> Creature {
+        if creature.profile.is_some() {
+            return creature;
         }
+        // TODO: implement classification task here.
+        if let Some(ref problems) = self.config.problems {
+            for problem in problems {
+                let reg_map = classification_problem_to_register_map(
+                    problem,
+                    &self.config.roper.input_registers,
+                );
+                let (mut executed_creature, profile) = self
+                    .hatchery
+                    .execute(creature, Some(reg_map))
+                    .expect("Failed to evaluate creature");
+                executed_creature.add_profile(profile);
+                creature = executed_creature
+            }
+            return creature;
+        }
+        // We could detach the chromosome here (Vec<u64>) and send it
+        // as the payload, instead of the entire creature, but the truth
+        // is that it doesn't really matter. Only the ownership of the
+        // creature is passed, so very little data is actually copied.
+        // Cloning the chromosome, or snipping it off and retaching it,
+        // is probably no less expensive, all things considered.
+        // However, if we start appending arguments to the payload, then
+        // we might want to do this differently.
+        let (mut creature, profile) = self
+            .hatchery
+            .execute(creature, None)
+            .expect("Failed to evaluate creature");
+        creature.add_profile(profile);
+        creature
     }
 
     fn apply_fitness_function(&mut self, creature: Creature) -> Creature {
         (self.fitness_fn)(creature, &mut self.sketches, self.config.clone())
     }
 
-    fn development_pipeline<'b, I: 'static + Iterator<Item = Creature> + Send>(
+    fn development_pipeline<I: 'static + Iterator<Item = Creature> + Send>(
         &self,
         inbound: I,
     ) -> Vec<Creature> {
-        // we need to have the entire sample pass through the count-min sketch
-        // before we can use it to measure the frequency of any individual
-        let (old_meat, fresh_meat): (Vec<Creature>, _) = inbound.partition(Creature::mature);
-        self.hatchery
-            .execute_batch(fresh_meat.into_iter())
-            .expect("execute batch failure")
+        inbound
             .into_iter()
-            .map(|(mut creature, profile)| {
-                creature.profile = Some(profile);
-                creature
-            })
-            .chain(old_meat)
-            // NOTE: in progress of decoupling fitness function from development
-            // .map(|creature| (self.fitness_fn)(creature, &mut self.sketch, self.config.clone()))
-            .collect::<Vec<_>>()
+            .map(|c| self.develop(c))
+            .collect::<Vec<Creature>>()
     }
 }
