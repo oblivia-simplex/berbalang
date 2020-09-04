@@ -63,4 +63,4 @@ lxc launch images:debian/buster "${container_name}"
 sleep 5
 
 lxc file push berbalang.tar.gz "${container_name}/"
-lxc exec "${container_name}" -- "tar xvf /berbalang.tar.gz -C /"
+lxc exec "${container_name}" -- tar xvf /berbalang.tar.gz -C /
