@@ -20,6 +20,7 @@ fi
 ##################################
 # First, build the builder image #
 ##################################
+echo "If you see Error: not found after this line, it just means it didn't find the berbalang-builder container already in the cluster"
 builder_exists=$(lxc config show berbalang-builder || true)
 
 if [ "${builder_exists}" != "" ]; then
@@ -37,6 +38,7 @@ pushd tmp
 echo "Pulling build artefacts from berbalang-builder"
 lxc file pull berbalang-builder/berbalang.tar.gz .
 
+echo "If you see Error: not found after this line, it just means it didn't find the ${container_name} container already in the cluster"
 container_exists=$(lxc config show "${container_name}" || true)
 
 if [ "${container_exists}" != "" ]; then
