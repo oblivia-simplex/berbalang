@@ -20,7 +20,7 @@ fi
 ##################################
 # First, build the builder image #
 ##################################
-builder_exists=$(lxc list | grep berbalang-builder)
+builder_exists=$(lxc config show berbalang-builder || true)
 
 if [ "${builder_exists}" != "" ]; then
   echo "Found a old builder instance, removing..."
@@ -37,14 +37,14 @@ pushd tmp
 echo "Pulling build artefacts from berbalang-builder"
 lxc file pull berbalang-builder/berbalang.tar.xz .
 
-container_exists=$(lxc config show "${container_name}")
+container_exists=$(lxc config show "${container_name}" || true)
 
 if [ "${container_exists}" != "" ]; then
   echo "${container_name} already exists!"
   echo "Want to remove it? [Y/n]"
   read CHOICE
 
-  if [ "${CHOICE}" == "y" || "${CHOICE}" == "Y" || "${CHOICE}" == "" ]; then
+  if [ "${CHOICE}" == "y" ] || [ "${CHOICE}" == "Y" ] || [ "${CHOICE}" == "" ]; then
     echo "Removing ${container_name}"
     lxc stop "${container_name}"
     lxc delete "${container_name}"
