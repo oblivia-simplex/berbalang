@@ -70,6 +70,9 @@ lxc exec "${container_name}" -- tar xvf /berbalang.tar.gz -C /
 lxc file push start.sh "${container_name}/root/"
 lxc file push trials.sh "${container_name}/root/"
 lxc file push --recursive analysis "${container_name}/root/"
+lxc exec "${container_name}" -- apt update
+lxc exec "${container_name}" -- apt install -y python3 python3-pip
+lxc exec "${container_name}" -- pip3 install pytz toml
 printf "***********************************************************************************\n"
 printf "* container name: %-50s              *\n" "${container_name}"
 printf "* Your berbalang container is now ready!                                          *\n"
