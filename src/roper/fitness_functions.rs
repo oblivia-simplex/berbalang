@@ -3,10 +3,11 @@ use std::sync::Arc;
 use hashbrown::HashSet;
 
 use crate::configure::Config;
-use crate::emulator::loader::get_static_memory_image;
-use crate::emulator::profiler::HasProfile;
+use crate::emulator::loader::{get_static_memory_image, Seg};
+use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::Phenome;
 use crate::fitness::Weighted;
+use crate::ontogenesis::FitnessFn;
 use crate::roper::Sketches;
 use crate::util::entropy::Entropy;
 
@@ -79,23 +80,6 @@ where
 
             weighted_fitness.insert_or_add("register_novelty", register_novelty);
 
-            // Measure write novelty
-            debug_assert!(idx < profile.write_logs.len());
-            let mem_scores = profile.write_logs[idx]
-                .iter()
-                .map(|m| {
-                    sketch.memory_writes.insert(m);
-                    sketch.memory_writes.query(m)
-                })
-                .collect::<Vec<f64>>();
-            let mem_write_novelty = if mem_scores.is_empty() {
-                1.0
-            } else {
-                stats::mean(mem_scores.into_iter())
-            };
-
-            weighted_fitness.insert_or_add("mem_write_novelty", mem_write_novelty);
-
             // how many times did it crash?
             let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
             weighted_fitness.insert_or_add("crash_count", crashes as f64);
@@ -152,6 +136,8 @@ where
     creature
 }
 
+// FIXME: This needs to be brought in line with the new profile format
+// in particular, we need to iterate through the runs in the profile.
 pub fn register_conjunction_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
     C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
@@ -178,10 +164,49 @@ where
             let reg_freq = sketch.register_error.query(registers);
             weighted_fitness.insert("register_novelty", reg_freq);
 
-            let mem_write_ratio = profile.mem_write_ratio();
-            weighted_fitness.insert("mem_write_ratio", mem_write_ratio);
             creature.set_fitness(weighted_fitness);
         }
+    }
+    creature
+}
+
+pub fn memory_pattern_ff<C>(mut creature: C, _sketch: &mut Sketches, config: Arc<Config>) -> C
+where
+    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+{
+    if let Some(profile) = creature.profile() {
+        let pattern = config
+            .roper
+            .memory_pattern
+            .as_ref()
+            .expect("No memory pattern provided");
+
+        let occurrences = profile
+            .memory_writes
+            .iter()
+            .map(|data| data.find_seq(pattern).len())
+            .sum::<usize>() as f64;
+
+        let num_mem_writes = profile
+            .memory_writes
+            .iter()
+            .map(|data| data.len())
+            .sum::<usize>() as f64;
+
+        let gadgets_executed = profile
+            .gadgets_executed
+            .iter()
+            .map(|h| h.len())
+            .sum::<usize>() as f64;
+
+        let mut fitness = Weighted::new(&config.fitness.weighting);
+        fitness.insert_or_add("pattern_writes", occurrences);
+        fitness.insert_or_add("num_writes", num_mem_writes);
+        fitness.insert_or_add("gadgets_executed", gadgets_executed);
+
+        creature.set_fitness(fitness);
+        // actually, we probably want to average normalized scores
+        // for the time being, not a huge concern. we'll start with a single case.
     }
     creature
 }
@@ -190,6 +215,10 @@ pub fn code_coverage_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<C
 where
     C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
 {
+    if creature.fitness().is_some() {
+        return creature;
+    }
+
     if let Some(ref profile) = creature.profile() {
         let mut addresses_visited = HashSet::new();
         // TODO: optimize this, maybe parallelize
@@ -222,13 +251,26 @@ where
         let gadgets_executed = profile.gadgets_executed.len();
         fitness.insert("gadgets_executed", gadgets_executed as f64);
 
-        let mem_write_ratio = 1.0 - profile.mem_write_ratio();
-        fitness.insert("mem_write_ratio", mem_write_ratio);
-
         creature.set_fitness(fitness);
 
         // TODO: look into how unicorn tracks bbs. might be surprising in the context of ROP
     }
+    creature.set_profile(Profile::default()); // experimental. see if we can free some mem here.
 
     creature
+}
+
+pub fn get_fitness_function<C>(name: &str) -> FitnessFn<C, Sketches, Config>
+where
+    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized + 'static,
+{
+    match name {
+        "register_pattern" => Box::new(register_pattern_ff),
+        "register_conjunction" => Box::new(register_conjunction_ff),
+        "register_entropy" => Box::new(register_entropy_ff),
+        "code_coverage" => Box::new(code_coverage_ff),
+        "memory_pattern" => Box::new(memory_pattern_ff),
+        "just_novelty" => Box::new(just_novelty_ff),
+        s => unimplemented!("No such fitness function as {}", s),
+    }
 }

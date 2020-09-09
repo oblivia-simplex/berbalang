@@ -100,14 +100,7 @@ fn prepare_bare<C: 'static + Cpu<'static>>(
     config: &Config,
 ) -> (Observer<bare::Creature>, bare::evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<bare::Creature, Sketches, Config> =
-        match config.fitness.function.as_str() {
-            "register_pattern" => Box::new(fitness_functions::register_pattern_ff),
-            "register_conjunction" => Box::new(fitness_functions::register_conjunction_ff),
-            "register_entropy" => Box::new(fitness_functions::register_entropy_ff),
-            "code_coverage" => Box::new(fitness_functions::code_coverage_ff),
-            "just_novelty" => Box::new(fitness_functions::just_novelty_ff),
-            s => unimplemented!("No such fitness function as {}", s),
-        };
+        fitness_functions::get_fitness_function(&config.fitness.function);
     let observer = Observer::spawn(&config, Box::new(analysis::report_fn));
     let evaluator = bare::evaluation::Evaluator::spawn(&config, fitness_function);
     (observer, evaluator)
@@ -117,14 +110,7 @@ fn prepare_push<C: 'static + Cpu<'static>>(
     config: &Config,
 ) -> (Observer<push::Creature>, push::evaluation::Evaluator<C>) {
     let fitness_function: FitnessFn<push::Creature, Sketches, Config> =
-        match config.fitness.function.as_str() {
-            "register_pattern" => Box::new(fitness_functions::register_pattern_ff),
-            "register_conjunction" => Box::new(fitness_functions::register_conjunction_ff),
-            "register_entropy" => Box::new(fitness_functions::register_entropy_ff),
-            "code_coverage" => Box::new(fitness_functions::code_coverage_ff),
-            "just_novelty" => Box::new(fitness_functions::just_novelty_ff),
-            s => unimplemented!("No such fitness function as {}", s),
-        };
+        fitness_functions::get_fitness_function(&config.fitness.function);
     let observer: Observer<push::Creature> =
         Observer::spawn(&config, Box::new(analysis::report_fn));
     let evaluator = push::evaluation::Evaluator::spawn(&config, fitness_function);
@@ -154,7 +140,7 @@ impl DominanceOrd<&bare::Creature> for CreatureDominanceOrd {}
 impl DominanceOrd<&push::Creature> for CreatureDominanceOrd {}
 
 pub fn run(mut config: Config) {
-    let _ = loader::falcon_loader::load_from_path(&mut config.roper, true)
+    let _ = loader::falcon_loader::load_from_path(&mut config, true)
         .expect("Failed to load binary image");
     init_soup(&mut config).expect("Failed to initialize the soup");
 

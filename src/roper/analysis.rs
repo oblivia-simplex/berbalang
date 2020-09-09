@@ -172,18 +172,18 @@ where
     );
     window.log_record(record, "mean");
 
-    if let Some(ref best) = window.best {
-        let best_record = StatRecord::for_specimen(&window, best, counter, epoch);
-        window.log_record(best_record, "best");
-    }
-
     if let Some(ref champion) = window.champion {
         let champion_record = StatRecord::for_specimen(&window, champion, counter, epoch);
         window.log_record(champion_record, "champion");
     }
 
+    if let Some(ref best) = window.best {
+        let best_record = StatRecord::for_specimen(&window, best, counter, epoch);
+        window.log_record(best_record, "best");
+    }
+
     log::info!(
-        "Island #{island} Best: {best:#?}\nIsland #{island} Champion: {champion:#?}",
+        "Island #{island} Champion: {champion:#?}\nIsland #{island} Best: {best:#?}",
         island = config.island_identifier,
         best = window.best,
         champion = window.champion,

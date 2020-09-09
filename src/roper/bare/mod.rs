@@ -52,6 +52,10 @@ impl HasProfile for Creature {
             self.profile = Some(profile)
         }
     }
+
+    fn set_profile(&mut self, profile: Profile) {
+        self.profile = Some(profile)
+    }
 }
 
 impl Hash for Creature {

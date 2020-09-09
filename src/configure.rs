@@ -245,7 +245,7 @@ pub struct RoperConfig {
     pub input_registers: Vec<String>,
     #[serde(default)]
     pub randomize_registers: bool,
-    pub register_pattern_file: String,
+    pub register_pattern_file: Option<String>,
     #[serde(skip)]
     pub parsed_register_patterns: Vec<RegisterPattern>,
     #[serde(default = "Default::default")]
@@ -275,13 +275,16 @@ pub struct RoperConfig {
     pub ld_paths: Option<Vec<String>>,
     #[serde(default)]
     pub bad_bytes: Option<HashMap<String, u8>>,
+    pub memory_pattern: Option<Vec<u8>>,
 }
 
 impl RoperConfig {
     pub fn parse_register_patterns(&mut self) {
-        let ps = parse_register_pattern_file(&self.register_pattern_file)
-            .expect("Failed to parse register pattern file");
-        self.parsed_register_patterns = ps;
+        if let Some(ref pat_file) = self.register_pattern_file {
+            let ps = parse_register_pattern_file(pat_file)
+                .expect("Failed to parse register pattern file");
+            self.parsed_register_patterns = ps;
+        }
     }
 
     pub fn register_patterns(&self) -> &[RegisterPattern] {
@@ -324,13 +327,15 @@ impl Default for RoperConfig {
             use_push: false,
             gadget_file: None,
             output_registers: vec![],
+            input_registers: vec![],
             randomize_registers: false,
-            register_pattern_file: String::new(),
+            register_pattern_file: None,
             parsed_register_patterns: vec![],
             soup: None,
             soup_size: None,
             arch: unicorn::Arch::X86,
             mode: unicorn::Mode::MODE_64,
+            memory_pattern: None,
             num_workers: 8,
             num_emulators: 8,
             wait_limit: 500,

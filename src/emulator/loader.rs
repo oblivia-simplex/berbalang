@@ -243,6 +243,29 @@ pub fn align(n: u64) -> u64 {
 }
 
 impl Seg {
+    pub fn find_occurrences(&self, seq: &[u8]) -> Vec<u64> {
+        let mut offsets = Vec::new();
+        let mut windows = self.data.windows(seq.len());
+        while let Some(occurrence) = windows.position(|window| window == seq) {
+            offsets.push(occurrence as u64 + self.aligned_start())
+        }
+        offsets
+    }
+
+    pub fn count_occurrences(&self, seq: &[u8]) -> usize {
+        let mut count = 0;
+        let mut windows = self.data.windows(seq.len());
+        while let Some(_occurrence) = windows.position(|window| window == seq) {
+            log::debug!(
+                "Found occurrence of pattern {:x?} at address 0x{:x}",
+                seq,
+                _occurrence as u64 + self.aligned_start()
+            );
+            count += 1
+        }
+        count
+    }
+
     pub fn from_mem_region_and_data(reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
         Self {
             addr: reg.begin,
@@ -527,6 +550,7 @@ pub mod falcon_loader {
     use fnv::FnvHasher;
     use unicorn::{Arch, Mode};
 
+    use crate::configure::Config;
     use crate::util;
     use crate::util::dump::ron_undump;
 
@@ -550,24 +574,24 @@ pub mod falcon_loader {
         }
     }
 
-    pub fn load_from_path(config: &mut RoperConfig, init: bool) -> Result<Vec<Seg>, Error> {
+    pub fn load_from_path(config: &mut Config, init: bool) -> Result<Vec<Seg>, Error> {
         if INIT_MEM_IMAGE.is_completed() {
             unsafe { Ok(MEM_IMAGE.segments().clone()) }
         } else {
             log::info!("Using falcon loader");
-            let path = &config.binary_path;
-            if config.ld_paths.is_none() {
+            let path = &config.roper.binary_path;
+            if config.roper.ld_paths.is_none() {
                 log::warn!(
                     "No ld_paths supplied. Attempting to complete using `ldd {}`.",
                     path
                 );
-                config.ld_paths = util::ldd::ld_paths(&path).ok();
+                config.roper.ld_paths = util::ldd::ld_paths(&path).ok();
             }
-            println!("ld_paths = {:#?}", config.ld_paths);
+            println!("ld_paths = {:#?}", config.roper.ld_paths);
             //let elf = Elf::from_file_with_base_address(path, base_address)?;
             let linker = ElfLinkerBuilder::new(path.into())
                 .do_relocations(false) // Not yet well-supported
-                .ld_paths(config.ld_paths.clone())
+                .ld_paths(config.roper.ld_paths.clone())
                 .link()?;
 
             //let program = elf.program()?;
@@ -580,7 +604,7 @@ pub mod falcon_loader {
                 .max()
                 .expect("Could not find maximum address");
             // initialize empty memory for the stack
-            let stack_data = vec![0; config.emulator_stack_size];
+            let stack_data = vec![0; config.roper.emulator_stack_size];
             // insert the stack into memory
             memory.set_memory(
                 stack_position,
@@ -609,8 +633,8 @@ pub mod falcon_loader {
             }
 
             let (arch, mode) = arch_mode_from_linker(&linker);
-            config.arch = arch;
-            config.mode = mode;
+            config.roper.arch = arch;
+            config.roper.mode = mode;
 
             // Do the lifting, then serialize and save the lifted program
             // but check to see if a previously lifted version already exists.
@@ -622,29 +646,35 @@ pub mod falcon_loader {
             };
             let p = format!("./cache/{:x}.ron.gz", mem_hash);
             let cached_path = Path::new(&p);
+
             // FIXME: temporarily disabled. Problems deserializing RON encoded Program structs.
             // experiment with different formats.
-            let program: il::Program = if false && cached_path.exists() {
-                ron_undump::<il::Program, &Path>(cached_path).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to deserialized cached il::Program at {:?}: {:?}",
-                        cached_path, e
+            let program: Option<il::Program> = if config.roper.use_push {
+                if false && cached_path.exists() {
+                    Some(
+                        ron_undump::<il::Program, &Path>(cached_path).unwrap_or_else(|e| {
+                            panic!(
+                                "Failed to deserialized cached il::Program at {:?}: {:?}",
+                                cached_path, e
+                            )
+                        }),
                     )
-                })
+                } else {
+                    log::info!("Lifting the intermediate representation of the program...");
+                    let program = linker
+                        .program()
+                        .expect("Failed to lift il::Program from ElfLinker");
+                    log::info!("Finished lifting program.");
+                    // ron_dump(&program, cached_path).expect("Failed to dump il::Program");
+                    Some(program)
+                }
             } else {
-                log::info!("Lifting the intermediate representation of the program...");
-                let program = linker
-                    .program()
-                    .expect("Failed to lift il::Program from ElfLinker");
-                log::info!("Finished lifting program.");
-                // ron_dump(&program, cached_path).expect("Failed to dump il::Program");
-                program
+                None
             };
 
             if init {
                 // TODO: let lift_program be optional, and only activated when using Push
-                INIT_MEM_IMAGE
-                    .call_once(|| initialize_memory_image(&segs, arch, mode, Some(program)));
+                INIT_MEM_IMAGE.call_once(|| initialize_memory_image(&segs, arch, mode, program));
             }
             Ok(segs)
         }
@@ -655,12 +685,14 @@ pub mod falcon_loader {
 mod test {
     use unicorn::{Arch, Mode};
 
+    use crate::configure::Config;
+
     use super::*;
 
     #[test]
     fn test_loader() {
         //pretty_env_logger::init();
-        let mut config = RoperConfig {
+        let roper_config = RoperConfig {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
@@ -681,7 +713,11 @@ mod test {
             bad_bytes: None,
             ..Default::default()
         };
-        let res = load_from_path(&config, false).expect("Failed to load /bin/sh");
+
+        let mut config = Config::default();
+        config.roper = roper_config;
+
+        let res = load_from_path(&config.roper, false).expect("Failed to load /bin/sh");
         println!("With legacy loader");
         for s in res.iter() {
             println!("Segment: {}", s);

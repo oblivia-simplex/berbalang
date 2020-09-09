@@ -1307,7 +1307,6 @@ pub mod creature {
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
     use crate::roper::Fitness;
     use crate::util;
-    use crate::util::architecture::Endian;
     use crate::util::random::hash_seed_rng;
 
     use super::*;
@@ -1362,6 +1361,10 @@ pub mod creature {
             } else {
                 self.profile = Some(profile)
             }
+        }
+
+        fn set_profile(&mut self, profile: Profile) {
+            self.profile = Some(profile)
         }
     }
 
@@ -1579,7 +1582,7 @@ mod test {
             max_len: 100,
             literal_rate: 0.3,
         };
-        loader::falcon_loader::load_from_path(&mut config.roper, true).expect("failed to load");
+        loader::falcon_loader::load_from_path(&mut config, true).expect("failed to load");
         crate::roper::init_soup(&mut config).expect("Failed to init soup");
         crate::logger::init("test");
         println!("Loading, linking, and lifting...");

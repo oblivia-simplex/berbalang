@@ -24,10 +24,11 @@ num_epochs = 500 # = infinite
 
 [fitness]
 #function = "register_conjunction"
-function = "register_pattern"
+function = "memory_pattern"
 #function = "error_rate" # weird idea
 #function = "register_conjunction"
-priority = "register_error + crash_count" # could this be set by the ff?
+#priority = "register_error + crash_count" # could this be set by the ff?
+priority = "1 / (pattern_writes + 1)"
 #priority = "register_error"
 #function = "code_coverage"
 target = 0
@@ -44,7 +45,8 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 ##
 #weighting = "(10 * (10 - min(10, gadgets_executed))) + (100 * register_novelty) + zeroes"
 # weighting = "1"
-weighting = "constancy_penalty * 10 + (100 * register_novelty) + register_error + (10 * crash_count / gadgets_executed)"
+#weighting = "constancy_penalty * 10 + (100 * register_novelty) + register_error + (10 * crash_count / gadgets_executed)"
+weighting = "(100 / (1 + pattern_writes)) + (10 / (1 + num_writes)) + (1 / (1 + gadgets_executed))"
 
 [tournament]
 num_offspring = 2
@@ -72,9 +74,9 @@ max_steps = 0x1000
 dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
-window_size  = 1000
-report_every = 1000
-dump_every = 1000
+window_size  = 10000
+report_every = 10000
+dump_every = 10000
 
 [roper]
 use_push = false
@@ -82,7 +84,7 @@ use_push = false
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sshd_ropgadget.json"
 soup_size = 0x10000
-binary_path = "./binaries/X86/MODE_32/tshark"
+binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 
 #num_emulators = 60
@@ -91,9 +93,10 @@ millisecond_timeout = 100
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 record_memory_writes = true
-output_registers= ["EAX", "EBX", "ECX", "EDX"]
+output_registers= ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
 randomize_registers = true
-register_pattern_file = "./experiments/register_pattern_sshd/register_patterns.txt"
+#register_pattern_file = "./experiments/syscalls_64.txt"
+memory_pattern = [0x41, 0x42]
 
 
 [push_vm]

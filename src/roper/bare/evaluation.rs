@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use unicorn::Cpu;
 
+use crate::configure::ClassificationProblem;
 use crate::emulator::register_pattern::{Register, UnicornRegisterState};
 use crate::ontogenesis::FitnessFn;
 use crate::roper::Sketches;
@@ -11,7 +12,6 @@ use crate::{
 };
 
 use super::*;
-use crate::configure::ClassificationProblem;
 
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
@@ -66,7 +66,7 @@ fn classification_problem_to_register_map<C: 'static + Cpu<'static>>(
 ) -> HashMap<Register<C>, u64> {
     let mut reg_map = HashMap::new();
     for (reg, val) in input_registers.iter().zip(problem.input.iter()) {
-        let reg: Register<C> = reg.into();
+        let reg: Register<C> = reg.parse().ok().expect("Failed to parse register name");
         let val: u64 = *val as u64;
         reg_map.insert(reg, val);
     }
@@ -82,7 +82,7 @@ impl<'a, C: 'static + Cpu<'static>> Develop<Creature> for Evaluator<C> {
         // TODO: implement classification task here.
         if let Some(ref problems) = self.config.problems {
             for problem in problems {
-                let reg_map = classification_problem_to_register_map(
+                let reg_map: HashMap<Register<C>, u64> = classification_problem_to_register_map::<C>(
                     problem,
                     &self.config.roper.input_registers,
                 );

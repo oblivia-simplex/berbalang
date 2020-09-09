@@ -1,8 +1,11 @@
 use std::cmp::{Ord, PartialOrd};
+use std::collections::{BTreeMap, BinaryHeap};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bitflags::_core::ops::Index;
+use bson::document::Entry;
 use capstone::Instructions;
 use crossbeam::queue::SegQueue;
 //use indexmap::map::IndexMap;
@@ -14,8 +17,9 @@ pub use unicorn::unicorn_const::Error as UCError;
 use unicorn::Cpu;
 
 use crate::emulator::loader;
-use crate::emulator::loader::{get_static_memory_image, Seg};
+use crate::emulator::loader::{get_static_memory_image, try_to_get_static_memory_image, Seg};
 use crate::emulator::register_pattern::{Register, RegisterState};
+use crate::util::architecture::{write_integer, Endian};
 
 // TODO: why store the size at all, if you're just going to
 // throw it away?
@@ -81,8 +85,7 @@ pub struct Profile {
     pub gadgets_executed: Vec<HashSet<u64>>,
     #[cfg(not(feature = "full_dump"))]
     #[serde(skip)]
-    pub writeable_memory: Vec<Vec<Seg>>,
-    pub write_logs: Vec<Vec<MemLogEntry>>,
+    pub memory_writes: Vec<SparseData>,
     pub executable: bool,
 }
 
@@ -96,8 +99,7 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
         let mut gadgets_executed = Vec::new();
-        let writeable_memory_regions = Vec::new();
-        let mut write_logs = Vec::new();
+        let mut memory_writes = Vec::new();
 
         let Profiler {
             block_log,
@@ -119,7 +121,7 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         computation_times.push(emulation_time);
         register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
 
-        write_logs.push(segqueue_to_vec(write_log));
+        memory_writes.push(mem_log_to_sparse_data(&segqueue_to_vec(write_log)));
 
         Self {
             paths,
@@ -127,8 +129,7 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             emulation_times: computation_times,
             gadgets_executed,
             registers: register_maps,
-            writeable_memory: writeable_memory_regions,
-            write_logs,
+            memory_writes,
             executable: true,
         }
     }
@@ -153,8 +154,7 @@ impl Profile {
             emulation_times,
             registers,
             gadgets_executed,
-            writeable_memory,
-            write_logs,
+            memory_writes,
             executable,
         } = other;
 
@@ -163,8 +163,7 @@ impl Profile {
         self.emulation_times.extend(emulation_times.into_iter());
         self.registers.extend(registers.into_iter());
         self.gadgets_executed.extend(gadgets_executed.into_iter());
-        self.writeable_memory.extend(writeable_memory.into_iter());
-        self.write_logs.extend(write_logs.into_iter());
+        self.memory_writes.extend(memory_writes.into_iter());
         self.executable &= executable;
     }
 
@@ -175,8 +174,7 @@ impl Profile {
         let mut computation_times = Vec::new();
         let mut register_maps = Vec::new();
         let mut gadgets_executed = Vec::new();
-        let writeable_memory_regions = Vec::new();
-        let mut write_logs = Vec::new();
+        let mut memory_writes = Vec::new();
 
         for Profiler {
             block_log,
@@ -202,7 +200,7 @@ impl Profile {
             // FIXME: use a different data type for output states.
             register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
 
-            write_logs.push(segqueue_to_vec(write_log));
+            memory_writes.push(mem_log_to_sparse_data(&segqueue_to_vec(write_log)));
         }
 
         Self {
@@ -211,8 +209,7 @@ impl Profile {
             emulation_times: computation_times,
             gadgets_executed,
             registers: register_maps,
-            writeable_memory: writeable_memory_regions,
-            write_logs,
+            memory_writes,
             executable: true,
         }
     }
@@ -239,40 +236,6 @@ impl Profile {
                 })
                 .collect::<String>()
         })
-    }
-
-    pub fn addresses_written_to(&self) -> HashSet<u64> {
-        let mut set = HashSet::new();
-        self.write_logs.iter().flatten().for_each(|entry| {
-            for i in 0..entry.num_bytes_written {
-                set.insert(entry.address + i as u64);
-            }
-        });
-        set
-    }
-
-    pub fn mem_write_ratio(&self) -> f64 {
-        let memory = get_static_memory_image();
-        let size_of_writeable = memory.size_of_writeable_memory();
-        let bytes_written = self.addresses_written_to().len();
-        bytes_written as f64 / size_of_writeable as f64
-    }
-
-    /// Given a word `w`, return a vector of entries that show
-    /// that word was written. If the word was not written, return
-    /// an empty vector.
-    ///
-    /// This method flattens the write_log, and doesn't distinguish
-    /// between inputs. This is easily changed, if we end up needing
-    /// to make that distinction in the future.
-    pub fn was_this_written(&self, w: u64) -> Vec<&MemLogEntry> {
-        self.write_logs
-            .iter()
-            .flatten()
-            .filter(|entry| {
-                entry.value == w // could return hamming score instead
-            })
-            .collect()
     }
 
     pub fn was_this_executed(&self, w: u64) -> bool {
@@ -352,10 +315,85 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SparseData(BTreeMap<u64, u8>);
+
+impl SparseData {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn insert_u8(&mut self, address: u64, byte: u8) -> Option<u8> {
+        self.0.insert(address, byte)
+    }
+
+    pub fn insert_word(&mut self, address: u64, word: u64, size: usize) {
+        let (endian, word_size) = if let Some(memory) = try_to_get_static_memory_image() {
+            (memory.endian, memory.word_size)
+        } else {
+            (Endian::Little, 8)
+        };
+        let mut buf = vec![0_u8; word_size];
+        write_integer(endian, word_size, word, &mut buf);
+        for (offset, byte) in buf.into_iter().enumerate() {
+            if offset >= size {
+                break;
+            }
+            self.insert_u8(address + offset as u64, byte);
+        }
+    }
+
+    pub fn find_seq(&self, seq: &[u8]) -> Vec<u64> {
+        let mut found_at = Vec::new();
+        let mut prev = None;
+        let mut i = 0_usize;
+        for (addr, byte) in self.0.iter() {
+            if i == 0 {
+                if byte == &seq[i] {
+                    prev = Some(*addr);
+                    found_at.push(*addr); // provisionally. we'll pop it if need be
+                    i += 1;
+                } else {
+                    // nothing to do here.
+                }
+            } else {
+                if prev == Some(addr - 1) && *byte == seq[i] {
+                    // contiguity check
+                    i += 1;
+                } else {
+                    i = 0;
+                    prev = None;
+                    found_at.pop();
+                }
+            }
+            if i >= seq.len() {
+                i = 0;
+                prev = None;
+            }
+        }
+        found_at
+    }
+}
+
+fn mem_log_to_sparse_data(mem_log: &[MemLogEntry]) -> SparseData {
+    let mut sparse = SparseData::new();
+    for log in mem_log.iter() {
+        debug_assert!(log.num_bytes_written <= 8);
+        sparse.insert_word(log.address, log.value, log.num_bytes_written);
+    }
+    sparse
+}
+
 pub trait HasProfile {
     fn profile(&self) -> Option<&Profile>;
 
     fn add_profile(&mut self, profile: Profile);
+
+    fn set_profile(&mut self, profile: Profile);
 }
 
 #[cfg(test)]
@@ -375,6 +413,26 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn test_sparse_data() {
+        let mut sparse = SparseData::new();
+
+        sparse.insert_word(0, 0xcafebabe_deadbeef, 8);
+        sparse.insert_word(8, 0xbeefface_cafebeef, 8);
+        sparse.insert_word(1024, 0xbeefbeef_beefbeef, 8);
+
+        println!("sparse = {:#x?}", sparse);
+
+        let res = sparse.find_seq(&[0xef, 0xbe]);
+
+        println!("res = {:#x?}", res);
+
+        let res = sparse.find_seq(&[0xca, 0xef]);
+
+        println!("res = {:#x?}", res);
+    }
+
     #[test]
     fn test_collate() {
         let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
