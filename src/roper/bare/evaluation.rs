@@ -1,15 +1,12 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use unicorn::Cpu;
 
 use crate::configure::ClassificationProblem;
-use crate::emulator::register_pattern::{Register, UnicornRegisterState};
+use crate::emulator::register_pattern::Register;
 use crate::ontogenesis::FitnessFn;
 use crate::roper::Sketches;
-use crate::{
-    configure::Config, emulator::hatchery::Hatchery, evolution::Phenome, ontogenesis::Develop, util,
-};
+use crate::{configure::Config, emulator::hatchery::Hatchery, ontogenesis::Develop, util};
 
 use super::*;
 

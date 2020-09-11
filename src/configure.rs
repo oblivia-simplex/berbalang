@@ -6,9 +6,7 @@ use chrono::prelude::*;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::emulator::register_pattern::{
-    parse_register_pattern_file, RegisterPattern, RegisterPatternConfig,
-};
+use crate::emulator::register_pattern::{parse_register_pattern_file, RegisterPattern};
 use crate::error::Error;
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -293,7 +291,11 @@ impl RoperConfig {
 
     pub fn registers_to_check(&self) -> Vec<String> {
         let mut set = HashSet::new();
-        for r in self.output_registers.iter() {
+        for r in self
+            .output_registers
+            .iter()
+            .chain(self.input_registers.iter())
+        {
             set.insert(r.clone());
         }
         for rp in self.parsed_register_patterns.iter() {

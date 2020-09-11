@@ -19,7 +19,7 @@ use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::emulator::pack::Pack;
 use crate::emulator::profiler::{Profile, Profiler};
-use crate::emulator::register_pattern::{Register, RegisterState};
+use crate::emulator::register_pattern::Register;
 use crate::error::Error;
 
 //use std::sync::atomic::{AtomicUsize, Ordering};
@@ -289,7 +289,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                         }
 
                         if config.record_basic_blocks {
-                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
+                            let _hook = hooking::install_code_logging_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
                         }
 
                         if cfg!(feature = "disassemble_trace") {
@@ -498,7 +498,7 @@ pub mod hooking {
             log::trace!("\n{}\n{}", registers, disas);
         };
         // TODO: print registers
-        code_hook_all(emu, CodeHookType::BLOCK, callback)
+        code_hook_all(emu, CodeHookType::CODE, callback)
     }
 
     pub fn install_address_tracking_hook<C: 'static + Cpu<'static>>(
@@ -540,7 +540,7 @@ pub mod hooking {
         }
     }
 
-    pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
+    pub fn install_code_logging_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         profiler: &mut Profiler<C>,
         gadget_addrs: &[u64],
@@ -564,7 +564,7 @@ pub mod hooking {
             block_log.push(block);
         };
 
-        let hooks = code_hook_all(emu, CodeHookType::BLOCK, bb_callback)?;
+        let hooks = code_hook_all(emu, CodeHookType::CODE, bb_callback)?;
 
         Ok(hooks)
     }

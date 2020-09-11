@@ -5,6 +5,18 @@ authors = ["Lucca Fraser", "lucca@inventati.org"]
 license = "GPL-2.0"
 edition = "2018"
 
+[lib]
+name = "berbalib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "berbalang"
+path = "src/bin/berbalang.rs"
+
+[[bin]]
+name = "run_rop"
+path = "src/bin/run_rop.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 default = []

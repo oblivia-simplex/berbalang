@@ -11,7 +11,6 @@ use unicorn::Cpu;
 
 use crate::emulator::loader;
 use crate::emulator::loader::{get_static_memory_image, Seg};
-use crate::emulator::profiler::Profile;
 use crate::error::Error;
 use crate::util;
 use crate::util::architecture::Endian;

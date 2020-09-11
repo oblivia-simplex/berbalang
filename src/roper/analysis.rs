@@ -183,10 +183,11 @@ where
     }
 
     log::info!(
-        "Island #{island} Champion: {champion:#?}\nIsland #{island} Best: {best:#?}",
+        "Island #{island} Champion: {champion:#?}\nIsland #{island} Best: {best:#?}\nIsland #{island}, Epoch {epoch}",
         island = config.island_identifier,
         best = window.best,
         champion = window.champion,
+        epoch = epoch,
     );
 
     if let Ok(stat) = procinfo::pid::statm_self() {

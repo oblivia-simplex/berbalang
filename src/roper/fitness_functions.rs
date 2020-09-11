@@ -3,7 +3,7 @@ use std::sync::Arc;
 use hashbrown::HashSet;
 
 use crate::configure::Config;
-use crate::emulator::loader::{get_static_memory_image, Seg};
+use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::Phenome;
 use crate::fitness::Weighted;

@@ -35,11 +35,10 @@ mod fitness_functions;
 
 /// The `creature` module contains the implementation of the `Genome` and `Phenome`
 /// traits associated with `roper` mode.
-mod bare;
+pub mod bare;
 
 /// A ROPER-specific implementation of Spector's PUSH VM.
-#[allow(dead_code)]
-mod push;
+pub mod push;
 
 /// load binary before calling this function
 pub fn init_soup(config: &mut Config) -> Result<(), Error> {

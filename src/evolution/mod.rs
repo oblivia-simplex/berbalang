@@ -42,10 +42,12 @@ pub trait Mutation {
     }
 }
 
+//@formatter:off
 #[derive(Clone, Hash, Serialize)]
+//@formatter:on
 pub struct LinearChromosome<
-    A: Debug + Clone + Hash + Serialize + DeserializeOwned,
-    M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A>,
+    A: Debug + Clone + Hash + Serialize + DeserializeOwned + Sized,
+    M: Debug + Clone + Hash + Serialize + DeserializeOwned + Mutation<Allele = A> + Sized,
 > {
     pub chromosome: Vec<A>,
     pub mutations: Vec<Option<M>>,

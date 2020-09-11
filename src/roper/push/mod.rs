@@ -1299,10 +1299,8 @@ pub mod creature {
     use std::fmt;
     use std::hash::{Hash, Hasher};
 
-    use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use rand::thread_rng;
 
-    use crate::emulator::pack::Pack;
     use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
     use crate::roper::Fitness;

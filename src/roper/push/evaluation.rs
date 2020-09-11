@@ -11,7 +11,7 @@ use crate::evolution::{Genome, Phenome};
 use crate::fitness::Weighted;
 use crate::ontogenesis::{Develop, FitnessFn};
 use crate::roper::push;
-use crate::roper::push::{register_pattern_to_push_args, Creature, MachineState, Val};
+use crate::roper::push::{register_pattern_to_push_args, Creature, MachineState};
 use crate::roper::Sketches;
 use crate::util;
 

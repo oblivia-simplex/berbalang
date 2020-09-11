@@ -6,7 +6,7 @@
 job = "Roper"
 selection = "Tournament" 
 
-num_islands = 16
+num_islands = 4
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
 mutation_rate = 0.1
 mutation_exponent = 2.0
@@ -96,7 +96,7 @@ record_memory_writes = true
 output_registers= ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
 randomize_registers = true
 #register_pattern_file = "./experiments/syscalls_64.txt"
-memory_pattern = [0x41, 0x42]
+memory_pattern = [0xbe, 0xef]
 
 
 [push_vm]

@@ -1,11 +1,9 @@
 use std::cmp::{Ord, PartialOrd};
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bitflags::_core::ops::Index;
-use bson::document::Entry;
 use capstone::Instructions;
 use crossbeam::queue::SegQueue;
 //use indexmap::map::IndexMap;
@@ -17,7 +15,7 @@ pub use unicorn::unicorn_const::Error as UCError;
 use unicorn::Cpu;
 
 use crate::emulator::loader;
-use crate::emulator::loader::{get_static_memory_image, try_to_get_static_memory_image, Seg};
+use crate::emulator::loader::{try_to_get_static_memory_image, Seg};
 use crate::emulator::register_pattern::{Register, RegisterState};
 use crate::util::architecture::{write_integer, Endian};
 
@@ -232,7 +230,7 @@ impl Profile {
                     } else {
                         ""
                     };
-                    format!("{}{}\n", prefix, b.disassemble())
+                    format!("{}{}", prefix, b.disassemble())
                 })
                 .collect::<String>()
         })
