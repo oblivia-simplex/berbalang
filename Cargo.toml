@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Lucca Fraser", "lucca@inventati.org"]
 license = "GPL-2.0"
 edition = "2018"
+default-run = "berbalang"
 
 [lib]
 name = "berbalib"
@@ -51,6 +52,7 @@ fnv = "1"
 goblin = { version = "0.2", features = [ "alloc" ] }
 hamming = "0.1"
 hashbrown = { version = "0.7", features = ["serde", "rayon", "inline-more"] }
+hex = "0.4"
 itertools = "0.9"
 log = "0.4"
 non-dominated-sort = { git = "https://github.com/oblivia-simplex/non-dominated-sort-rs" }
@@ -69,6 +71,7 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde-pickle = "0.6"
 serde_json = "1"
 serde_derive = "1"
+subslice = "0.2"
 sliding_windows = "3"
 streaming-stats = "0.1"
 threadpool = "1.8"

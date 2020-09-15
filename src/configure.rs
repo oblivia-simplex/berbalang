@@ -47,7 +47,7 @@ pub struct Config {
     pub num_islands: usize,
     // The island identifier is used internally
     #[serde(default)]
-    pub island_identifier: usize,
+    pub island_id: usize,
     pub crossover_period: f64,
     pub crossover_rate: f32,
     #[serde(default)]
@@ -192,7 +192,7 @@ impl Config {
             selection = self.selection,
             date = local_date.format("%Y/%m/%d"),
             pop_name = self.observer.population_name,
-            island = self.island_identifier,
+            island = self.island_id,
         );
 
         for sub in ["", "soup", "population", "champions"].iter() {
@@ -274,6 +274,8 @@ pub struct RoperConfig {
     #[serde(default)]
     pub bad_bytes: Option<HashMap<String, u8>>,
     pub memory_pattern: Option<Vec<u8>>,
+    #[serde(default)]
+    pub break_on_calls: bool,
 }
 
 impl RoperConfig {
@@ -349,6 +351,7 @@ impl Default for RoperConfig {
             binary_path: "/bin/sh".to_string(),
             ld_paths: None,
             bad_bytes: None,
+            break_on_calls: false,
         }
     }
 }
@@ -399,4 +402,5 @@ impl Default for Selection {
 pub enum Problem {
     Classification(ClassificationProblem),
     RegisterSpecification(RegisterPattern),
+    MemoryPattern(Vec<u8>),
 }

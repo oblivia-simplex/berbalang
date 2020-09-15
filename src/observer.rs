@@ -1,6 +1,7 @@
 // A Logger needs to asynchronously gather and periodically
 // record information on the evolutionary process.
 
+use std::fmt::Debug;
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -128,7 +129,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         if epoch_limit_reached {
             log::debug!("epoch limit reached");
             self.report();
-            crate::stop_everything(self.config.island_identifier, false);
+            crate::stop_everything(self.config.island_id, false);
         }
 
         if let Some(ref champion) = self.champion {
@@ -137,7 +138,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                 log::info!("dumping winning champion to {}", path);
                 dump(champion, &path).expect("failed to dump champion");
                 self.report();
-                crate::stop_everything(self.config.island_identifier, true);
+                crate::stop_everything(self.config.island_id, true);
             }
         }
     }
@@ -208,7 +209,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         if updated {
             log::info!(
                 "Island {}: new best:\n{:#?}",
-                self.config.island_identifier,
+                self.config.island_id,
                 self.best.as_ref().expect("Updated, but no best?")
             );
         }
@@ -241,7 +242,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                 champion.generate_description();
                 log::info!(
                     "Island {}: new champion:\n{:#?}",
-                    self.config.island_identifier,
+                    self.config.island_id,
                     champion
                 );
                 // dump the champion
@@ -269,7 +270,13 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         (self.report_fn)(&self, self.counter, &self.config);
     }
 
-    pub fn log_record<S: Serialize>(&self, record: S, name: &str) {
+    pub fn log_record<S: Serialize + Debug>(&self, record: S, name: &str) {
+        log::info!(
+            "Island {}, logging to {}: {:#?}",
+            self.config.island_id,
+            name,
+            record
+        );
         self.stat_writers[name]
             .lock()
             .expect("poisoned lock on window's logger")
@@ -315,6 +322,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             return;
         }
         let mut soup = self.soup();
+        log::info!("Soup size: {} alleles", soup.len());
         let path = format!(
             "{}/soup/soup_{}.json",
             self.config.data_directory(),

@@ -1,16 +1,16 @@
 use std::cmp::{Ord, PartialOrd};
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use capstone::Instructions;
 use crossbeam::queue::SegQueue;
-//use indexmap::map::IndexMap;
-//use indexmap::set::IndexSet;
 use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use subslice::SubsliceExt;
 pub use unicorn::unicorn_const::Error as UCError;
 use unicorn::Cpu;
 
@@ -49,7 +49,7 @@ impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "[BLOCK 0x{:08x} - 0x{:08x}]",
+            "[CODE 0x{:08x} - 0x{:08x}]",
             self.entry,
             self.entry + self.size as u64
         )
@@ -59,17 +59,61 @@ impl fmt::Debug for Block {
 pub struct Profiler<C: Cpu<'static>> {
     /// The Arc<RwLock<_>> fields need to be writeable for the unicorn callbacks.
     pub block_log: Arc<SegQueue<Block>>,
+    pub ret_count: Arc<AtomicUsize>,
+    pub call_stack_depth: Arc<AtomicUsize>,
     pub gadget_log: Arc<SegQueue<u64>>,
     //Arc<RwLock<Vec<u64>>>,
     /// These fields are written to after the emulation has finished.
     pub written_memory: Vec<Seg>,
     pub write_log: Arc<SegQueue<MemLogEntry>>,
+    pub committed_write_log: Arc<Mutex<SparseDataHelper>>,
     //Arc<RwLock<Vec<MemLogEntry>>>,
     pub cpu_error: Option<unicorn::Error>,
     pub emulation_time: Duration,
-    pub registers: HashMap<Register<C>, u64>,
-    registers_to_read: Vec<Register<C>>,
+    pub registers_at_last_ret: Arc<Mutex<HashMap<Register<C>, u64>>>,
+    pub registers_to_read: Vec<Register<C>>,
     pub input: HashMap<Register<C>, u64>,
+}
+
+impl<C: Cpu<'static>> Default for Profiler<C> {
+    fn default() -> Self {
+        Self {
+            ret_count: Arc::new(AtomicUsize::new(0)),
+            call_stack_depth: Arc::new(AtomicUsize::new(0)),
+            write_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::default())),
+            input: HashMap::default(),
+            registers_at_last_ret: Arc::new(Mutex::new(HashMap::default())),
+            cpu_error: None,
+            registers_to_read: Vec::new(),
+            emulation_time: Duration::default(),
+            block_log: Arc::new(SegQueue::new()),
+            gadget_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::new())),
+            written_memory: vec![],
+            committed_write_log: Default::default(),
+        }
+    }
+}
+
+impl<C: Cpu<'static>> Profiler<C> {
+    pub fn new(output_registers: &[Register<C>], input: &HashMap<Register<C>, u64>) -> Self {
+        Self {
+            registers_to_read: output_registers.to_vec(),
+            input: input.clone(),
+            ..Default::default()
+        }
+    }
+
+    pub fn read_registers(&mut self, emu: &mut C) {
+        let mut registers = self.registers_at_last_ret.lock().unwrap();
+        for r in &self.registers_to_read {
+            let val = emu.reg_read(*r).expect("Failed to read register!");
+            registers.insert(*r, val);
+        }
+    }
+
+    pub fn set_error(&mut self, error: unicorn::Error) {
+        self.cpu_error = Some(error)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -85,6 +129,7 @@ pub struct Profile {
     #[serde(skip)]
     pub memory_writes: Vec<SparseData>,
     pub executable: bool,
+    pub ret_counts: Vec<usize>,
 }
 
 // FIXME: refactor so that we don't have any code duplication between
@@ -98,15 +143,18 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         let mut register_maps = Vec::new();
         let mut gadgets_executed = Vec::new();
         let mut memory_writes = Vec::new();
+        let mut ret_counts = Vec::new();
 
         let Profiler {
             block_log,
-            write_log,
+            // write_log,
             cpu_error,
             emulation_time,
-            registers,
+            registers_at_last_ret: registers,
             gadget_log,
             written_memory,
+            ret_count,
+            committed_write_log,
             ..
         } = p;
         paths.push(segqueue_to_vec(block_log));
@@ -117,9 +165,18 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         gadgets_executed.push(executed);
         cpu_errors.push(cpu_error);
         computation_times.push(emulation_time);
-        register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
+        register_maps.push(RegisterState::new::<C>(
+            &registers.lock().unwrap(),
+            Some(&written_memory),
+        ));
 
-        memory_writes.push(mem_log_to_sparse_data(&segqueue_to_vec(write_log)));
+        let log = (Arc::try_unwrap(committed_write_log).ok().unwrap())
+            .into_inner()
+            .unwrap();
+        memory_writes.push(log.into());
+        // memory_writes.push(segqueue_to_vec(write_log).into());
+
+        ret_counts.push(ret_count.load(std::sync::atomic::Ordering::Relaxed));
 
         Self {
             paths,
@@ -129,6 +186,7 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             registers: register_maps,
             memory_writes,
             executable: true,
+            ret_counts,
         }
     }
 }
@@ -154,6 +212,7 @@ impl Profile {
             gadgets_executed,
             memory_writes,
             executable,
+            ret_counts,
         } = other;
 
         self.paths.extend(paths.into_iter());
@@ -162,54 +221,8 @@ impl Profile {
         self.registers.extend(registers.into_iter());
         self.gadgets_executed.extend(gadgets_executed.into_iter());
         self.memory_writes.extend(memory_writes.into_iter());
+        self.ret_counts.extend(ret_counts.into_iter());
         self.executable &= executable;
-    }
-
-    pub fn collate<C: 'static + Cpu<'static>>(profilers: Vec<Profiler<C>>) -> Self {
-        //let mut write_trie = Trie::new();
-        let mut paths = Vec::new(); // PrefixSet::new();
-        let mut cpu_errors = Vec::new();
-        let mut computation_times = Vec::new();
-        let mut register_maps = Vec::new();
-        let mut gadgets_executed = Vec::new();
-        let mut memory_writes = Vec::new();
-
-        for Profiler {
-            block_log,
-            write_log,
-            cpu_error,
-            emulation_time,
-            registers,
-            gadget_log,
-            written_memory,
-            ..
-        } in profilers.into_iter()
-        {
-            paths.push(segqueue_to_vec(block_log));
-            let mut executed = HashSet::new();
-            while let Ok(g) = gadget_log.pop() {
-                executed.insert(g);
-            }
-            gadgets_executed.push(executed);
-            // NOTE: changing gadgets_executed to a vec of hashsets
-
-            cpu_errors.push(cpu_error);
-            computation_times.push(emulation_time);
-            // FIXME: use a different data type for output states.
-            register_maps.push(RegisterState::new::<C>(&registers, Some(&written_memory)));
-
-            memory_writes.push(mem_log_to_sparse_data(&segqueue_to_vec(write_log)));
-        }
-
-        Self {
-            paths,
-            cpu_errors,
-            emulation_times: computation_times,
-            gadgets_executed,
-            registers: register_maps,
-            memory_writes,
-            executable: true,
-        }
     }
 
     pub fn avg_emulation_micros(&self) -> f64 {
@@ -244,17 +257,31 @@ impl Profile {
         }
         false
     }
-}
 
-impl<C: 'static + Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
-    fn from(v: Vec<Profiler<C>>) -> Self {
-        Self::collate(v)
+    /// The idea here is that we can take the lower bound of
+    /// the return count, on the one hand, and the number of unique
+    /// addresses that have been executed, to get a rough idea of
+    /// how many distinct gadgets have been executed. There are
+    /// ways to game this, of course: executing the same ROP-NOP
+    /// several times in a row, while executing a number of contiguous
+    /// instructions in sequence, each of which belonging to the
+    /// chromosome. But it's a good enough place to start.
+    pub fn gadgets_executed(&self, index: usize) -> usize {
+        self.gadgets_executed[index]
+            .len()
+            .min(self.ret_counts[index])
     }
 }
 
+// impl<C: 'static + Cpu<'static>> From<Vec<Profiler<C>>> for Profile {
+//     fn from(v: Vec<Profiler<C>>) -> Self {
+//         Self::collate(v)
+//     }
+// }
+
 impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "registers: {:?}; ", self.registers)?;
+        write!(f, "registers: {:?}; ", self.registers_at_last_ret)?;
         write!(f, "cpu_error: {:?}; ", self.cpu_error)?;
         write!(
             f,
@@ -264,28 +291,16 @@ impl<C: Cpu<'static>> fmt::Debug for Profiler<C> {
     }
 }
 
-impl<C: Cpu<'static>> Profiler<C> {
-    pub fn new(output_registers: &[Register<C>], input: &HashMap<Register<C>, u64>) -> Self {
-        Self {
-            registers_to_read: output_registers.to_vec(),
-            input: input.clone(),
-            ..Default::default()
-        }
-    }
-
-    pub fn read_registers(&mut self, emu: &mut C) {
-        for r in &self.registers_to_read {
-            let val = emu.reg_read(*r).expect("Failed to read register!");
-            self.registers.insert(*r, val);
-        }
-    }
-
-    pub fn register(&self, reg: Register<C>) -> Option<u64> {
-        self.registers.get(&reg).cloned()
-    }
-
-    pub fn set_error(&mut self, error: unicorn::Error) {
-        self.cpu_error = Some(error)
+pub fn read_registers_in_hook<C: Cpu<'static> + 'static>(
+    registers_at_last_ret: Arc<Mutex<HashMap<Register<C>, u64>>>,
+    registers_to_read: &[Register<C>],
+    engine: &unicorn::Unicorn<'_>,
+) {
+    let mut registers = registers_at_last_ret.lock().unwrap();
+    for r in registers_to_read {
+        let reg: i32 = (*r).into();
+        let val = engine.reg_read(reg).expect("Failed to read register!");
+        registers.insert(*r, val);
     }
 }
 
@@ -297,26 +312,10 @@ pub struct MemLogEntry {
     pub value: u64,
 }
 
-impl<C: Cpu<'static>> Default for Profiler<C> {
-    fn default() -> Self {
-        Self {
-            write_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::default())),
-            input: HashMap::default(),
-            registers: HashMap::default(),
-            cpu_error: None,
-            registers_to_read: Vec::new(),
-            emulation_time: Duration::default(),
-            block_log: Arc::new(SegQueue::new()),
-            gadget_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::new())),
-            written_memory: vec![],
-        }
-    }
-}
+#[derive(Clone, Hash, Default)]
+pub struct SparseDataHelper(BTreeMap<u64, u8>);
 
-#[derive(Clone, Debug)]
-pub struct SparseData(BTreeMap<u64, u8>);
-
-impl SparseData {
+impl SparseDataHelper {
     pub fn new() -> Self {
         Self(BTreeMap::new())
     }
@@ -342,6 +341,12 @@ impl SparseData {
                 break;
             }
             self.insert_u8(address + offset as u64, byte);
+        }
+    }
+
+    pub fn absorb_segqueue(&mut self, mem_log: &SegQueue<MemLogEntry>) {
+        while let Ok(m) = mem_log.pop() {
+            self.insert_word(m.address, m.value, m.num_bytes_written);
         }
     }
 
@@ -375,15 +380,85 @@ impl SparseData {
         }
         found_at
     }
+
+    pub fn telescope(&self) -> BTreeMap<u64, Vec<u8>> {
+        let mut last = 0_u64;
+        let mut scoped = BTreeMap::new();
+        let mut buf = vec![];
+        for (addr, byte) in self.0.iter() {
+            if *addr != last + 1 {
+                // discontinuity
+                let mut new_buf = vec![];
+                std::mem::swap(&mut buf, &mut new_buf);
+                if !new_buf.is_empty() {
+                    let start = 1 + last - new_buf.len() as u64;
+                    scoped.insert(start, new_buf);
+                }
+            }
+            buf.push(*byte);
+
+            last = *addr;
+        }
+
+        if !buf.is_empty() {
+            let start = 1 + last - buf.len() as u64;
+            scoped.insert(start, buf);
+        }
+
+        scoped
+    }
 }
 
-fn mem_log_to_sparse_data(mem_log: &[MemLogEntry]) -> SparseData {
-    let mut sparse = SparseData::new();
-    for log in mem_log.iter() {
-        debug_assert!(log.num_bytes_written <= 8);
-        sparse.insert_word(log.address, log.value, log.num_bytes_written);
+#[derive(Clone, Hash)]
+pub struct SparseData(BTreeMap<u64, Vec<u8>>);
+
+impl From<SparseDataHelper> for SparseData {
+    fn from(helper: SparseDataHelper) -> Self {
+        SparseData(helper.telescope())
     }
-    sparse
+}
+
+impl SparseData {
+    pub fn find_seq(&self, seq: &[u8]) -> Vec<u64> {
+        let mut found_at = Vec::new();
+        for (addr, buf) in self.0.iter() {
+            if let Some(offset) = buf.find(seq) {
+                found_at.push(addr + offset as u64);
+            }
+        }
+        found_at
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.values().map(|buf| buf.len()).sum()
+    }
+}
+
+impl fmt::Debug for SparseData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "SparseData {{")?;
+        for (addr, buf) in self.0.iter() {
+            writeln!(
+                f,
+                "    0x{:x}..0x{:x} => {}",
+                addr,
+                addr + buf.len() as u64,
+                hex::encode(&buf)
+            )?;
+        }
+        writeln!(f, "}}")
+    }
+}
+
+impl From<Vec<MemLogEntry>> for SparseData {
+    fn from(mem_log: Vec<MemLogEntry>) -> Self {
+        let mut sparse = SparseDataHelper::new();
+        for log in mem_log.iter() {
+            debug_assert!(log.num_bytes_written <= 8);
+            sparse.insert_word(log.address, log.value, log.num_bytes_written);
+        }
+        sparse.into()
+    }
 }
 
 pub trait HasProfile {
@@ -441,7 +516,7 @@ mod test {
                 ]),
                 cpu_error: None,
                 emulation_time: Default::default(),
-                registers: HashMap::new(),
+                registers_at_last_ret: HashMap::new(),
                 ..Default::default()
             },
             Profiler {
@@ -451,7 +526,7 @@ mod test {
                 ]),
                 cpu_error: None,
                 emulation_time: Default::default(),
-                registers: HashMap::new(),
+                registers_at_last_ret: HashMap::new(),
                 ..Default::default()
             },
         ];

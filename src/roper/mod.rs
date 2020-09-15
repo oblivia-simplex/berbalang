@@ -80,6 +80,7 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
 pub struct Sketches {
     pub register_error: CountMinSketch,
     pub memory_writes: CountMinSketch,
+    pub genetic: CountMinSketch,
     pub addresses_visited: CountMinSketch,
 }
 
@@ -89,6 +90,7 @@ impl Sketches {
             register_error: CountMinSketch::new(config),
             memory_writes: CountMinSketch::new(config),
             addresses_visited: CountMinSketch::new(config),
+            genetic: CountMinSketch::new(config),
         }
     }
 }
@@ -166,7 +168,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
                 let mut rng = hash_seed_rng(&config.random_seed);
                 for i in 0..num_islands {
                     let mut config = config.clone();
-                    config.island_identifier = i;
+                    config.island_id = i;
                     config.set_data_directory();
                     config.random_seed = rng.gen::<u64>();
                     let (observer, evaluator) = prepare_push(&config);
@@ -191,7 +193,7 @@ pub fn launch<C: 'static + Cpu<'static>>(config: Config) {
                 let mut rng = hash_seed_rng(&config.random_seed);
                 for i in 0..num_islands {
                     let mut config = config.clone();
-                    config.island_identifier = i;
+                    config.island_id = i;
                     config.set_data_directory();
                     config.random_seed = rng.gen::<u64>();
                     let (observer, evaluator) = prepare_bare(&config);

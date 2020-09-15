@@ -1409,7 +1409,7 @@ pub mod creature {
                 fitness: None,
                 front: None,
                 num_offspring: 0,
-                native_island: config.island_identifier,
+                native_island: config.island_id,
                 description: None,
             }
         }

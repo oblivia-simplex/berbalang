@@ -5,7 +5,7 @@ use hashbrown::HashSet;
 use crate::configure::Config;
 use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::profiler::{HasProfile, Profile};
-use crate::evolution::Phenome;
+use crate::evolution::{Genome, Phenome};
 use crate::fitness::Weighted;
 use crate::ontogenesis::FitnessFn;
 use crate::roper::Sketches;
@@ -13,7 +13,7 @@ use crate::util::entropy::Entropy;
 
 pub fn just_novelty_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
     if let Some(ref profile) = creature.profile() {
         let mut scores = vec![];
@@ -40,7 +40,7 @@ where
 // Monday morning, we'll get this sorted out.
 pub fn register_pattern_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
     // measure fitness
     // for now, let's just handle the register pattern task
@@ -84,7 +84,7 @@ where
             let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
             weighted_fitness.insert_or_add("crash_count", crashes as f64);
 
-            let gadgets_executed = profile.gadgets_executed[idx].len();
+            let gadgets_executed = profile.gadgets_executed(idx);
             weighted_fitness.insert_or_add("gadgets_executed", gadgets_executed as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
@@ -114,7 +114,7 @@ where
 
 pub fn register_entropy_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
     if let Some(ref profile) = creature.profile() {
         if let Some(registers) = profile.registers.last() {
@@ -140,7 +140,7 @@ where
 // in particular, we need to iterate through the runs in the profile.
 pub fn register_conjunction_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
     if let Some(ref profile) = creature.profile() {
         if let Some(registers) = profile.registers.last() {
@@ -170,22 +170,40 @@ where
     creature
 }
 
-pub fn memory_pattern_ff<C>(mut creature: C, _sketch: &mut Sketches, config: Arc<Config>) -> C
+pub fn memory_pattern_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
+    static SUBPATTERN_LABELS: [&str; 5] = [
+        "subpattern_1",
+        "subpattern_2",
+        "subpattern_3",
+        "subpattern_4",
+        "subpattern_5",
+    ];
     if let Some(profile) = creature.profile() {
+        let mut fitness = Weighted::new(&config.fitness.weighting);
+
         let pattern = config
             .roper
             .memory_pattern
             .as_ref()
             .expect("No memory pattern provided");
 
-        let occurrences = profile
-            .memory_writes
-            .iter()
-            .map(|data| data.find_seq(pattern).len())
-            .sum::<usize>() as f64;
+        for i in 1..pattern.len() + 1 {
+            let sub_pattern = &pattern[0..i];
+            let occurrences = profile
+                .memory_writes
+                .iter()
+                .map(|data| data.find_seq(sub_pattern).len())
+                .sum::<usize>() as f64;
+            fitness.insert_or_add(SUBPATTERN_LABELS[i - 1], occurrences);
+        }
+
+        sketch.memory_writes.insert(&profile.memory_writes);
+        let memory_novelty = sketch.memory_writes.query(&profile.memory_writes);
+
+        fitness.insert_or_add("memory_novelty", memory_novelty);
 
         let num_mem_writes = profile
             .memory_writes
@@ -193,16 +211,23 @@ where
             .map(|data| data.len())
             .sum::<usize>() as f64;
 
-        let gadgets_executed = profile
-            .gadgets_executed
-            .iter()
-            .map(|h| h.len())
-            .sum::<usize>() as f64;
+        // let gadgets_executed = profile
+        //     .gadgets_executed
+        //     .iter()
+        //     .map(|h| h.len())
+        //     .sum::<usize>() as f64;
 
-        let mut fitness = Weighted::new(&config.fitness.weighting);
-        fitness.insert_or_add("pattern_writes", occurrences);
+        let gadgets_executed = profile.gadgets_executed(0) as f64;
+        let ret_count = profile.ret_counts[0] as f64;
+
+        creature.record_genetic_frequency(&mut sketch.genetic);
+        let genetic_diversity = creature.query_genetic_frequency(&sketch.genetic);
+
         fitness.insert_or_add("num_writes", num_mem_writes);
         fitness.insert_or_add("gadgets_executed", gadgets_executed);
+        fitness.insert_or_add("ret_count", ret_count);
+        // fitness.insert_or_add("ret_count", ret_count);
+        fitness.insert_or_add("genetic_diversity", genetic_diversity);
 
         creature.set_fitness(fitness);
         // actually, we probably want to average normalized scores
@@ -213,7 +238,7 @@ where
 
 pub fn code_coverage_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<Config>) -> C
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
     if creature.fitness().is_some() {
         return creature;
@@ -262,7 +287,7 @@ where
 
 pub fn get_fitness_function<C>(name: &str) -> FitnessFn<C, Sketches, Config>
 where
-    C: HasProfile + Phenome<Fitness = Weighted<'static>> + Sized + 'static,
+    C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized + 'static,
 {
     match name {
         "register_pattern" => Box::new(register_pattern_ff),

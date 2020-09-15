@@ -8,6 +8,8 @@ release:
 
 docker:
 	docker build -t pseudosue/berbalang .
+
+publish:
 	docker push pseudosue/berbalang
 
 docs:

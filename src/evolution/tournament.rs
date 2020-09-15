@@ -61,7 +61,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         } = self;
         log::debug!(
             "population size in island {}: {}",
-            config.island_identifier,
+            config.island_id,
             population.len()
         );
 
@@ -97,13 +97,13 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         // `pop_size` offspring have been spawned.
         // For now, only Island 0 can increment the epoch. We can weigh the
         // pros and cons of letting each island have its own epoch, later.
-        if config.island_identifier == 0
+        if config.island_id == 0
             && iteration % (config.pop_size / config.tournament.num_offspring) == 0
         {
             crate::increment_epoch_counter();
             log::info!(
                 "New global epoch. Island #{} epoch is {}",
-                config.island_identifier,
+                config.island_id,
                 Self::island_epoch(iteration, &config)
             );
         }
@@ -126,7 +126,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
                     log::debug!(
                         "{} has arrived from the pier of island {}",
                         immigrant.name(),
-                        config.island_identifier
+                        config.island_id
                     );
                     survivors.push(immigrant);
                 }

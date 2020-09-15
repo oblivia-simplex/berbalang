@@ -166,6 +166,10 @@ impl fmt::Debug for Creature {
             for state in &profile.registers {
                 writeln!(f, "\nSpidered register state:\n{:?}", state)?;
             }
+            for mem in profile.memory_writes.iter() {
+                writeln!(f, "Heap writes: {:#x?}", mem)?;
+                // writeln!(f, "telescoped: {:#x?}", mem.telescope())?;
+            }
             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }
         // writeln!(
@@ -252,7 +256,7 @@ impl Genome for Creature {
             fitness: None,
             front: None,
             num_offspring: 0,
-            native_island: config.island_identifier,
+            native_island: config.island_id,
             description: None,
         }
     }

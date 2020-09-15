@@ -112,6 +112,7 @@ dependencies = [
  "goblin",
  "hamming",
  "hashbrown",
+ "hex 0.4.2",
  "itertools",
  "log",
  "non-dominated-sort",
@@ -137,6 +138,7 @@ dependencies = [
  "serde_json",
  "sliding_windows",
  "streaming-stats",
+ "subslice",
  "threadpool",
  "toml",
  "unicorn",
@@ -207,7 +209,7 @@ dependencies = [
  "base64",
  "byteorder",
  "chrono",
- "hex",
+ "hex 0.3.2",
  "libc",
  "linked-hash-map",
  "md5",
@@ -682,6 +684,12 @@ name = "hex"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
+
+[[package]]
+name = "hex"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
 
 [[package]]
 name = "humantime"
@@ -1427,6 +1435,15 @@ name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
+
+[[package]]
+name = "subslice"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e487c3d5eff5fd5f8641dd21e8a83ebfead68557b3b3aebea0fab44b1c4875"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "svg"
