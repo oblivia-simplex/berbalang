@@ -107,6 +107,14 @@ impl Genotype {
 impl Genome for Genotype {
     type Allele = char;
 
+    fn generation(&self) -> usize {
+        self.generation
+    }
+
+    fn num_offspring(&self) -> usize {
+        self.num_offspring
+    }
+
     fn chromosome(&self) -> &[Self::Allele] {
         unimplemented!("rust makes treating strings as &[char] tricky")
     }

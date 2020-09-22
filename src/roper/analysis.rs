@@ -1,74 +1,89 @@
+use hashbrown::HashSet;
+use itertools::Itertools;
 use serde::Serialize;
 
 use crate::configure::Config;
+use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::{MapFit, Weighted};
+use crate::fitness::{average_weighted, Weighted};
 use crate::get_epoch_counter;
-use crate::observer::Window;
+use crate::observer::{LogRecord, Window};
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Clone, Debug)]
 pub struct StatRecord {
     pub counter: usize,
     pub epoch: usize,
-
+    pub generation: f64,
+    pub ratio_visited: f64,
+    pub soup_len: usize,
     pub length: f64,
-    pub register_error: f64,
-    pub scalar_fitness: f64,
-    pub priority_fitness: f64,
-    pub uniq_exec_count: f64,
-    pub ratio_written: f64,
     pub emulation_time: f64,
-    pub ratio_eligible: f64,
+    pub fitness: Weighted<'static>,
+}
+
+impl LogRecord for StatRecord {
+    fn header(&self) -> String {
+        let mut s =
+            format!("epoch,generation,length,emulation_time,ratio_visited,soup_len,fitness");
+        for factor in self.fitness.scores.keys().sorted() {
+            s.push_str(",");
+            s.push_str(factor);
+        }
+        s
+    }
+
+    fn row(&self) -> String {
+        let mut s = format!(
+            "{epoch},{generation},{length},{emulation_time},{ratio_visited},{soup_len},{fitness}",
+            epoch = self.epoch,
+            generation = self.generation,
+            length = self.length,
+            emulation_time = self.emulation_time,
+            ratio_visited = self.ratio_visited,
+            soup_len = self.soup_len,
+            fitness = self.fitness.scalar(),
+        );
+        for factor in self.fitness.values() {
+            // sorted by key
+            s.push_str(",");
+            s.push_str(&format!("{}", factor));
+        }
+        s
+    }
 }
 
 impl StatRecord {
-    fn for_specimen<C>(window: &Window<C>, specimen: &C, counter: usize, epoch: usize) -> Self
+    fn for_specimen<C>(specimen: &C, counter: usize, epoch: usize) -> Self
     where
         C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
     {
-        if specimen.fitness().is_none() {
-            return StatRecord::default();
-        }
-        // let specimen_exec_ratio = specimen.execution_ratio();
-        let specimen_scalar_fitness = specimen
-            .scalar_fitness(&window.config.fitness.weighting)
-            .unwrap_or(1.0);
-        let specimen_priority_fitness = specimen
-            .scalar_fitness(&window.config.fitness.priority)
-            .unwrap_or(1.0);
-        let specimen_register_error = specimen
-            .fitness()
-            .as_ref()
-            .and_then(|f| f.scores.get("register_error").cloned())
-            .unwrap_or_default();
         let specimen_len = specimen.chromosome().len() as f64;
-        let specimen_uniq_exec_count = specimen
-            .profile()
-            .map(|p| p.gadgets_executed.len())
-            .unwrap_or_default() as f64;
-        let specimen_ratio_written = specimen
-            .fitness()
-            .as_ref()
-            .and_then(|f| f.scores.get("mem_write_ratio").cloned())
-            .unwrap_or_default();
         let specimen_emulation_time = specimen
             .profile()
             .as_ref()
             .map(|p| p.avg_emulation_micros())
             .unwrap_or(0.0);
 
+        let addresses_visited = specimen
+            .profile()
+            .map(|p| p.addresses_visited().len())
+            .unwrap_or(0) as f64;
+        let code_size = get_static_memory_image().size_of_executable_memory();
+        let ratio_visited = addresses_visited / code_size as f64;
+
         Self {
             counter,
             epoch,
+            generation: specimen.generation() as f64,
+            soup_len: 0,
             length: specimen_len,
-            register_error: specimen_register_error,
-            scalar_fitness: specimen_scalar_fitness,
-            priority_fitness: specimen_priority_fitness,
-            uniq_exec_count: specimen_uniq_exec_count,
-            ratio_written: specimen_ratio_written,
             emulation_time: specimen_emulation_time,
-            ratio_eligible: 1.0,
+            ratio_visited,
+            fitness: specimen
+                .fitness()
+                .expect("Missing fitness in specimen")
+                .clone(),
         }
     }
 
@@ -91,30 +106,33 @@ impl StatRecord {
             })
             .collect::<Vec<&C>>();
 
+        let mut addresses_visited = HashSet::new();
+
+        for addresses in frame
+            .iter()
+            .filter_map(|c| c.profile())
+            .map(|p| p.addresses_visited())
+        {
+            addresses_visited.extend(addresses)
+        }
+
+        let soup_len = window.soup().len();
+
+        let code_size = get_static_memory_image().size_of_executable_memory();
+        let ratio_visited = addresses_visited.len() as f64 / code_size as f64;
+
         let ratio_eligible = frame.len() as f64 / window.frame.len() as f64;
         log::info!("Ratio eligible = {}", ratio_eligible);
 
         let length =
             frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame.len() as f64;
 
-        let scalar_fitness: f64 = frame
+        let fitnesses = frame
             .iter()
-            .filter_map(|g| g.scalar_fitness(&window.config.fitness.weighting))
-            .sum::<f64>()
-            / frame.len() as f64;
-        let priority_fitness: f64 = frame
-            .iter()
-            .filter_map(|g| g.scalar_fitness(&window.config.fitness.priority))
-            .sum::<f64>()
-            / frame.len() as f64;
-        let fitnesses = frame.iter().filter_map(|g| g.fitness()).collect::<Vec<_>>();
-        let fit_vec = MapFit::average(&fitnesses);
-
-        let avg_exec_count: f64 = frame
-            .iter()
-            .map(|g| g.profile().map(|p| p.gadgets_executed.len()).unwrap_or(0) as f64)
-            .sum::<f64>()
-            / frame.len() as f64;
+            .filter_map(|g| g.fitness())
+            .cloned()
+            .collect::<Vec<_>>();
+        let fitness = average_weighted(fitnesses);
 
         let emulation_time = frame
             .iter()
@@ -122,17 +140,18 @@ impl StatRecord {
             .sum::<f64>()
             / frame.len() as f64;
 
+        let generation =
+            frame.iter().map(|g| g.generation()).sum::<usize>() as f64 / frame.len() as f64;
+
         StatRecord {
             counter,
             epoch: get_epoch_counter(),
+            ratio_visited,
+            soup_len,
+            generation,
             length,
-            scalar_fitness,
-            priority_fitness,
-            uniq_exec_count: avg_exec_count,
-            register_error: fit_vec.get("register_error").unwrap_or_default(),
-            ratio_written: fit_vec.get("mem_write_ratio").unwrap_or_default(),
             emulation_time,
-            ratio_eligible,
+            fitness,
         }
     }
 }
@@ -173,12 +192,12 @@ where
     window.log_record(record, "mean");
 
     if let Some(ref champion) = window.champion {
-        let champion_record = StatRecord::for_specimen(&window, champion, counter, epoch);
+        let champion_record = StatRecord::for_specimen(champion, counter, epoch);
         window.log_record(champion_record, "champion");
     }
 
     if let Some(ref best) = window.best {
-        let best_record = StatRecord::for_specimen(&window, best, counter, epoch);
+        let best_record = StatRecord::for_specimen(best, counter, epoch);
         window.log_record(best_record, "best");
     }
 

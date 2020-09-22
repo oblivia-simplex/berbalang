@@ -17,7 +17,7 @@ use crate::util;
 
 pub struct Evaluator<C: Cpu<'static> + 'static> {
     config: Arc<Config>,
-    hatchery: Hatchery<C, Vec<u64>>,
+    hatchery: Hatchery<C>,
     sketches: Sketches,
     fitness_fn: Box<FitnessFn<push::Creature, Sketches, Config>>,
 }
@@ -55,13 +55,12 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
                 config.random_seed,
             )
         } else {
-            util::architecture::constant_register_state::<C>(&output_registers, 1_u64)
+            util::architecture::constant_register_state::<C>(&output_registers, 0_u64)
         };
-        let hatchery: Hatchery<C, Vec<u64>> = Hatchery::new(
+        let hatchery: Hatchery<C> = Hatchery::new(
             hatch_config,
             Arc::new(initial_register_state),
             Arc::new(output_registers),
-            None,
         );
 
         let sketches = Sketches::new(&config);
@@ -90,6 +89,7 @@ impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
         // for now, this doesn't matter -- we haven't defined any other kinds of tasks
         if creature.fitness.is_none() {
             let mut payloads = Vec::new();
+            // TODO: Refactor and generalize to other problem types.
             for register_pattern in self.config.roper.register_patterns() {
                 let payload =
                     problem_to_payload(&creature, register_pattern, self.config.push_vm.max_steps);
@@ -101,9 +101,9 @@ impl<C: 'static + Cpu<'static>> Develop<push::Creature> for Evaluator<C> {
             let mut used_payloads = Vec::new();
             for payload in payloads.into_iter() {
                 if !payload.is_empty() {
-                    let (payload, profile) = self
+                    let profile = self
                         .hatchery
-                        .execute(payload, None)
+                        .execute(payload.clone(), None)
                         .expect("Failed to evaluate creature");
                     creature.add_profile(profile);
                     used_payloads.push(payload);

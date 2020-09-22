@@ -200,15 +200,6 @@ impl fmt::Debug for Pareto<'_> {
     }
 }
 
-// impl IndexMut<&str> for Pareto<'static> {
-//     fn index_mut(&mut self, i: &str) -> &mut Self::Output {
-//         &mut self.0[i]
-//     }
-// }
-
-// Let's define a semilattice over fitness values. This might be more efficient and
-// easier to reason over than the "non-dominated sort".
-
 pub type Lexical<T> = Vec<T>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -291,12 +282,7 @@ impl FitnessScore for ShuffleFit {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Weighted<'a> {
-    // weights: Arc<FitnessMap<String, String>>,
     weighting: String,
-    //   #[serde(skip)]
-    //   pub weights: FitnessMap<String, fasteval::Instruction>,
-    //#[serde(skip)]
-    //slab: Mutex<Slab>,
     #[serde(borrow)]
     pub scores: BTreeMap<&'a str, f64>,
     cached_scalar: Mutex<Option<f64>>,
@@ -315,27 +301,24 @@ impl std::ops::Add for Weighted<'static> {
     /// I should probably mark this as a FIXME, because it has very counterintuitive results.
     fn add(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
-        for (k, v) in rhs.scores.iter() {
-            if let Some(s) = res.scores.get_mut(*k) {
-                *s += *v
+        let mut keys = rhs.scores.keys().collect::<Vec<&&'static str>>();
+        keys.extend(rhs.scores.keys());
+        keys.dedup();
+        for k in keys.into_iter() {
+            // k must be either in res's keys
+            if let Some(v_res) = res.scores.get_mut(*k) {
+                if let Some(v_rhs) = rhs.scores.get(*k) {
+                    *v_res += *v_rhs
+                }
+            // or else k must be in rhs's keys
+            } else if let Some(v_rhs) = rhs.scores.get(*k) {
+                res.insert(*k, *v_rhs);
             }
+            // so these options are mutually exhaustive
         }
         res
     }
 }
-
-// fn compile_weight_expression(
-//     expr: &str,
-//     slab: &mut fasteval::Slab,
-//     parser: &fasteval::Parser,
-// ) -> fasteval::Instruction {
-//     // See the `parse` documentation to understand why we use `from` like this:
-//     parser
-//         .parse(expr, &mut slab.ps)
-//         .expect("Failed to parse expression")
-//         .from(&slab.ps)
-//         .compile(&slab.ps, &mut slab.cs)
-// }
 
 impl Clone for Weighted<'_> {
     fn clone(&self) -> Self {
@@ -347,54 +330,17 @@ impl Clone for Weighted<'_> {
     }
 }
 
-// TODO: this could be optimized quite a bit by parsing the fasteval expressions
-// // when constructing the Weighted instance.
-// fn apply_weighting(
-//     weighting: &fasteval::Instruction,
-//     score: f64,
-//     mut slab: &mut Slab,
-// ) -> Result<f64, Error> {
-//     let mut map = BTreeMap::new();
-//     map.insert("x".to_string(), score);
-//     let res = fasteval::eval_compiled_ref!(weighting, &mut slab, &mut map);
-//     Ok(res)
-// }
-
-// fn apply_weighting(weighting: &str, score: f64) -> (bool, f64) {
-//     let mut ns = BTreeMap::new();
-//     let mut should_cache = true;
-//     ns.insert("x", score);
-//     if weighting.contains('E') {
-//         should_cache = false;
-//         ns.insert("E", get_epoch_counter() as f64);
-//     }
-//     let score =
-//         fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression");
-//     (should_cache, score)
-// }
-
-// fn compile_weight_map(
-//     weights: &FitnessMap<String, String>,
-//     mut slab: &mut Slab,
-// ) -> FitnessMap<String, fasteval::Instruction> {
-//     let parser = fasteval::Parser::new();
-//     let mut weight_map = FitnessMap::new();
-//     for (attr, weight) in weights.iter() {
-//         let compiled = compile_weight_expression(weight, &mut slab, &parser);
-//         weight_map.insert(attr.clone(), compiled);
-//     }
-//     weight_map
-// }
-
 impl Weighted<'static> {
     pub fn new(weighting: &str) -> Self {
         Self {
-            //slab: Mutex::new(slab),
             weighting: weighting.to_string(),
-            //weights: weight_map,
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
         }
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &f64> {
+        self.scores.iter().sorted_by_key(|p| p.0).map(|(_k, v)| v)
     }
 
     pub fn scale_by(&mut self, factor: f64) {
@@ -439,6 +385,16 @@ impl Weighted<'static> {
     pub fn declare_failure(&mut self) {
         *self.cached_scalar.get_mut().unwrap() = Some(f64::MAX)
     }
+}
+
+pub fn average_weighted(ws: Vec<Weighted<'static>>) -> Weighted<'static> {
+    let len = ws.len();
+    let mut res = ws
+        .into_iter()
+        .fold1(|a, b| a + b)
+        .expect("weight vector must not be empty");
+    res.scale_by(len as f64);
+    res
 }
 
 impl HasScalar for Weighted<'static> {

@@ -39,6 +39,10 @@ fn default_one() -> f64 {
     1.0
 }
 
+fn default_crossover_algorithm() -> String {
+    "alternating".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
     pub job: Job,
@@ -49,6 +53,8 @@ pub struct Config {
     #[serde(default)]
     pub island_id: usize,
     pub crossover_period: f64,
+    #[serde(default = "default_crossover_algorithm")]
+    pub crossover_algorithm: String,
     pub crossover_rate: f32,
     #[serde(default)]
     pub data: DataConfig,
@@ -105,9 +111,20 @@ pub struct FitnessConfig {
     pub target: f64,
     pub eval_by_case: bool,
     pub dynamic: bool,
-    pub priority: String,
+    #[serde(default)]
+    priority: String,
     pub function: String,
     pub weighting: String,
+}
+
+impl FitnessConfig {
+    pub fn priority(&self) -> &str {
+        if self.priority.is_empty() {
+            &self.weighting
+        } else {
+            &self.priority
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -276,6 +293,8 @@ pub struct RoperConfig {
     pub memory_pattern: Option<Vec<u8>>,
     #[serde(default)]
     pub break_on_calls: bool,
+    #[serde(default)]
+    pub monitor_stack_writes: bool,
 }
 
 impl RoperConfig {
@@ -352,6 +371,7 @@ impl Default for RoperConfig {
             ld_paths: None,
             bad_bytes: None,
             break_on_calls: false,
+            monitor_stack_writes: false,
         }
     }
 }

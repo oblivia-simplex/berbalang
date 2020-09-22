@@ -12,7 +12,7 @@ use super::*;
 
 pub struct Evaluator<C: 'static + Cpu<'static>> {
     config: Arc<Config>,
-    hatchery: Hatchery<C, Creature>,
+    hatchery: Hatchery<C>,
     sketches: Sketches,
     fitness_fn: Box<FitnessFn<Creature, Sketches, Config>>,
 }
@@ -36,13 +36,12 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
                 config.random_seed,
             )
         } else {
-            util::architecture::constant_register_state::<C>(&output_registers, 1_u64)
+            util::architecture::constant_register_state::<C>(&output_registers, 0_u64)
         };
-        let hatchery: Hatchery<C, Creature> = Hatchery::new(
+        let hatchery: Hatchery<C> = Hatchery::new(
             hatch_config,
             Arc::new(initial_register_state),
             Arc::new(output_registers),
-            None,
         );
 
         let sketches = Sketches::new(&config);
@@ -83,12 +82,11 @@ impl<'a, C: 'static + Cpu<'static>> Develop<Creature> for Evaluator<C> {
                     problem,
                     &self.config.roper.input_registers,
                 );
-                let (mut executed_creature, profile) = self
+                let profile = self
                     .hatchery
-                    .execute(creature, Some(reg_map))
+                    .execute(creature.chromosome().to_vec(), Some(reg_map))
                     .expect("Failed to evaluate creature");
-                executed_creature.add_profile(profile);
-                creature = executed_creature
+                creature.add_profile(profile);
             }
             return creature;
         }
@@ -100,9 +98,9 @@ impl<'a, C: 'static + Cpu<'static>> Develop<Creature> for Evaluator<C> {
         // is probably no less expensive, all things considered.
         // However, if we start appending arguments to the payload, then
         // we might want to do this differently.
-        let (mut creature, profile) = self
+        let profile = self
             .hatchery
-            .execute(creature, None)
+            .execute(creature.chromosome().to_vec(), None)
             .expect("Failed to evaluate creature");
         creature.add_profile(profile);
         creature

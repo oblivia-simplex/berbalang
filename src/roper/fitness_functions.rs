@@ -4,7 +4,7 @@ use hashbrown::HashSet;
 
 use crate::configure::Config;
 use crate::emulator::loader::get_static_memory_image;
-use crate::emulator::profiler::{HasProfile, Profile};
+use crate::emulator::profiler::HasProfile;
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::Weighted;
 use crate::ontogenesis::FitnessFn;
@@ -240,14 +240,14 @@ pub fn code_coverage_ff<C>(mut creature: C, sketch: &mut Sketches, config: Arc<C
 where
     C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
-    if creature.fitness().is_some() {
-        return creature;
-    }
+    // if creature.fitness().is_some() {
+    //     return creature;
+    // }
 
     if let Some(ref profile) = creature.profile() {
         let mut addresses_visited = HashSet::new();
         // TODO: optimize this, maybe parallelize
-        profile.basic_block_path_iterator().for_each(|path| {
+        profile.execution_trace_iter().for_each(|path| {
             for block in path {
                 for addr in block.entry..(block.entry + block.size as u64) {
                     addresses_visited.insert(addr);
@@ -267,20 +267,18 @@ where
         };
         // might be worth memoizing this call, but it's pretty cheap
         let code_size = get_static_memory_image().size_of_executable_memory();
-        let code_coverage = 1.0 - num_addr_visit / code_size as f64;
+        let code_coverage = num_addr_visit / code_size as f64;
 
         let mut fitness = Weighted::new(&config.fitness.weighting);
         fitness.insert("code_coverage", code_coverage);
         fitness.insert("code_frequency", avg_freq);
 
-        let gadgets_executed = profile.gadgets_executed.len();
-        fitness.insert("gadgets_executed", gadgets_executed as f64);
+        let gadgets_executed = profile.ret_counts.iter().sum::<usize>();
+        fitness.insert("ret_count", gadgets_executed as f64);
 
         creature.set_fitness(fitness);
-
-        // TODO: look into how unicorn tracks bbs. might be surprising in the context of ROP
     }
-    creature.set_profile(Profile::default()); // experimental. see if we can free some mem here.
+    // creature.set_profile(Profile::default()); // experimental. see if we can free some mem here.
 
     creature
 }

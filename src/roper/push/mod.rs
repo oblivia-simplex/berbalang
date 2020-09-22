@@ -1377,6 +1377,14 @@ pub mod creature {
     impl Genome for Creature {
         type Allele = Op;
 
+        fn generation(&self) -> usize {
+            self.chromosome.generation
+        }
+
+        fn num_offspring(&self) -> usize {
+            self.num_offspring
+        }
+
         fn chromosome(&self) -> &[Self::Allele] {
             &self.chromosome.chromosome
         }
@@ -1484,7 +1492,7 @@ pub mod creature {
         }
 
         fn is_goal_reached(&self, config: &Config) -> bool {
-            self.scalar_fitness(&config.fitness.priority)
+            self.scalar_fitness(&config.fitness.priority())
                 .map(|p| p - config.fitness.target <= std::f64::EPSILON)
                 .unwrap_or(false)
         }
@@ -1507,7 +1515,7 @@ pub mod creature {
                     let executed = self
                         .profile
                         .as_ref()
-                        .map(|p| p.was_this_executed(*w))
+                        .map(|p| p.times_executed(*w) > 0)
                         .unwrap_or(false);
                     writeln!(
                         f,

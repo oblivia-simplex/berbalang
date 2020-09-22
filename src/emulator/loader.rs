@@ -106,6 +106,16 @@ impl MemoryImage {
         self.containing_seg(addr, None).map(|a| a.perm)
     }
 
+    pub fn segtype_of_addr(&self, addr: u64, extra_segs: Option<&[Seg]>) -> Option<SegType> {
+        self.containing_seg(addr, extra_segs).map(|a| a.segtype)
+    }
+
+    pub fn is_stack_addr(&self, addr: u64) -> bool {
+        self.containing_seg(addr, None)
+            .map(|s| s.segtype == SegType::Stack)
+            .unwrap_or(false)
+    }
+
     pub fn offset_of_addr(&self, addr: u64) -> Option<u64> {
         self.containing_seg(addr, None)
             .map(|a| addr - a.aligned_start())
@@ -267,11 +277,16 @@ impl Seg {
     }
 
     pub fn from_mem_region_and_data(reg: unicorn::MemRegion, data: Vec<u8>) -> Self {
+        let memory = get_static_memory_image();
+        let segtype = memory
+            .containing_seg(reg.begin, None)
+            .map(|seg| seg.segtype)
+            .unwrap_or(SegType::Other);
         Self {
             addr: reg.begin,
             memsz: (reg.end - reg.begin) as usize,
             perm: reg.perms.into(),
-            segtype: SegType::Load, // FIXME
+            segtype,
             data,
         }
     }
@@ -369,7 +384,9 @@ pub enum SegType {
     GnuEhFrame,
     GnuStack,
     GnuRelRo,
-    Other, /* KLUDGE: a temporary catchall */
+    Stack,
+    Other,
+    /* KLUDGE: a temporary catchall */
 }
 
 impl SegType {
@@ -453,16 +470,14 @@ fn load_elf(elf: Elf<'_>, code_buffer: &[u8], stack_size: usize) -> Vec<Seg> {
             bottom = b
         };
     }
-
-    // TODO Reloc tables
-
     segs.push(Seg {
         addr: bottom,
         perm: Perms::READ | Perms::WRITE,
-        segtype: SegType::Load,
+        segtype: SegType::Stack,
         memsz: stack_size,
         data: vec![0; stack_size],
     });
+
     segs
 }
 
@@ -623,7 +638,11 @@ pub mod falcon_loader {
                         addr,
                         memsz,
                         perm,
-                        segtype: SegType::Load,
+                        segtype: if addr == stack_position {
+                            SegType::Stack
+                        } else {
+                            SegType::Load
+                        },
                         data,
                     }
                 })

@@ -58,7 +58,9 @@ impl fmt::Debug for Block {
 
 pub struct Profiler<C: Cpu<'static>> {
     /// The Arc<RwLock<_>> fields need to be writeable for the unicorn callbacks.
-    pub block_log: Arc<SegQueue<Block>>,
+    pub trace_log: Arc<SegQueue<Block>>,
+    pub committed_trace_log: Arc<Mutex<Vec<Block>>>,
+
     pub ret_count: Arc<AtomicUsize>,
     pub call_stack_depth: Arc<AtomicUsize>,
     pub gadget_log: Arc<SegQueue<u64>>,
@@ -86,10 +88,11 @@ impl<C: Cpu<'static>> Default for Profiler<C> {
             cpu_error: None,
             registers_to_read: Vec::new(),
             emulation_time: Duration::default(),
-            block_log: Arc::new(SegQueue::new()),
+            trace_log: Arc::new(SegQueue::new()),
             gadget_log: Arc::new(SegQueue::new()), //Arc::new(RwLock::new(Vec::new())),
             written_memory: vec![],
             committed_write_log: Default::default(),
+            committed_trace_log: Default::default(),
         }
     }
 }
@@ -124,7 +127,7 @@ pub struct Profile {
     pub cpu_errors: Vec<Option<UCError>>,
     pub emulation_times: Vec<Duration>,
     pub registers: Vec<RegisterState>,
-    pub gadgets_executed: Vec<HashSet<u64>>,
+    pub gadgets_executed: Vec<HashMap<u64, usize>>,
     #[cfg(not(feature = "full_dump"))]
     #[serde(skip)]
     pub memory_writes: Vec<SparseData>,
@@ -146,8 +149,6 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         let mut ret_counts = Vec::new();
 
         let Profiler {
-            block_log,
-            // write_log,
             cpu_error,
             emulation_time,
             registers_at_last_ret: registers,
@@ -155,12 +156,19 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             written_memory,
             ret_count,
             committed_write_log,
+            committed_trace_log,
             ..
         } = p;
-        paths.push(segqueue_to_vec(block_log));
-        let mut executed = HashSet::new();
+        paths.push(
+            Arc::try_unwrap(committed_trace_log)
+                .ok()
+                .unwrap()
+                .into_inner()
+                .unwrap(),
+        );
+        let mut executed = HashMap::new();
         while let Ok(g) = gadget_log.pop() {
-            executed.insert(g);
+            (*executed.entry(g).or_insert(0)) += 1;
         }
         gadgets_executed.push(executed);
         cpu_errors.push(cpu_error);
@@ -170,7 +178,9 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             Some(&written_memory),
         ));
 
-        let log = (Arc::try_unwrap(committed_write_log).ok().unwrap())
+        let log = Arc::try_unwrap(committed_write_log)
+            .ok()
+            .unwrap()
             .into_inner()
             .unwrap();
         memory_writes.push(log.into());
@@ -230,7 +240,7 @@ impl Profile {
             / self.emulation_times.len() as f64
     }
 
-    pub fn basic_block_path_iterator(&self) -> impl Iterator<Item = &Vec<Block>> + '_ {
+    pub fn execution_trace_iter(&self) -> impl Iterator<Item = &Vec<Block>> + '_ {
         self.paths.iter()
     }
 
@@ -238,7 +248,7 @@ impl Profile {
         self.paths.iter().map(move |path| {
             path.par_iter()
                 .map(|b| {
-                    let prefix = if self.was_this_executed(b.entry) {
+                    let prefix = if self.times_executed(b.entry) > 0 {
                         "----\n"
                     } else {
                         ""
@@ -249,13 +259,14 @@ impl Profile {
         })
     }
 
-    pub fn was_this_executed(&self, w: u64) -> bool {
+    pub fn times_executed(&self, w: u64) -> usize {
+        let mut count = 0;
         for gads in self.gadgets_executed.iter() {
-            if gads.contains(&w) {
-                return true;
+            if let Some(n) = gads.get(&w) {
+                count += *n;
             }
         }
-        false
+        count
     }
 
     /// The idea here is that we can take the lower bound of
@@ -267,9 +278,25 @@ impl Profile {
     /// instructions in sequence, each of which belonging to the
     /// chromosome. But it's a good enough place to start.
     pub fn gadgets_executed(&self, index: usize) -> usize {
-        self.gadgets_executed[index]
-            .len()
-            .min(self.ret_counts[index])
+        if index < self.gadgets_executed.len() {
+            0
+        } else {
+            self.gadgets_executed[index]
+                .len()
+                .min(self.ret_counts[index])
+        }
+    }
+
+    pub fn addresses_visited(&self) -> HashSet<u64> {
+        let mut set = HashSet::new();
+        for path in self.paths.iter() {
+            for block in path.iter() {
+                for addr in block.entry..(block.entry + block.size as u64) {
+                    set.insert(addr);
+                }
+            }
+        }
+        set
     }
 }
 
@@ -318,6 +345,10 @@ pub struct SparseDataHelper(BTreeMap<u64, u8>);
 impl SparseDataHelper {
     pub fn new() -> Self {
         Self(BTreeMap::new())
+    }
+
+    pub fn any_writes(&self, addr: u64) -> bool {
+        self.0.contains_key(&addr)
     }
 
     pub fn len(&self) -> usize {
@@ -510,7 +541,7 @@ mod test {
     fn test_collate() {
         let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
             Profiler {
-                block_log: Arc::new(segqueue![
+                trace_log: Arc::new(segqueue![
                     Block { entry: 1, size: 2 },
                     Block { entry: 3, size: 4 },
                 ]),
@@ -520,7 +551,7 @@ mod test {
                 ..Default::default()
             },
             Profiler {
-                block_log: Arc::new(segqueue![
+                trace_log: Arc::new(segqueue![
                     Block { entry: 1, size: 2 },
                     Block { entry: 6, size: 6 },
                 ]),

@@ -354,7 +354,7 @@ impl Phenome for Creature {
 
     fn is_goal_reached<'a>(&'a self, config: &'a Config) -> bool {
         if let Some(ref fitness) = self.fitness() {
-            if let Some(score) = fitness.get(&config.fitness.priority) {
+            if let Some(score) = fitness.get(&config.fitness.priority()) {
                 return (score - std::f64::MAX) <= std::f64::EPSILON;
             }
         }
@@ -391,6 +391,14 @@ struct Frame {
 // means "has a genome", not "is a genome"
 impl Genome for Creature {
     type Allele = machine::Inst;
+
+    fn generation(&self) -> usize {
+        self.generation
+    }
+
+    fn num_offspring(&self) -> usize {
+        self.num_offspring
+    }
 
     fn incr_num_offspring(&mut self, n: usize) {
         self.num_offspring += n

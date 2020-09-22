@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -71,14 +71,65 @@ impl<
     pub fn crossover(parents: &[&Self], config: &Config) -> Self {
         let min_mate_len = parents.iter().map(|p| p.len()).min().unwrap();
         let lambda = min_mate_len as f64 / config.crossover_period;
-        let distribution =
-            rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
-        Self::crossover_by_distribution(&distribution, &parents)
+        match config.crossover_algorithm.as_ref() {
+            "one_point" => Self::one_point_crossover(&parents, config),
+            "alternating" => {
+                let distribution =
+                    rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
+                Self::alternating_crossover(&distribution, parents, config)
+            }
+            _ => unimplemented!("bad algorithm name"),
+        }
     }
 
-    fn crossover_by_distribution<D: rand_distr::Distribution<f64>>(
+    fn one_point_crossover(parents: &[&Self], config: &Config) -> Self {
+        let mut rng = thread_rng();
+        let mother_idx = rng.gen::<usize>() % parents.len();
+        let father_idx = (mother_idx + 1) % parents.len();
+        let mother = parents[mother_idx];
+        let father = parents[father_idx];
+        let splice_f = rng.gen_range(0, father.len());
+        let splice_m = rng.gen_range(0, mother.len());
+        let mut chromosome = Vec::new();
+        let mut parentage = Vec::new();
+        let mut counter = 0;
+        for i in 0..splice_f {
+            chromosome.push(father.chromosome[i].clone());
+            parentage.push(father_idx);
+            counter += 1;
+            if counter >= config.max_length {
+                break;
+            }
+        }
+        for i in splice_m..mother.len() {
+            chromosome.push(mother.chromosome[i].clone());
+            parentage.push(mother_idx);
+            counter += 1;
+            if counter >= config.max_length {
+                break;
+            }
+        }
+
+        let name = util::name::random(4, &chromosome);
+        let len = chromosome.len();
+        let generation = father.generation.max(mother.generation);
+        Self {
+            chromosome,
+            mutations: vec![None; len],
+            parentage,
+            parent_names: parents
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<String>>(),
+            name,
+            generation,
+        }
+    }
+
+    fn alternating_crossover<D: rand_distr::Distribution<f64>>(
         distribution: &D,
         parents: &[&Self],
+        _config: &Config,
     ) -> Self {
         let mut chromosome = Vec::new();
         let mut parentage = Vec::new();
@@ -92,7 +143,12 @@ impl<
             let take_from = ptrs[src];
 
             if take_from >= parents[src].len() {
-                break;
+                if take_from >= parents[(src + 1) % parents.len()].len() {
+                    break;
+                } else {
+                    // provide a chance for genomes to grow
+                    continue;
+                }
             }
             //let take_to = std::cmp::min(ptrs[src] + sample(&mut rng), parents[src].len());
             let take_to = ptrs[src] + sample(&mut rng);
@@ -286,6 +342,10 @@ pub trait Genome: Hash {
     }
 
     fn incr_num_offspring(&mut self, _n: usize);
+
+    fn generation(&self) -> usize;
+
+    fn num_offspring(&self) -> usize;
 }
 
 pub trait Phenome: Clone + Debug + Send + Serialize + Hash {

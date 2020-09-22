@@ -10,6 +10,7 @@ num_islands = 6
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
 mutation_rate = 0.03
 mutation_exponent = 2.0
+crossover_algorithm = "one_point"
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
 max_init_len = 50
@@ -20,7 +21,7 @@ min_init_len = 10
 # and a minimal limit set.
 pop_size = 0x600
 max_length = 500
-num_epochs = 500 # = infinite
+num_epochs = 200
 
 [fitness]
 #function = "register_conjunction"
@@ -54,9 +55,11 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 #weighting = "100 * register_error + (10 * register_novelty) + (5 - min(5, gadgets_executed))"
 #priority = "register_error"
 #
-function = "memory_pattern"
-weighting = "(100000 / (1 + subpattern_4)) + (10000 / (1 + subpattern_3)) + (1000 / (1 + subpattern_2)) + (100 / (1 + subpattern_1)) + (10 / (num_writes + 1)) + memory_novelty + genetic_diversity + (1 / (1 + ret_count))"
-priority = "(100000 / (1 + subpattern_4)) + (10000 / (1 + subpattern_3)) + (1000 / (1 + subpattern_2)) + (100 / (1 + subpattern_1)) + (10 / (num_writes + 1)) + memory_novelty + genetic_diversity + (1 / (1 + ret_count))"
+#function = "memory_pattern"
+#weighting = "(100000 / (1 + subpattern_4)) + (10000 / (1 + subpattern_3)) + (1000 / (1 + subpattern_2)) + (100 / (1 + subpattern_1)) + (10 / (num_writes + 1)) + memory_novelty + genetic_diversity + (1 / (1 + ret_count))"
+#priority = "(100000 / (1 + subpattern_4)) + (10000 / (1 + subpattern_3)) + (1000 / (1 + subpattern_2)) + (100 / (1 + subpattern_1))" 
+function = "code_coverage"
+weighting = "1 - code_coverage"
 
 
 [tournament]
@@ -67,7 +70,7 @@ tournament_size = 4
 # maybe experiment with dynamic radius adjustments
 # as a response to loss of diversity
 geographic_radius = 10
-migration_rate = 0.01
+migration_rate = 0.1
 
 
 [roulette]
@@ -86,7 +89,7 @@ dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
 window_size  = 10000
-report_every = 10000
+report_every = 1000
 dump_every = 10000
 
 [roper]
@@ -103,12 +106,17 @@ max_emu_steps = 0x2000
 millisecond_timeout = 4
 emulator_stack_size = 0x1000
 record_basic_blocks = true
-record_memory_writes = true
 output_registers= ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
 randomize_registers = false
 register_pattern_file = "./register_pattern.txt"
 memory_pattern = [0x41, 0x42, 0x43, 0x44]
 break_on_calls = true
+# this similarity in field names is a bit confusing. maybe it would
+# be good to further break up the RoperConfig into some substructures,
+# to group related fields. One for register pattern stuff, one for memory
+# pattern stuff, etc.
+record_memory_writes = true
+monitor_stack_writes = true
 
 
 [push_vm]

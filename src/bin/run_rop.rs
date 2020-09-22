@@ -104,13 +104,12 @@ fn emulate<C: 'static + Cpu<'static>>(config: Config, chain: Vec<u64>) {
     } else {
         constant_register_state::<C>(&output_registers, 1_u64)
     };
-    let hatchery: Hatchery<C, Vec<u64>> = Hatchery::new(
+    let hatchery: Hatchery<C> = Hatchery::new(
         Arc::new(config.roper),
         Arc::new(initial_register_state),
         Arc::new(output_registers),
-        None,
     );
-    let (_, profile) = hatchery.execute(chain, None).expect("Emulation failed!");
+    let profile = hatchery.execute(chain, None).expect("Emulation failed!");
     log::info!("Execution complete.");
     println!("{:#x?}", profile);
 }

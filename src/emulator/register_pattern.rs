@@ -451,13 +451,18 @@ impl fmt::Debug for RegisterState {
                     r,
                     m.iter()
                         .map(|v| format!(
-                            "0x{:x}{}{}",
-                            v,
-                            memory
+                            "0x{addr:x}{perm}{stack}{string}",
+                            addr = v,
+                            perm = memory
                                 .perm_of_addr(*v)
                                 .map(|p| format!(" {}", p))
                                 .unwrap_or_else(String::new),
-                            util::bitwise::try_word_as_string(*v, endian, word_size)
+                            stack = if memory.is_stack_addr(*v) {
+                                " (stack)"
+                            } else {
+                                ""
+                            },
+                            string = util::bitwise::try_word_as_string(*v, endian, word_size)
                                 .map(|s| format!(" \"{}\"", s))
                                 .unwrap_or_else(String::new)
                         ))

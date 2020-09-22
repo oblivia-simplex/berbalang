@@ -3,38 +3,45 @@
 
 use std::fmt::Debug;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::BufWriter;
+use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 
 use hashbrown::HashMap;
-use serde::Serialize;
 
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
-use crate::hashmap;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::dump::dump;
 
+// TODO: fix the stat writer so that it uses the header() and row() functions.
+
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
-fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
-    let s = format!("{}/{}_statistics.csv", config.data_directory(), name);
-    let path = std::path::Path::new(&s);
-    let add_headers = !path.exists();
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| log::error!("Error opening statistics file at {:?}: {:?}", path, e))
-        .expect("Failed to open statistics file");
-    csv::WriterBuilder::new()
-        .delimiter(b',')
-        .terminator(csv::Terminator::Any(b'\n'))
-        .has_headers(add_headers)
-        .from_writer(file)
+fn get_log_filename(name: &str, config: &Config) -> String {
+    format!("{}/{}_statistics.csv", config.data_directory(), name)
 }
+
+// fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
+//     let s = get_log_filename(name, config);
+//     let path = std::path::Path::new(&s);
+//     let add_headers = !path.exists();
+//     let file = fs::OpenOptions::new()
+//         .create(true)
+//         .append(true)
+//         .open(path)
+//         .map_err(|e| log::error!("Error opening statistics file at {:?}: {:?}", path, e))
+//         .expect("Failed to open statistics file");
+//     csv::WriterBuilder::new()
+//         .delimiter(b',')
+//         .terminator(csv::Terminator::Any(b'\n'))
+//         .has_headers(add_headers)
+//         .from_writer(file)
+// }
 
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
@@ -84,8 +91,7 @@ pub struct Window<O: Phenome + 'static> {
     pub champion: Option<O>,
     // priority fitness best
     pub archive: Vec<O>,
-    #[allow(dead_code)] // TODO: re-establish pareto archive as optional
-    stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
+    // stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
 }
 
 impl<O: Genome + Phenome + 'static> Window<O> {
@@ -94,14 +100,14 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         let report_every = config.observer.report_every;
         assert!(window_size > 0, "window_size must be > 0");
         assert!(report_every > 0, "report_every must be > 0");
-        let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
-        let best_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "best")));
-        let champion_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "champion")));
-        let stat_writers = hashmap! {
-            "mean" => mean_stat_writer,
-            "best" => best_stat_writer,
-            "champion" => champion_stat_writer
-        };
+        // let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
+        // let best_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "best")));
+        // let champion_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "champion")));
+        // let stat_writers = hashmap! {
+        //     "mean" => mean_stat_writer,
+        //     "best" => best_stat_writer,
+        //     "champion" => champion_stat_writer
+        // };
         Self {
             frame: Vec::with_capacity(window_size),
             config,
@@ -113,7 +119,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             best: None,
             champion: None,
             archive: vec![],
-            stat_writers,
+            // stat_writers,
         }
     }
 
@@ -218,7 +224,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
     fn update_champion(&mut self) {
         let mut updated = false;
         for specimen in self.frame.iter() {
-            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.priority) {
+            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.priority()) {
                 match self.champion.as_ref() {
                     None => {
                         updated = true;
@@ -226,7 +232,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                     }
                     Some(champ) => {
                         if f < champ
-                            .scalar_fitness(&self.config.fitness.priority)
+                            .scalar_fitness(&self.config.fitness.priority())
                             .expect("there should be a fitness score here")
                         {
                             updated = true;
@@ -270,24 +276,41 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         (self.report_fn)(&self, self.counter, &self.config);
     }
 
-    pub fn log_record<S: Serialize + Debug>(&self, record: S, name: &str) {
+    pub fn log_record<S: LogRecord + Debug>(&self, record: S, name: &str) {
         log::info!(
             "Island {}, logging to {}: {:#?}",
             self.config.island_id,
             name,
             record
         );
-        self.stat_writers[name]
-            .lock()
-            .expect("poisoned lock on window's logger")
-            .serialize(record)
-            .map_err(|e| log::error!("Error logging record: {:?}", e))
-            .expect("Failed to log record!");
-        self.stat_writers[name]
-            .lock()
-            .expect("poisoned lock on window's logger")
-            .flush()
-            .expect("Failed to flush");
+        let filename = get_log_filename(name, &self.config);
+        // check to see if file exists yet
+        let msg = if !Path::exists((&filename).as_ref()) {
+            log::info!("Creating header for {}", filename);
+            format!("{}\n{}\n", record.header(), record.row())
+        } else {
+            format!("{}\n", record.row())
+        };
+        let fd = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&filename)
+            .expect("Failed to open log file");
+        let mut w = BufWriter::new(fd);
+        log::debug!("Logging to {}:\n{}", filename, msg);
+        write!(w, "{}", msg).expect("Failed to log row");
+
+        // self.stat_writers[name]
+        //     .lock()
+        //     .expect("poisoned lock on window's logger")
+        //     .serialize(record)
+        //     .map_err(|e| log::error!("Error logging record: {:?}", e))
+        //     .expect("Failed to log record!");
+        // self.stat_writers[name]
+        //     .lock()
+        //     .expect("poisoned lock on window's logger")
+        //     .flush()
+        //     .expect("Failed to flush");
     }
 
     pub fn dump_population(&self) {
@@ -362,4 +385,9 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
     // pub fn stop_evolution(&mut self) {
     //     self.stop_flag = true
     // }
+}
+
+pub trait LogRecord {
+    fn header(&self) -> String;
+    fn row(&self) -> String;
 }
