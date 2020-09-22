@@ -301,20 +301,10 @@ impl std::ops::Add for Weighted<'static> {
         let mut res = self.clone();
         let mut keys = rhs.scores.keys().collect::<Vec<&&'static str>>();
         keys.extend(self.scores.keys());
+        keys.sort();
         keys.dedup();
         for k in keys.into_iter() {
-            // k must be either in res's keys
-            if let Some(v_res) = res.scores.get_mut(*k) {
-                if let Some(v_rhs) = rhs.scores.get(*k) {
-                    *v_res += *v_rhs
-                }
-            // or else k must be in rhs's keys
-            } else if let Some(v_rhs) = rhs.scores.get(*k) {
-                res.insert(*k, *v_rhs);
-            } else {
-                unreachable!("If you see this, a programming error has been made.")
-            }
-            // so these options are mutually exhaustive
+            *res.scores.entry(*k).or_insert(0.0) += rhs.scores.get(*k).cloned().unwrap_or(0.0);
         }
         res
     }
@@ -351,6 +341,10 @@ impl Weighted<'static> {
 
     pub fn insert(&mut self, key: &'static str, val: f64) {
         self.scores.insert(key, val);
+    }
+
+    pub fn get(&self, key: &'static str) -> Option<&f64> {
+        self.scores.get(key)
     }
 
     pub fn insert_or_add(&mut self, key: &'static str, val: f64) {
@@ -426,30 +420,6 @@ impl MapFit for Weighted<'static> {
     {
         unimplemented!("doesn't really make sense for Weighted")
     }
-
-    fn average(frame: &[&Self]) -> Self {
-        debug_assert!(!frame.is_empty(), "Don't try to average empty frames");
-        let mut map = FitnessMap::new();
-        let mut weighting = None;
-        for p in frame.iter() {
-            if weighting.is_none() {
-                weighting = Some(p.weighting.clone());
-            }
-            for (&k, &v) in p.inner().iter() {
-                *(map.entry(k).or_insert(0.0)) += v;
-            }
-        }
-        let len = frame.len() as f64;
-        for (_k, v) in map.iter_mut() {
-            *v /= len;
-        }
-        let weighting = weighting.unwrap();
-        Self {
-            weighting,
-            scores: map,
-            cached_scalar: Mutex::new(None),
-        }
-    }
 }
 
 impl Index<&str> for Weighted<'static> {
@@ -484,6 +454,29 @@ mod test {
         let mut ps = vec![&p1, &p2];
         ps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         assert_eq!(ps[0], &p2);
+    }
+
+    #[test]
+    fn test_add_weighted() {
+        let mut w1 = Weighted::new("foo + 2 * bar");
+        w1.insert("foo", 0.5);
+        w1.insert("bar", 0.25);
+
+        let mut w2 = Weighted::new("foo + 2 * bar");
+        w2.insert("foo", 0.1);
+        w2.insert("bar", 0.75);
+
+        // 0.5 + 2 * 0.25 = 0.5 + 0.5 = 1.0
+        assert_eq!(w1.scalar(), 1.0);
+        // 0.1 + 2 * 0.75 = 0.1 + 1.50 = 1.6
+        assert_eq!(w2.scalar(), 1.6);
+
+        let w_sum = w1 + w2;
+        let foo = w_sum.get("foo").cloned().unwrap();
+        let bar = w_sum.get("bar").cloned().unwrap();
+        assert_eq!(foo, 0.6);
+        assert_eq!(bar, 1.0);
+        assert_eq!(w_sum.scalar(), 2.6);
     }
 
     // #[test]

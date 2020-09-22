@@ -156,27 +156,6 @@ impl StatRecord {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_stat_record_serialization() {
-        let record = StatRecord::default();
-        let file = std::io::stderr();
-        let mut writer = csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .terminator(csv::Terminator::Any(b'\n'))
-            .has_headers(false)
-            .from_writer(file);
-
-        writer
-            .serialize(&record)
-            .expect("Failed to serialize record!");
-        writer.flush().expect("Failed to flush");
-    }
-}
-
 pub fn report_fn<C>(window: &Window<C>, counter: usize, config: &Config)
 where
     C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,

@@ -12,7 +12,7 @@ use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
-use crate::fitness::{MapFit, Weighted};
+use crate::fitness::Weighted;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::ontogenesis::FitnessFn;
 use crate::util;
@@ -353,10 +353,8 @@ impl Phenome for Creature {
     }
 
     fn is_goal_reached<'a>(&'a self, config: &'a Config) -> bool {
-        if let Some(ref fitness) = self.fitness() {
-            if let Some(score) = fitness.get(&config.fitness.priority()) {
-                return (score - std::f64::MAX) <= std::f64::EPSILON;
-            }
+        if let Some(fitness) = self.scalar_fitness(&config.fitness.priority()) {
+            return fitness <= config.fitness.target;
         }
         false
     }

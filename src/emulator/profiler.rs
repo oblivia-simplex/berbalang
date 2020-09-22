@@ -450,6 +450,10 @@ impl From<SparseDataHelper> for SparseData {
 }
 
 impl SparseData {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
     pub fn find_seq(&self, seq: &[u8]) -> Vec<u64> {
         let mut found_at = Vec::new();
         for (addr, buf) in self.0.iter() {
@@ -520,11 +524,13 @@ mod test {
 
     #[test]
     fn test_sparse_data() {
-        let mut sparse = SparseData::new();
+        let mut sparse = SparseDataHelper::new();
 
         sparse.insert_word(0, 0xcafebabe_deadbeef, 8);
         sparse.insert_word(8, 0xbeefface_cafebeef, 8);
         sparse.insert_word(1024, 0xbeefbeef_beefbeef, 8);
+
+        let sparse: SparseData = sparse.into();
 
         println!("sparse = {:#x?}", sparse);
 
@@ -535,38 +541,5 @@ mod test {
         let res = sparse.find_seq(&[0xca, 0xef]);
 
         println!("res = {:#x?}", res);
-    }
-
-    #[test]
-    fn test_collate() {
-        let profilers: Vec<Profiler<CpuX86<'_>>> = vec![
-            Profiler {
-                trace_log: Arc::new(segqueue![
-                    Block { entry: 1, size: 2 },
-                    Block { entry: 3, size: 4 },
-                ]),
-                cpu_error: None,
-                emulation_time: Default::default(),
-                registers_at_last_ret: HashMap::new(),
-                ..Default::default()
-            },
-            Profiler {
-                trace_log: Arc::new(segqueue![
-                    Block { entry: 1, size: 2 },
-                    Block { entry: 6, size: 6 },
-                ]),
-                cpu_error: None,
-                emulation_time: Default::default(),
-                registers_at_last_ret: HashMap::new(),
-                ..Default::default()
-            },
-        ];
-
-        let profile: Profile = profilers.into();
-
-        println!(
-            "size of profile in mem: {}",
-            std::mem::size_of_val(&profile.paths)
-        );
     }
 }

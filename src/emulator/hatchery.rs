@@ -804,11 +804,7 @@ pub mod hooking {
 
 #[cfg(test)]
 mod test {
-    use std::iter;
-
-    use byteorder::{ByteOrder, LittleEndian};
     use rand::{thread_rng, Rng};
-    use unicorn::{CpuX86, RegisterX86};
 
     use crate::hashmap;
     use crate::util::architecture::{endian, word_size_in_bytes};
@@ -827,7 +823,7 @@ mod test {
             _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
             // now write the payload
-            let stack = tools::find_stack(emu)?;
+            let stack = tools::find_stack(emu).expect("no stack");
             let sp = stack.begin + (stack.end - stack.begin) / 2;
             emu.mem_write(sp, code)?;
             // set the stack pointer to the middle of the stack
