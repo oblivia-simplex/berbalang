@@ -150,20 +150,9 @@ impl<O: Genome + Phenome + 'static> Window<O> {
     }
 
     fn insert(&mut self, thing: O) {
-        // Update the "best" seen so far, using scalar fitness measures
-        match &self.best {
-            None => self.best = Some(thing.clone()),
-            Some(champ) => {
-                if let (Some(champ_fit), Some(thing_fit)) = (
-                    champ.scalar_fitness(&self.config.fitness.weighting),
-                    thing.scalar_fitness(&self.config.fitness.weighting),
-                ) {
-                    if thing_fit < champ_fit {
-                        self.best = Some(thing.clone())
-                    }
-                }
-            }
-        }
+        self.update_best(&thing);
+        self.update_champion(&thing);
+
         // insert the incoming thing into the observation window
         self.i = (self.i + 1) % self.window_size;
         if self.frame.len() < self.window_size {
@@ -178,11 +167,6 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             self.dump_soup();
             self.dump_population();
         }
-        if self.counter % self.config.pop_size == 0 {
-            // UNCOMMENT FOR PARETO FIXME // self.update_archive();
-            self.update_best();
-            self.update_champion();
-        }
         if self.counter % self.report_every == 0 {
             self.report();
         }
@@ -190,23 +174,22 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         self.is_halting_condition_reached();
     }
 
-    fn update_best(&mut self) {
+    fn update_best(&mut self, specimen: &O) {
         let mut updated = false;
-        for specimen in self.frame.iter() {
-            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.weighting) {
-                match self.best.as_ref() {
-                    None => {
-                        updated = true;
-                        self.best = Some(specimen.clone())
-                    }
-                    Some(champ) => {
-                        if f < champ
+        if let Some(specimen_fitness) = specimen.scalar_fitness(&self.config.fitness.weighting) {
+            match self.best.as_ref() {
+                None => {
+                    updated = true;
+                    self.best = Some(specimen.clone())
+                }
+                Some(champ) => {
+                    if specimen_fitness
+                        < champ
                             .scalar_fitness(&self.config.fitness.weighting)
                             .expect("There should be a fitness score here")
-                        {
-                            updated = true;
-                            self.best = Some(specimen.clone())
-                        }
+                    {
+                        updated = true;
+                        self.best = Some(specimen.clone())
                     }
                 }
             }
@@ -221,23 +204,22 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         }
     }
 
-    fn update_champion(&mut self) {
+    fn update_champion(&mut self, specimen: &O) {
         let mut updated = false;
-        for specimen in self.frame.iter() {
-            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.priority()) {
-                match self.champion.as_ref() {
-                    None => {
-                        updated = true;
-                        self.champion = Some(specimen.clone())
-                    }
-                    Some(champ) => {
-                        if f < champ
+        if let Some(specimen_fitness) = specimen.scalar_fitness(&self.config.fitness.priority()) {
+            match self.champion.as_ref() {
+                None => {
+                    updated = true;
+                    self.champion = Some(specimen.clone())
+                }
+                Some(champ) => {
+                    if specimen_fitness
+                        < champ
                             .scalar_fitness(&self.config.fitness.priority())
                             .expect("there should be a fitness score here")
-                        {
-                            updated = true;
-                            self.champion = Some(specimen.clone())
-                        }
+                    {
+                        updated = true;
+                        self.champion = Some(specimen.clone())
                     }
                 }
             }

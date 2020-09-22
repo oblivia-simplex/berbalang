@@ -297,12 +297,10 @@ impl PartialEq for Weighted<'_> {
 impl std::ops::Add for Weighted<'static> {
     type Output = Weighted<'static>;
 
-    /// There's a bit of a catch, here: the rhs needs to have all the keys that we're going to use.
-    /// I should probably mark this as a FIXME, because it has very counterintuitive results.
     fn add(self, rhs: Self) -> Self::Output {
         let mut res = self.clone();
         let mut keys = rhs.scores.keys().collect::<Vec<&&'static str>>();
-        keys.extend(rhs.scores.keys());
+        keys.extend(self.scores.keys());
         keys.dedup();
         for k in keys.into_iter() {
             // k must be either in res's keys
@@ -313,6 +311,8 @@ impl std::ops::Add for Weighted<'static> {
             // or else k must be in rhs's keys
             } else if let Some(v_rhs) = rhs.scores.get(*k) {
                 res.insert(*k, *v_rhs);
+            } else {
+                unreachable!("If you see this, a programming error has been made.")
             }
             // so these options are mutually exhaustive
         }
@@ -345,7 +345,7 @@ impl Weighted<'static> {
 
     pub fn scale_by(&mut self, factor: f64) {
         for (_, v) in self.scores.iter_mut() {
-            *v /= factor
+            *v = *v / factor
         }
     }
 
