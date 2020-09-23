@@ -23,9 +23,9 @@ where
                 scores.push(sketch.register_error.query((reg, vals)));
             }
         }
-        let register_novelty = stats::mean(scores.into_iter());
+        let register_freq = stats::mean(scores.into_iter());
         let mut fitness = Weighted::new(&config.fitness.weighting);
-        fitness.insert("register_novelty", register_novelty);
+        fitness.insert("register_freq", register_freq);
         let gadgets_executed = profile.gadgets_executed.len();
         fitness.insert("gadgets_executed", gadgets_executed as f64);
         creature.set_fitness(fitness);
@@ -68,7 +68,7 @@ where
             weighted_fitness.insert_or_add("register_error", register_error);
 
             // Calculate the novelty of register state errors
-            let register_novelty = stats::mean(
+            let register_freq = stats::mean(
                 pattern
                     .incorrect_register_states(&profile.registers[idx])
                     .iter()
@@ -78,7 +78,7 @@ where
                     }),
             );
 
-            weighted_fitness.insert_or_add("register_novelty", register_novelty);
+            weighted_fitness.insert_or_add("register_freq", register_freq);
 
             // how many times did it crash?
             let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
@@ -88,10 +88,10 @@ where
             weighted_fitness.insert_or_add("ret_count", ret_count as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
-            //let gen_freq = creature.query_genetic_frequency(sketch);
-            //creature.record_genetic_frequency(sketch);
+            creature.record_genetic_frequency(sketch);
+            let gen_freq = creature.query_genetic_frequency(sketch);
+            weighted_fitness.scores.insert("genetic_freq", gen_freq);
 
-            //weighted_fitness.scores.insert("genetic_freq", gen_freq);
             log::debug!("adding {:?} to {:?}", weighted_fitness, fitness);
             // NB: There's a quirk in the fitness addition implementation that makes it
             // non-commutative, in the general case. FIXME
@@ -126,7 +126,7 @@ where
 
             sketch.register_error.insert(&just_regs);
             let reg_freq = sketch.register_error.query(&just_regs);
-            weighted_fitness.insert("register_novelty", reg_freq);
+            weighted_fitness.insert("register_freq", reg_freq);
 
             weighted_fitness.insert("gadgets_executed", profile.gadgets_executed.len() as f64);
 
@@ -162,7 +162,7 @@ where
 
             sketch.register_error.insert(registers);
             let reg_freq = sketch.register_error.query(registers);
-            weighted_fitness.insert("register_novelty", reg_freq);
+            weighted_fitness.insert("register_freq", reg_freq);
 
             creature.set_fitness(weighted_fitness);
         }
@@ -201,9 +201,9 @@ where
         }
 
         sketch.memory_writes.insert(&profile.memory_writes);
-        let memory_novelty = sketch.memory_writes.query(&profile.memory_writes);
+        let memory_freq = sketch.memory_writes.query(&profile.memory_writes);
 
-        fitness.insert_or_add("memory_novelty", memory_novelty);
+        fitness.insert_or_add("memory_freq", memory_freq);
 
         let num_mem_writes = profile
             .memory_writes
@@ -221,13 +221,13 @@ where
         let ret_count = profile.ret_counts[0] as f64;
 
         creature.record_genetic_frequency(&mut sketch.genetic);
-        let genetic_diversity = creature.query_genetic_frequency(&sketch.genetic);
+        let genetic_freq = creature.query_genetic_frequency(&sketch.genetic);
 
         fitness.insert_or_add("num_writes", num_mem_writes);
         fitness.insert_or_add("gadgets_executed", gadgets_executed);
         fitness.insert_or_add("ret_count", ret_count);
         // fitness.insert_or_add("ret_count", ret_count);
-        fitness.insert_or_add("genetic_diversity", genetic_diversity);
+        fitness.insert_or_add("genetic_freq", genetic_freq);
 
         creature.set_fitness(fitness);
         // actually, we probably want to average normalized scores
