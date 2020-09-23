@@ -88,8 +88,8 @@ where
             weighted_fitness.insert_or_add("ret_count", ret_count as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
-            creature.record_genetic_frequency(sketch);
-            let gen_freq = creature.query_genetic_frequency(sketch);
+            creature.record_genetic_frequency(&mut sketch.genetic);
+            let gen_freq = creature.query_genetic_frequency(&sketch.genetic);
             weighted_fitness.scores.insert("genetic_freq", gen_freq);
 
             log::debug!("adding {:?} to {:?}", weighted_fitness, fitness);
