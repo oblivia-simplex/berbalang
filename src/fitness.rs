@@ -298,16 +298,29 @@ impl std::ops::Add for Weighted<'static> {
     type Output = Weighted<'static>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut res = self.clone();
-        let mut keys = rhs.scores.keys().collect::<Vec<&&'static str>>();
-        keys.extend(self.scores.keys());
-        keys.sort();
-        keys.dedup();
-        for k in keys.into_iter() {
-            *res.scores.entry(*k).or_insert(0.0) += rhs.scores.get(*k).cloned().unwrap_or(0.0);
-        }
-        res
+        add_weighted(&self, &rhs)
+        // let mut res = self.clone();
+        // let mut keys = rhs.scores.keys().collect::<Vec<&&'static str>>();
+        // keys.extend(self.scores.keys());
+        // keys.sort();
+        // keys.dedup();
+        // for k in keys.into_iter() {
+        //     *res.scores.entry(*k).or_insert(0.0) += rhs.scores.get(*k).cloned().unwrap_or(0.0);
+        // }
+        // res
     }
+}
+
+fn add_weighted(a: &Weighted<'static>, b: &Weighted<'static>) -> Weighted<'static> {
+    let mut res = a.clone();
+    let mut keys = a.scores.keys().collect::<Vec<_>>();
+    keys.extend(b.scores.keys());
+    keys.sort();
+    keys.dedup();
+    for k in keys.into_iter() {
+        *res.scores.entry(*k).or_insert(0.0) += b.scores.get(*k).cloned().unwrap_or(0.0);
+    }
+    res
 }
 
 impl Clone for Weighted<'_> {
@@ -327,6 +340,14 @@ impl Weighted<'static> {
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
         }
+    }
+
+    fn powf(&self, n: f64) -> Self {
+        let mut res = self.clone();
+        for v in res.scores.values_mut() {
+            *v = v.powf(n);
+        }
+        res
     }
 
     pub fn values(&self) -> impl Iterator<Item = &f64> {
@@ -381,14 +402,32 @@ impl Weighted<'static> {
     }
 }
 
-pub fn average_weighted(ws: Vec<Weighted<'static>>) -> Weighted<'static> {
+pub fn average_weighted(ws: &[Weighted<'static>]) -> Weighted<'static> {
     let len = ws.len();
-    let mut res = ws
-        .into_iter()
-        .fold1(|a, b| a + b)
-        .expect("weight vector must not be empty");
-    res.scale_by(len as f64);
-    res
+    let mut iter = ws.iter();
+    let mut first = iter
+        .next()
+        .expect("weight vector must not be empty")
+        .clone();
+    for w in iter {
+        first = add_weighted(&first, w);
+    }
+    first.scale_by(len as f64);
+    first
+}
+
+pub fn stddev_weighted(ws: &[Weighted<'static>], mean: &Weighted<'static>) -> Weighted<'static> {
+    let mut neg_mean = mean.clone();
+    neg_mean.scale_by(-1.0);
+    let mut res = Weighted::new(&neg_mean.weighting);
+    for w in ws
+        .iter()
+        .map(|w| add_weighted(w, &neg_mean))
+        .map(|w| w.powf(2.0))
+    {
+        res = add_weighted(&res, &w);
+    }
+    res.powf(0.5) // square root
 }
 
 impl HasScalar for Weighted<'static> {
@@ -479,6 +518,29 @@ mod test {
         assert_eq!(w_sum.scalar(), 2.6);
     }
 
+    #[test]
+    fn test_average_and_stddev_weighted() {
+        let mut w1 = Weighted::new("foo + bar");
+        w1.insert("foo", 1.0);
+        w1.insert("bar", 2.0);
+        let mut w2 = Weighted::new("foo + bar");
+        w2.insert("foo", 2.0);
+        w2.insert("bar", 1.0);
+        let ws = &[w1, w2];
+        let w_mean = average_weighted(ws);
+        println!("w_mean = {:?}", w_mean);
+        let w_mean_foo = w_mean.get("foo").cloned().unwrap();
+        let w_mean_bar = w_mean.get("bar").cloned().unwrap();
+        assert_eq!(w_mean_foo, 1.5);
+        assert_eq!(w_mean_bar, 1.5);
+
+        let std_dev = stddev_weighted(ws, &w_mean);
+        println!("std_dev = {:?}", std_dev);
+        let s_foo = std_dev.get("foo").cloned().unwrap();
+        let s_bar = std_dev.get("bar").cloned().unwrap();
+        assert_eq!(s_foo, 0.7071067811865476);
+        assert_eq!(s_bar, 0.7071067811865476);
+    }
     // #[test]
     // fn test_find_minima() {
     //     fn random_pareto() -> Pareto<'static> {

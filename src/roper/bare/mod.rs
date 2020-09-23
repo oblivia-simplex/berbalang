@@ -176,7 +176,7 @@ impl fmt::Debug for Creature {
                 },
                 exec = if exec_star { " *" } else { "" },
                 mutation = mutation
-                    .map(|m| format!("{:?}", m))
+                    .map(|m| format!(" {:?}", m))
                     .unwrap_or_else(String::new),
             )?;
         }

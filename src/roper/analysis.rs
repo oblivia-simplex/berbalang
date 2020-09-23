@@ -6,7 +6,7 @@ use crate::configure::Config;
 use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::{average_weighted, Weighted};
+use crate::fitness::{average_weighted, stddev_weighted, Weighted};
 use crate::get_epoch_counter;
 use crate::observer::{LogRecord, Window};
 
@@ -20,22 +20,29 @@ pub struct StatRecord {
     pub length: f64,
     pub emulation_time: f64,
     pub fitness: Weighted<'static>,
+    pub stdev_fitness: Option<Weighted<'static>>,
 }
 
 impl LogRecord for StatRecord {
     fn header(&self) -> String {
         let mut s =
-            format!("epoch,generation,length,emulation_time,ratio_visited,soup_len,fitness");
+            format!("epoch,generation,length,emulation_time,ratio_visited,soup_len,fitness,");
+        if self.stdev_fitness.is_some() {
+            s.push_str("stdev_fitness,");
+        }
         for factor in self.fitness.scores.keys().sorted() {
             s.push_str(",");
             s.push_str(factor);
+            if self.stdev_fitness.is_some() {
+                s.push_str(&format!(",stdev_{}", factor));
+            }
         }
         s
     }
 
     fn row(&self) -> String {
         let mut s = format!(
-            "{epoch},{generation},{length},{emulation_time},{ratio_visited},{soup_len},{fitness}",
+            "{epoch},{generation},{length},{emulation_time},{ratio_visited},{soup_len},{fitness},",
             epoch = self.epoch,
             generation = self.generation,
             length = self.length,
@@ -44,10 +51,21 @@ impl LogRecord for StatRecord {
             soup_len = self.soup_len,
             fitness = self.fitness.scalar(),
         );
-        for factor in self.fitness.values() {
+        if let Some(ref stdev_fitness) = self.stdev_fitness {
+            s.push_str(&format!("{},", stdev_fitness.scalar()));
+        }
+        let f_values = self.fitness.values().collect::<Vec<_>>();
+        let stdev_values = self
+            .stdev_fitness
+            .as_ref()
+            .map(|s| s.values().collect::<Vec<_>>());
+
+        for i in 0..(f_values.len()) {
             // sorted by key
-            s.push_str(",");
-            s.push_str(&format!("{}", factor));
+            s.push_str(&format!(",{}", f_values[i]));
+            if let Some(ref stdev_values) = stdev_values {
+                s.push_str(&format!(",{}", stdev_values[i]));
+            }
         }
         s
     }
@@ -84,6 +102,7 @@ impl StatRecord {
                 .fitness()
                 .expect("Missing fitness in specimen")
                 .clone(),
+            stdev_fitness: None,
         }
     }
 
@@ -120,9 +139,9 @@ impl StatRecord {
 
         let code_size = get_static_memory_image().size_of_executable_memory();
         let ratio_visited = addresses_visited.len() as f64 / code_size as f64;
-
-        let ratio_eligible = frame.len() as f64 / window.frame.len() as f64;
-        log::info!("Ratio eligible = {}", ratio_eligible);
+        //
+        // let ratio_eligible = frame.len() as f64 / window.frame.len() as f64;
+        // log::info!("Ratio eligible = {}", ratio_eligible);
 
         let length =
             frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame.len() as f64;
@@ -132,7 +151,8 @@ impl StatRecord {
             .filter_map(|g| g.fitness())
             .cloned()
             .collect::<Vec<_>>();
-        let fitness = average_weighted(fitnesses);
+        let mean_fitness = average_weighted(&fitnesses);
+        let stdev_fitness = stddev_weighted(&fitnesses, &mean_fitness);
 
         let emulation_time = frame
             .iter()
@@ -151,7 +171,8 @@ impl StatRecord {
             generation,
             length,
             emulation_time,
-            fitness,
+            fitness: mean_fitness,
+            stdev_fitness: Some(stdev_fitness),
         }
     }
 }

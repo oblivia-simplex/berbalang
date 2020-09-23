@@ -84,8 +84,8 @@ where
             let crashes = profile.cpu_errors.iter().filter_map(|x| *x).count();
             weighted_fitness.insert_or_add("crash_count", crashes as f64);
 
-            let gadgets_executed = profile.gadgets_executed(idx);
-            weighted_fitness.insert_or_add("gadgets_executed", gadgets_executed as f64);
+            let ret_count = profile.ret_counts[idx];
+            weighted_fitness.insert_or_add("ret_count", ret_count as f64);
 
             // FIXME: not sure how sound this frequency gauging scheme is.
             //let gen_freq = creature.query_genetic_frequency(sketch);
