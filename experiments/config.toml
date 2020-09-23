@@ -21,7 +21,7 @@ min_init_len = 10
 # and a minimal limit set.
 pop_size = 0x600
 max_length = 500
-num_epochs = 200
+num_epochs = 1000
 
 [fitness]
 #function = "register_conjunction"
@@ -51,15 +51,15 @@ dynamic = false # TODO: use this to decide whether to re-evaluate fitness
 #
 #weighting = "(10 * (20 - min(20, gadgets_executed))) + register_error + (10 * register_novelty) + crash_count"
 
-#function = "register_pattern"
-#weighting = "100 * register_error + (10 * register_novelty) + (5 - min(5, gadgets_executed))"
-#priority = "register_error"
+function = "register_pattern"
+weighting = "register_error + (10 * register_novelty)"
+priority = "register_error"
 #
 #function = "memory_pattern"
 #weighting = "(100000 / (1 + subpattern_4)) + (10000 / (1 + subpattern_3)) + (1000 / (1 + subpattern_2)) + (100 / (1 + subpattern_1)) + (10 / (num_writes + 1)) + memory_novelty + genetic_diversity + (1 / (1 + ret_count))"
 #priority = "(100000 / (1 + subpattern_4)) + (10000 / (1 + subpattern_3)) + (1000 / (1 + subpattern_2)) + (100 / (1 + subpattern_1))" 
-function = "code_coverage"
-weighting = "1 - code_coverage"
+#function = "code_coverage"
+#weighting = "1 - code_coverage"
 
 
 [tournament]
@@ -96,8 +96,8 @@ dump_every = 10000
 use_push = false
 #arch = "X86"
 #mode = "MODE_64"
-gadget_file = "./gadgets/sshd_ropgadget.json"
-#soup_size = 0x20000
+#gadget_file = "./gadgets/sshd_ropgadget.json"
+soup_size = 0x20000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 

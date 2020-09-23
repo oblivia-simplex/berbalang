@@ -26,9 +26,9 @@ pub struct StatRecord {
 impl LogRecord for StatRecord {
     fn header(&self) -> String {
         let mut s =
-            format!("epoch,generation,length,emulation_time,ratio_visited,soup_len,fitness,");
+            format!("epoch,generation,length,emulation_time,ratio_visited,soup_len,fitness");
         if self.stdev_fitness.is_some() {
-            s.push_str("stdev_fitness,");
+            s.push_str(",stdev_fitness");
         }
         for factor in self.fitness.scores.keys().sorted() {
             s.push_str(",");

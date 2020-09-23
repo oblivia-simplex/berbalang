@@ -21,7 +21,7 @@ min_init_len = 10
 # and a minimal limit set.
 pop_size = 0x600
 max_length = 500
-num_epochs = 200
+num_epochs = 1000
 
 [fitness]
 #function = "register_conjunction"
@@ -96,8 +96,8 @@ dump_every = 10000
 use_push = false
 #arch = "X86"
 #mode = "MODE_64"
-gadget_file = "./gadgets/sshd_ropgadget.json"
-#soup_size = 0x20000
+#gadget_file = "./gadgets/sshd_ropgadget.json"
+soup_size = 0x20000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 
