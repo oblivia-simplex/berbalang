@@ -84,6 +84,7 @@ pub struct Window<O: Phenome + 'static> {
     pub config: Arc<Config>,
     counter: usize,
     report_every: usize,
+    dump_every: usize,
     i: usize,
     window_size: usize,
     report_fn: ReportFn<O>,
@@ -97,7 +98,16 @@ pub struct Window<O: Phenome + 'static> {
 impl<O: Genome + Phenome + 'static> Window<O> {
     fn new(report_fn: ReportFn<O>, config: Arc<Config>) -> Self {
         let window_size = config.observer.window_size;
-        let report_every = config.observer.report_every;
+        let report_every = if let Some(n) = config.observer.report_every {
+            n
+        } else {
+            config.pop_size
+        };
+        let dump_every = if let Some(n) = config.observer.dump_every {
+            n
+        } else {
+            config.pop_size
+        };
         assert!(window_size > 0, "window_size must be > 0");
         assert!(report_every > 0, "report_every must be > 0");
         // let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
@@ -115,6 +125,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             i: 0,
             window_size,
             report_every,
+            dump_every,
             report_fn,
             best: None,
             champion: None,
@@ -163,7 +174,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
 
         // Perform various periodic tasks
         self.counter += 1;
-        if self.counter % self.config.observer.dump_every == 0 {
+        if self.counter % self.dump_every == 0 {
             self.dump_soup();
             self.dump_population();
         }
@@ -326,7 +337,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             return;
         }
         let mut soup = self.soup();
-        log::info!(
+        log::debug!(
             "Island {} soup size: {} alleles",
             self.config.island_id,
             soup.len()

@@ -14,6 +14,7 @@ use crate::util;
 use crate::util::architecture::{write_integer, Endian};
 use crate::util::bitwise;
 use crate::util::bitwise::nybble;
+use std::ops::Sub;
 
 /// Parse the register pattern config file
 pub fn parse_register_pattern_file(path: &str) -> Result<Vec<RegisterPattern>, Error> {
@@ -28,6 +29,8 @@ pub fn parse_register_patterns(data: &str) -> Result<Vec<RegisterPattern>, Error
         .into_iter()
         .map(|chunk| {
             let rp_conf = RegisterPatternConfig(toml::from_str(chunk)?);
+            log::info!("Register pattern config: {:#x?}", rp_conf);
+            // the reduction happens here, in the into()
             Ok(rp_conf.into())
         })
         .collect::<Result<Vec<RegisterPattern>, Error>>()
@@ -211,9 +214,29 @@ fn word_distance(w1: u64, w2: u64) -> f64 {
     (w1 ^ w2).count_ones() as f64
 }
 
+fn abs_difference<T: Sub<Output = T> + Ord>(x: T, y: T) -> T {
+    if x < y {
+        y - x
+    } else {
+        x - y
+    }
+}
+
+fn log_abs_diff(x: u64, y: u64) -> f64 {
+    let res = abs_difference(x, y);
+    if res == 0 {
+        res as f64
+    } else {
+        (res as f64).log2()
+    }
+}
+
 fn least_word_distance(w1: u64, w2s: &[u64]) -> f64 {
     assert!(w2s.len() > 0, "w2s must contain at least one word");
-    w2s.iter().map(|w2| (w1 ^ *w2).count_ones()).min().unwrap() as f64
+    w2s.iter()
+        .map(|w2| log_abs_diff(w1, *w2))
+        .fold1(|a, b| a.min(b))
+        .unwrap() as f64
 }
 
 fn max_word_distance() -> f64 {

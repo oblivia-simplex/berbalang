@@ -79,7 +79,7 @@ weight_decay = 0.8
 [hello]
 target = "Mares eat oats and does eat oats and little lambs eat ivy."
 
-
+# TODO: observe mutation rate's effects on ret count inm ropgadget pops
 [linear_gp]
 max_steps = 0x1000
 
@@ -88,15 +88,13 @@ dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
 window_size  = 10000
-report_every = 1000
-dump_every = 10000
 
 [roper]
 use_push = false
 #arch = "X86"
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sshd_ropgadget.json"
-soup_size = 0x20000
+soup_size = 0x40000
 binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 
@@ -116,17 +114,6 @@ break_on_calls = true
 # pattern stuff, etc.
 record_memory_writes = true
 monitor_stack_writes = true
-
-## TODO:
-# - when a regpat var is a pointer to a val,
-#   search the binary for addresses to it
-#   and then match against those, if they
-#   exist. only if the string/word doesn't
-#   exist in the binary, do it the old way.
-#   But in that case, enforce permissions
-#   checks. 
-#   Try to do this before the first batch of
-#   experiments. Should take ~ 2 hrs to do.
 
 [push_vm]
 max_steps = 0x1000

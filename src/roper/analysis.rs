@@ -42,7 +42,7 @@ impl LogRecord for StatRecord {
 
     fn row(&self) -> String {
         let mut s = format!(
-            "{epoch},{generation},{length},{emulation_time},{ratio_visited},{soup_len},{fitness},",
+            "{epoch},{generation},{length},{emulation_time},{ratio_visited},{soup_len},{fitness}",
             epoch = self.epoch,
             generation = self.generation,
             length = self.length,
@@ -52,7 +52,7 @@ impl LogRecord for StatRecord {
             fitness = self.fitness.scalar(),
         );
         if let Some(ref stdev_fitness) = self.stdev_fitness {
-            s.push_str(&format!("{},", stdev_fitness.scalar()));
+            s.push_str(&format!(",{}", stdev_fitness.scalar()));
         }
         let f_values = self.fitness.values().collect::<Vec<_>>();
         let stdev_values = self

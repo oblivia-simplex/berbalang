@@ -89,6 +89,12 @@ pub struct Config {
     pub push_vm: PushVm,
 }
 
+impl Config {
+    pub fn epoch_length(&self) -> usize {
+        self.pop_size / self.tournament.num_offspring
+    }
+}
+
 fn default_tournament_size() -> usize {
     4
 }
@@ -159,8 +165,8 @@ pub struct ObserverConfig {
     pub dump_population: bool,
     pub dump_soup: bool,
     pub window_size: usize,
-    pub report_every: usize,
-    pub dump_every: usize,
+    pub report_every: Option<usize>,
+    pub dump_every: Option<usize>,
     #[serde(default)]
     pub full_data_directory: String,
     data_directory: String,
@@ -302,6 +308,7 @@ impl RoperConfig {
         if let Some(ref pat_file) = self.register_pattern_file {
             let ps = parse_register_pattern_file(pat_file)
                 .expect("Failed to parse register pattern file");
+            log::info!("Parsed and reduced register patterns: {:#x?}", ps);
             self.parsed_register_patterns = ps;
         }
     }
