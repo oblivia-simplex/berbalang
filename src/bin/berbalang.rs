@@ -1,6 +1,6 @@
 use berbalib::configure::{Config, Job};
 use berbalib::examples::{hello_world, linear_gp};
-use berbalib::{limit_threads, logger, roper};
+use berbalib::{limit_threads, logger, roper, set_starting_timestamp, set_timeout};
 
 fn main() {
     // TODO add standard cli
@@ -11,6 +11,9 @@ fn main() {
     let mut config = Config::from_path(&config_file, population_name)
         .unwrap_or_else(|e| panic!("Failed to generate Config from {:?}: {:?}", &config_file, e));
     logger::init(&config.observer.population_name);
+    set_starting_timestamp();
+    set_timeout(&config.timeout);
+
     // config.roper.parse_register_patterns();
     if let Ok(n) = std::env::var("BERBALANG_LIMIT_THREADS") {
         limit_threads(

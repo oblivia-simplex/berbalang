@@ -43,9 +43,15 @@ fn default_crossover_algorithm() -> String {
     "alternating".to_string()
 }
 
+fn default_timeout() -> String {
+    "1 week".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
     pub job: Job,
+    #[serde(default = "default_timeout")]
+    pub timeout: String,
     pub selection: Selection,
     #[serde(default = "default_num_islands")]
     pub num_islands: usize,

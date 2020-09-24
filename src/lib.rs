@@ -3,10 +3,10 @@
 
 use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use configure::Config;
 
-// mod bin;
 pub mod configure;
 #[allow(dead_code)] // FIXME
 mod disassembler;
@@ -28,9 +28,49 @@ pub mod util;
 pub static EPOCH_COUNTER: AtomicUsize = AtomicUsize::new(0);
 pub static KEEP_GOING: AtomicBool = AtomicBool::new(true);
 pub static WINNING_ISLAND: AtomicUsize = AtomicUsize::new(0xbaad_f00d);
+pub static STARTING_TIMESTAMP: AtomicUsize = AtomicUsize::new(0);
+pub static TIMEOUT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_starting_timestamp() {
+    let now: usize = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Error getting timestamp")
+        .as_secs() as usize;
+    STARTING_TIMESTAMP.store(now, atomic::Ordering::Relaxed);
+}
+
+pub fn set_timeout(timeout: &str) {
+    let timeout = parse_duration::parse(timeout).expect("Failed to parse timeout string");
+    let seconds = timeout.as_secs() as usize;
+    TIMEOUT.store(seconds, atomic::Ordering::Relaxed);
+}
+
+pub fn uptime() -> Duration {
+    let started = STARTING_TIMESTAMP.load(atomic::Ordering::Relaxed) as u64;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Error getting timestamp")
+        .as_secs();
+    if now <= started {
+        Duration::from_secs(0)
+    } else {
+        Duration::from_secs(now - started)
+    }
+}
+
+pub fn timeout_expired() -> bool {
+    let timeout = Duration::from_secs(TIMEOUT.load(atomic::Ordering::Relaxed) as u64);
+    let up_for = uptime();
+    log::debug!("Uptime: {:?}", up_for);
+    let expired = up_for > timeout;
+    if expired {
+        log::error!("Berbalang has timed out, at {:?}", up_for);
+    }
+    expired
+}
 
 pub fn keep_going() -> bool {
-    KEEP_GOING.load(atomic::Ordering::Relaxed)
+    !timeout_expired() && KEEP_GOING.load(atomic::Ordering::Relaxed)
 }
 
 pub fn stop_everything(island: usize, champion: bool) {
