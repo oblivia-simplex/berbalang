@@ -2,6 +2,7 @@ use std::fmt;
 
 use falcon::il;
 use hashbrown::HashMap;
+use itertools::Itertools;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ pub use creature::Creature;
 use crate::configure::Config;
 use crate::emulator::loader;
 use crate::emulator::loader::get_static_memory_image;
+use crate::emulator::register_pattern::RegisterPattern;
 use crate::util::architecture::{read_integer, write_integer, Perms};
 
 pub mod evaluation;
@@ -1274,19 +1276,37 @@ impl MachineState {
     }
 }
 
+// We want a way to prime the machine with the specification of a problem.
+// For example, we should be able to take a register pattern, and transform it
+// into a set of arguments to be fed into the machine.
+fn register_pattern_to_push_args(rp: &RegisterPattern) -> Vec<Val> {
+    // it doesn't exactly matter which register is which, I think, so long
+    // as they're handled in a predictable order. One order is as good as
+    // another, from this perspective, so we'll use the simplest: alphabetical,
+    // by register name.
+    let mut args = Vec::new();
+    for (_reg, rval) in rp.0.iter().sorted_by_key(|p| p.0) {
+        for w in rval.vals.iter() {
+            args.push(Val::Word(*w));
+        }
+        // alternately, to do this in an easier way, if deref > 0, then
+        // first search memory for an occurrence of val, and then return the
+        // address.
+        args.push(Val::Word(rval.deref as u64));
+    }
+    args
+}
+
 pub mod creature {
     use std::fmt;
     use std::hash::{Hash, Hasher};
 
-    use byteorder::{BigEndian, ByteOrder, LittleEndian};
     use rand::thread_rng;
 
-    use crate::emulator::pack::Pack;
     use crate::emulator::profiler::{HasProfile, Profile};
     use crate::evolution::{Genome, LinearChromosome, Mutation, Phenome};
     use crate::roper::Fitness;
     use crate::util;
-    use crate::util::architecture::Endian;
     use crate::util::random::hash_seed_rng;
 
     use super::*;
@@ -1314,7 +1334,7 @@ pub mod creature {
         pub chromosome: LinearChromosome<Op, OpMutation>,
         pub tag: u64,
         // TODO: this should become a hashmap associating problems with payloads
-        pub payload: Option<Vec<u64>>,
+        pub payloads: Vec<Vec<u64>>,
         // But then we need some way to map the problems to the profiles. not just
         // flat vecs. I think we may need to refactor the profile struct, which could
         // get a bit messy. For the best, though.
@@ -1330,71 +1350,21 @@ pub mod creature {
         pub description: Option<String>,
     }
 
-    impl Pack for Creature {
-        fn pack(
-            &self,
-            word_size: usize,
-            endian: Endian,
-            byte_filter: Option<&HashMap<u8, u8>>,
-        ) -> Vec<u8> {
-            if let Some(ref payload) = self.payload {
-                let packer = |&word, mut bytes: &mut [u8]| match (endian, word_size) {
-                    (Endian::Little, 8) => LittleEndian::write_u64(&mut bytes, word),
-                    (Endian::Big, 8) => BigEndian::write_u64(&mut bytes, word),
-                    (Endian::Little, 4) => LittleEndian::write_u32(&mut bytes, word as u32),
-                    (Endian::Big, 4) => BigEndian::write_u32(&mut bytes, word as u32),
-                    (Endian::Little, 2) => LittleEndian::write_u16(&mut bytes, word as u16),
-                    (Endian::Big, 2) => BigEndian::write_u16(&mut bytes, word as u16),
-                    (_, _) => unimplemented!("I think we've covered the bases"),
-                };
-                let mut ptr = 0;
-                let mut buffer = vec![0_u8; payload.len() * word_size];
-                for word in payload {
-                    packer(word, &mut buffer[ptr..]);
-                    ptr += word_size;
-                }
-
-                if let Some(byte_filter) = byte_filter {
-                    buffer
-                        .into_iter()
-                        .map(|b| {
-                            if let Some(x) = byte_filter.get(&b) {
-                                *x
-                            } else {
-                                b
-                            }
-                        })
-                        .collect::<Vec<u8>>()
-                } else {
-                    buffer
-                }
-            } else {
-                panic!("Cannot pack Creature before generating payload")
-            }
-        }
-
-        fn as_code_addrs(&self, _word_size: usize, _endian: Endian) -> Vec<u64> {
-            let memory = loader::get_static_memory_image();
-            if let Some(ref payload) = self.payload {
-                payload
-                    .iter()
-                    .filter(|a| {
-                        memory
-                            .perm_of_addr(**a)
-                            .map(|p| p.intersects(Perms::EXEC))
-                            .unwrap_or(false)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-            } else {
-                vec![]
-            }
-        }
-    }
-
     impl HasProfile for Creature {
         fn profile(&self) -> Option<&Profile> {
             self.profile.as_ref()
+        }
+
+        fn add_profile(&mut self, profile: Profile) {
+            if let Some(ref mut p) = self.profile {
+                p.absorb(profile)
+            } else {
+                self.profile = Some(profile)
+            }
+        }
+
+        fn set_profile(&mut self, profile: Profile) {
+            self.profile = Some(profile)
         }
     }
 
@@ -1408,6 +1378,14 @@ pub mod creature {
 
     impl Genome for Creature {
         type Allele = Op;
+
+        fn generation(&self) -> usize {
+            self.chromosome.generation
+        }
+
+        fn num_offspring(&self) -> usize {
+            self.num_offspring
+        }
 
         fn chromosome(&self) -> &[Self::Allele] {
             &self.chromosome.chromosome
@@ -1436,12 +1414,12 @@ pub mod creature {
                     generation: 0,
                 },
                 tag: rng.gen::<u64>(),
-                payload: None,
+                payloads: vec![],
                 profile: None,
                 fitness: None,
                 front: None,
                 num_offspring: 0,
-                native_island: config.island_identifier,
+                native_island: config.island_id,
                 description: None,
             }
         }
@@ -1458,7 +1436,7 @@ pub mod creature {
             Self {
                 chromosome,
                 tag: thread_rng().gen::<u64>(),
-                payload: None,
+                payloads: vec![],
                 profile: None,
                 fitness: None,
                 front: None,
@@ -1516,7 +1494,7 @@ pub mod creature {
         }
 
         fn is_goal_reached(&self, config: &Config) -> bool {
-            self.scalar_fitness(&config.fitness.priority)
+            self.scalar_fitness(&config.fitness.priority())
                 .map(|p| p - config.fitness.target <= std::f64::EPSILON)
                 .unwrap_or(false)
         }
@@ -1526,8 +1504,10 @@ pub mod creature {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             writeln!(f, "Native island {}", self.native_island)?;
             writeln!(f, "{:?}", self.chromosome)?;
+            writeln!(f, "{} payloads", self.payloads.len())?;
 
-            if let Some(ref payload) = self.payload {
+            for (p_num, payload) in self.payloads.iter().enumerate() {
+                writeln!(f, "payload {}, of length {}", p_num, payload.len())?;
                 let memory = get_static_memory_image();
                 for (i, w) in payload.iter().enumerate() {
                     let perms = memory
@@ -1537,29 +1517,34 @@ pub mod creature {
                     let executed = self
                         .profile
                         .as_ref()
-                        .map(|p| p.gadgets_executed.contains(w))
+                        .map(|p| p.times_executed(*w) > 0)
                         .unwrap_or(false);
                     writeln!(
                         f,
-                        "[{i}] 0x{word:010x}{perms}{executed}",
+                        "[{p_num}:{i}] 0x{word:010x}{perms}{executed}",
+                        p_num = p_num,
                         i = i,
                         word = w,
                         perms = perms,
                         executed = if executed { " *" } else { "" },
                     )?;
                 }
-                if let Some(ref profile) = self.profile {
-                    writeln!(f, "Trace:")?;
-                    for path in profile.disas_paths() {
-                        writeln!(f, "{}", path)?;
-                    }
-                    for state in &profile.registers {
-                        writeln!(f, "\nSpidered register state:\n{:?}", state)?;
-                    }
-                    writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
-                }
-                writeln!(f, "Fitness: {:#?}", self.fitness())?;
             }
+            if let Some(ref profile) = self.profile {
+                for (i, path) in profile.disas_paths().enumerate() {
+                    writeln!(f, "Trace for payload {}:", i)?;
+                    writeln!(f, "{}", path)?;
+                }
+                for (i, state) in profile.registers.iter().enumerate() {
+                    writeln!(
+                        f,
+                        "\nSpidered register state for payload {}:\n{:?}",
+                        i, state
+                    )?;
+                }
+                writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
+            }
+            writeln!(f, "Fitness: {:#?}", self.fitness())?;
             Ok(())
         }
     }
@@ -1580,8 +1565,6 @@ mod test {
             gadget_file: None,
             output_registers: vec![],
             randomize_registers: false,
-            register_pattern: None,
-            parsed_register_pattern: None,
             soup: None,
             soup_size: Some(1024),
             arch: Arch::X86,
@@ -1607,7 +1590,7 @@ mod test {
             max_len: 100,
             literal_rate: 0.3,
         };
-        loader::falcon_loader::load_from_path(&mut config.roper, true).expect("failed to load");
+        loader::falcon_loader::load_from_path(&mut config, true).expect("failed to load");
         crate::roper::init_soup(&mut config).expect("Failed to init soup");
         crate::logger::init("test");
         println!("Loading, linking, and lifting...");

@@ -1,4 +1,6 @@
 /target
+logs
+/cache
 .idea
 *~
 \#*
@@ -6,3 +8,4 @@
 doc/book
 binaries
 tmp
+analysis/.ipynb_checkpoints/

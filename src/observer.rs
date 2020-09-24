@@ -1,39 +1,47 @@
 // A Logger needs to asynchronously gather and periodically
 // record information on the evolutionary process.
 
+use std::fmt::Debug;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::BufWriter;
+use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 
 use hashbrown::HashMap;
-use serde::Serialize;
 
 use crate::configure::Config;
 use crate::evolution::{Genome, Phenome};
-use crate::hashmap;
 use crate::util::count_min_sketch::CountMinSketch;
 use crate::util::dump::dump;
 
+// TODO: fix the stat writer so that it uses the header() and row() functions.
+
 // TODO: we need to maintain a Pareto archive in the observation window.
 // setting the best to be the lowest scalar fitness is wrong.
-fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
-    let s = format!("{}/{}_statistics.csv", config.data_directory(), name);
-    let path = std::path::Path::new(&s);
-    let add_headers = !path.exists();
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| log::error!("Error opening statistics file at {:?}: {:?}", path, e))
-        .expect("Failed to open statistics file");
-    csv::WriterBuilder::new()
-        .delimiter(b',')
-        .terminator(csv::Terminator::Any(b'\n'))
-        .has_headers(add_headers)
-        .from_writer(file)
+fn get_log_filename(name: &str, config: &Config) -> String {
+    format!("{}/{}_statistics.csv", config.data_directory(), name)
 }
+
+// fn stat_writer(config: &Config, name: &str) -> csv::Writer<fs::File> {
+//     let s = get_log_filename(name, config);
+//     let path = std::path::Path::new(&s);
+//     let add_headers = !path.exists();
+//     let file = fs::OpenOptions::new()
+//         .create(true)
+//         .append(true)
+//         .open(path)
+//         .map_err(|e| log::error!("Error opening statistics file at {:?}: {:?}", path, e))
+//         .expect("Failed to open statistics file");
+//     csv::WriterBuilder::new()
+//         .delimiter(b',')
+//         .terminator(csv::Terminator::Any(b'\n'))
+//         .has_headers(add_headers)
+//         .from_writer(file)
+// }
 
 pub struct Observer<O: Send> {
     pub handle: JoinHandle<()>,
@@ -76,6 +84,7 @@ pub struct Window<O: Phenome + 'static> {
     pub config: Arc<Config>,
     counter: usize,
     report_every: usize,
+    dump_every: usize,
     i: usize,
     window_size: usize,
     report_fn: ReportFn<O>,
@@ -83,24 +92,32 @@ pub struct Window<O: Phenome + 'static> {
     pub champion: Option<O>,
     // priority fitness best
     pub archive: Vec<O>,
-    #[allow(dead_code)] // TODO: re-establish pareto archive as optional
-    stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
+    // stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
 }
 
 impl<O: Genome + Phenome + 'static> Window<O> {
     fn new(report_fn: ReportFn<O>, config: Arc<Config>) -> Self {
         let window_size = config.observer.window_size;
-        let report_every = config.observer.report_every;
+        let report_every = if let Some(n) = config.observer.report_every {
+            n
+        } else {
+            config.pop_size
+        };
+        let dump_every = if let Some(n) = config.observer.dump_every {
+            n
+        } else {
+            config.pop_size
+        };
         assert!(window_size > 0, "window_size must be > 0");
         assert!(report_every > 0, "report_every must be > 0");
-        let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
-        let best_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "best")));
-        let champion_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "champion")));
-        let stat_writers = hashmap! {
-            "mean" => mean_stat_writer,
-            "best" => best_stat_writer,
-            "champion" => champion_stat_writer
-        };
+        // let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
+        // let best_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "best")));
+        // let champion_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "champion")));
+        // let stat_writers = hashmap! {
+        //     "mean" => mean_stat_writer,
+        //     "best" => best_stat_writer,
+        //     "champion" => champion_stat_writer
+        // };
         Self {
             frame: Vec::with_capacity(window_size),
             config,
@@ -108,11 +125,12 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             i: 0,
             window_size,
             report_every,
+            dump_every,
             report_fn,
             best: None,
             champion: None,
             archive: vec![],
-            stat_writers,
+            // stat_writers,
         }
     }
 
@@ -128,7 +146,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         if epoch_limit_reached {
             log::debug!("epoch limit reached");
             self.report();
-            crate::stop_everything(self.config.island_identifier, false);
+            crate::stop_everything(self.config.island_id, false);
         }
 
         if let Some(ref champion) = self.champion {
@@ -137,26 +155,15 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                 log::info!("dumping winning champion to {}", path);
                 dump(champion, &path).expect("failed to dump champion");
                 self.report();
-                crate::stop_everything(self.config.island_identifier, true);
+                crate::stop_everything(self.config.island_id, true);
             }
         }
     }
 
     fn insert(&mut self, thing: O) {
-        // Update the "best" seen so far, using scalar fitness measures
-        match &self.best {
-            None => self.best = Some(thing.clone()),
-            Some(champ) => {
-                if let (Some(champ_fit), Some(thing_fit)) = (
-                    champ.scalar_fitness(&self.config.fitness.weighting),
-                    thing.scalar_fitness(&self.config.fitness.weighting),
-                ) {
-                    if thing_fit < champ_fit {
-                        self.best = Some(thing.clone())
-                    }
-                }
-            }
-        }
+        self.update_best(&thing);
+        self.update_champion(&thing);
+
         // insert the incoming thing into the observation window
         self.i = (self.i + 1) % self.window_size;
         if self.frame.len() < self.window_size {
@@ -167,14 +174,9 @@ impl<O: Genome + Phenome + 'static> Window<O> {
 
         // Perform various periodic tasks
         self.counter += 1;
-        if self.counter % self.config.observer.dump_every == 0 {
+        if self.counter % self.dump_every == 0 {
             self.dump_soup();
             self.dump_population();
-        }
-        if self.counter % self.config.pop_size == 0 {
-            // UNCOMMENT FOR PARETO FIXME // self.update_archive();
-            self.update_best();
-            self.update_champion();
         }
         if self.counter % self.report_every == 0 {
             self.report();
@@ -183,23 +185,22 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         self.is_halting_condition_reached();
     }
 
-    fn update_best(&mut self) {
+    fn update_best(&mut self, specimen: &O) {
         let mut updated = false;
-        for specimen in self.frame.iter() {
-            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.weighting) {
-                match self.best.as_ref() {
-                    None => {
-                        updated = true;
-                        self.best = Some(specimen.clone())
-                    }
-                    Some(champ) => {
-                        if f < champ
+        if let Some(specimen_fitness) = specimen.scalar_fitness(&self.config.fitness.weighting) {
+            match self.best.as_ref() {
+                None => {
+                    updated = true;
+                    self.best = Some(specimen.clone())
+                }
+                Some(champ) => {
+                    if specimen_fitness
+                        < champ
                             .scalar_fitness(&self.config.fitness.weighting)
                             .expect("There should be a fitness score here")
-                        {
-                            updated = true;
-                            self.best = Some(specimen.clone())
-                        }
+                    {
+                        updated = true;
+                        self.best = Some(specimen.clone())
                     }
                 }
             }
@@ -208,29 +209,28 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         if updated {
             log::info!(
                 "Island {}: new best:\n{:#?}",
-                self.config.island_identifier,
+                self.config.island_id,
                 self.best.as_ref().expect("Updated, but no best?")
             );
         }
     }
 
-    fn update_champion(&mut self) {
+    fn update_champion(&mut self, specimen: &O) {
         let mut updated = false;
-        for specimen in self.frame.iter() {
-            if let Some(f) = specimen.scalar_fitness(&self.config.fitness.priority) {
-                match self.champion.as_ref() {
-                    None => {
+        if let Some(specimen_fitness) = specimen.scalar_fitness(&self.config.fitness.priority()) {
+            match self.champion.as_ref() {
+                None => {
+                    updated = true;
+                    self.champion = Some(specimen.clone())
+                }
+                Some(champ) => {
+                    if specimen_fitness
+                        < champ
+                            .scalar_fitness(&self.config.fitness.priority())
+                            .expect("there should be a fitness score here")
+                    {
                         updated = true;
                         self.champion = Some(specimen.clone())
-                    }
-                    Some(champ) => {
-                        if f < champ
-                            .scalar_fitness(&self.config.fitness.priority)
-                            .expect("there should be a fitness score here")
-                        {
-                            updated = true;
-                            self.champion = Some(specimen.clone())
-                        }
                     }
                 }
             }
@@ -241,7 +241,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                 champion.generate_description();
                 log::info!(
                     "Island {}: new champion:\n{:#?}",
-                    self.config.island_identifier,
+                    self.config.island_id,
                     champion
                 );
                 // dump the champion
@@ -269,18 +269,40 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         (self.report_fn)(&self, self.counter, &self.config);
     }
 
-    pub fn log_record<S: Serialize>(&self, record: S, name: &str) {
-        self.stat_writers[name]
-            .lock()
-            .expect("poisoned lock on window's logger")
-            .serialize(record)
-            .map_err(|e| log::error!("Error logging record: {:?}", e))
-            .expect("Failed to log record!");
-        self.stat_writers[name]
-            .lock()
-            .expect("poisoned lock on window's logger")
-            .flush()
-            .expect("Failed to flush");
+    pub fn log_record<S: LogRecord + Debug>(&self, record: S, name: &str) {
+        log::debug!(
+            "Island {}, logging to {}: {:#?}",
+            self.config.island_id,
+            name,
+            record
+        );
+        let filename = get_log_filename(name, &self.config);
+        // check to see if file exists yet
+        let msg = if !Path::exists((&filename).as_ref()) {
+            log::debug!("Creating header for {}", filename);
+            format!("{}\n{}\n", record.header(), record.row())
+        } else {
+            format!("{}\n", record.row())
+        };
+        let fd = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&filename)
+            .expect("Failed to open log file");
+        let mut w = BufWriter::new(fd);
+        write!(w, "{}", msg).expect("Failed to log row");
+
+        // self.stat_writers[name]
+        //     .lock()
+        //     .expect("poisoned lock on window's logger")
+        //     .serialize(record)
+        //     .map_err(|e| log::error!("Error logging record: {:?}", e))
+        //     .expect("Failed to log record!");
+        // self.stat_writers[name]
+        //     .lock()
+        //     .expect("poisoned lock on window's logger")
+        //     .flush()
+        //     .expect("Failed to flush");
     }
 
     pub fn dump_population(&self) {
@@ -315,6 +337,11 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             return;
         }
         let mut soup = self.soup();
+        log::debug!(
+            "Island {} soup size: {} alleles",
+            self.config.island_id,
+            soup.len()
+        );
         let path = format!(
             "{}/soup/soup_{}.json",
             self.config.data_directory(),
@@ -354,4 +381,9 @@ impl<O: 'static + Phenome + Genome> Observer<O> {
     // pub fn stop_evolution(&mut self) {
     //     self.stop_flag = true
     // }
+}
+
+pub trait LogRecord {
+    fn header(&self) -> String;
+    fn row(&self) -> String;
 }

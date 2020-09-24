@@ -7,12 +7,12 @@ use std::{fmt, iter};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::configure::{Config, IOProblem, Selection};
+use crate::configure::{ClassificationProblem, Config, Selection};
 use crate::evolution::metropolis::Metropolis;
 use crate::evolution::pareto_roulette::Roulette;
 use crate::evolution::population::pier::Pier;
 use crate::evolution::{tournament::Tournament, Genome, Phenome};
-use crate::fitness::{MapFit, Weighted};
+use crate::fitness::Weighted;
 use crate::observer::{Observer, ReportFn, Window};
 use crate::ontogenesis::FitnessFn;
 use crate::util;
@@ -270,7 +270,7 @@ fn random_chromosome<H: Hash>(config: &Config, seed: H) -> Genotype {
         .collect()
 }
 
-pub type Answer = Vec<IOProblem>;
+pub type Answer = Vec<ClassificationProblem>;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Creature {
@@ -320,7 +320,7 @@ impl Debug for Creature {
 
 impl Phenome for Creature {
     type Fitness = Fitness<'static>;
-    type Problem = IOProblem;
+    type Problem = ClassificationProblem;
 
     fn fitness(&self) -> Option<&Self::Fitness> {
         self.fitness.as_ref()
@@ -353,10 +353,8 @@ impl Phenome for Creature {
     }
 
     fn is_goal_reached<'a>(&'a self, config: &'a Config) -> bool {
-        if let Some(ref fitness) = self.fitness() {
-            if let Some(score) = fitness.get(&config.fitness.priority) {
-                return (score - std::f64::MAX) <= std::f64::EPSILON;
-            }
+        if let Some(fitness) = self.scalar_fitness(&config.fitness.priority()) {
+            return fitness <= config.fitness.target;
         }
         false
     }
@@ -391,6 +389,14 @@ struct Frame {
 // means "has a genome", not "is a genome"
 impl Genome for Creature {
     type Allele = machine::Inst;
+
+    fn generation(&self) -> usize {
+        self.generation
+    }
+
+    fn num_offspring(&self) -> usize {
+        self.num_offspring
+    }
 
     fn incr_num_offspring(&mut self, n: usize) {
         self.num_offspring += n
@@ -507,7 +513,7 @@ fn report(window: &Window<Creature>, counter: usize, config: &Config) {
     }
 }
 
-fn parse_data(path: &str) -> Option<Vec<IOProblem>> {
+fn parse_data(path: &str) -> Option<Vec<ClassificationProblem>> {
     if let Ok(mut reader) = csv::ReaderBuilder::new().delimiter(b'\t').from_path(path) {
         let mut problems = Vec::new();
         let mut tag = 0;
@@ -517,7 +523,7 @@ fn parse_data(path: &str) -> Option<Vec<IOProblem>> {
                     row.deserialize(None).expect("Error parsing row in data");
                 let output = vals.pop().expect("Missing output field");
                 let input = vals;
-                problems.push(IOProblem { input, output, tag });
+                problems.push(ClassificationProblem { input, output, tag });
                 tag += 1;
             }
         }
@@ -596,7 +602,7 @@ mod evaluation {
 
         let mut results = iterator
             .map(
-                |IOProblem {
+                |ClassificationProblem {
                      input,
                      output: _expected,
                      tag,
@@ -611,14 +617,14 @@ mod evaluation {
                         .map(|i| return_regs[i])
                         .fold(0, i32::max);
 
-                    IOProblem {
+                    ClassificationProblem {
                         input: input.clone(),
                         output,
                         tag: *tag,
                     }
                 },
             )
-            .collect::<Vec<IOProblem>>();
+            .collect::<Vec<ClassificationProblem>>();
         // Sort by tag to avoid any non-seeded randomness
         results.sort_by_key(|p| p.tag);
         creature.store_answers(results);

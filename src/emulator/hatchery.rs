@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -15,6 +14,7 @@ use unicorn::{Context, Cpu, Mode};
 
 pub use crate::configure::RoperConfig;
 use crate::disassembler::Disassembler;
+use crate::emulator::hatchery::hooking::emu_prep_fn;
 use crate::emulator::loader;
 use crate::emulator::loader::Seg;
 use crate::emulator::pack::Pack;
@@ -88,10 +88,11 @@ impl<C: Cpu<'static>> EmuPool<C> {
             let mut results = Vec::new();
             // First, map the non-writeable segments to memory. These can be shared.
             segments.iter().for_each(|s| {
-                log::debug!(
-                    "Mapping segment 0x{:x} - 0x{:x} [{:?}]",
+                log::info!(
+                    "Mapping segment 0x{:x} - 0x{:x} {:?} [{:?}]",
                     s.aligned_start(),
                     s.aligned_end(),
+                    s.segtype,
                     s.perm
                 );
                 if !s.is_writeable() {
@@ -118,7 +119,7 @@ impl<C: Cpu<'static>> EmuPool<C> {
                 .collect::<Result<Vec<_>, unicorn::Error>>()?;
         };
         emu.mem_regions()?.iter().for_each(|rgn| {
-            log::debug!(
+            log::info!(
                 "Mapped region: 0x{:x} - 0x{:x} [{:?}]",
                 rgn.begin,
                 rgn.end,
@@ -152,18 +153,25 @@ impl<C: Cpu<'static>> EmuPool<C> {
     }
 }
 
-pub struct Hatchery<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> {
+type InboundTx<T, C> = SyncSender<(T, Option<HashMap<Register<C>, u64>>)>;
+type InboundRx<T, C> = Receiver<(T, Option<HashMap<Register<C>, u64>>)>;
+type OutboundTx = SyncSender<Profile>;
+type OutboundRx = Receiver<Profile>;
+type InboundChannel<T, C> = (InboundTx<T, C>, InboundRx<T, C>);
+type OutboundChannel = (OutboundTx, OutboundRx);
+
+pub struct Hatchery<C: Cpu<'static> + Send> {
     emu_pool: Arc<EmuPool<C>>,
     thread_pool: Arc<Mutex<ThreadPool>>,
     config: Arc<RoperConfig>,
     memory: Arc<Option<Pin<Vec<Seg>>>>,
-    tx: SyncSender<X>,
-    rx: Receiver<(X, Profile)>,
+    tx: InboundTx<Vec<u64>, C>,
+    rx: OutboundRx,
     handle: JoinHandle<()>,
     disassembler: Arc<Disassembler>,
 }
 
-impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<C, X> {
+impl<C: Cpu<'static> + Send> Drop for Hatchery<C> {
     fn drop(&mut self) {
         // unmap the unwriteable memory in the emu pool's emus
         log::debug!("Dropping Hatchery");
@@ -203,22 +211,17 @@ impl<C: Cpu<'static> + Send, X: Pack + Sync + Send + 'static> Drop for Hatchery<
     }
 }
 
-type InboundChannel<T> = (SyncSender<T>, Receiver<T>);
-type OutboundChannel<T> = (SyncSender<(T, Profile)>, Receiver<(T, Profile)>);
-
-impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> Hatchery<C, X> {
+impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
     pub fn new(
         config: Arc<RoperConfig>,
-        inputs: Arc<Vec<HashMap<Register<C>, u64>>>,
+        initial_register_state: Arc<HashMap<Register<C>, u64>>,
         output_registers: Arc<Vec<Register<C>>>,
-        // TODO: we might want to set some callbacks with this function.
-        emu_prep_fn: Option<EmuPrepFn<C>>,
     ) -> Self {
         let disassembler = Arc::new(
             Disassembler::new(config.arch, config.mode).expect("Failed to build disassembler"),
         );
-        let (tx, our_rx): InboundChannel<X> = sync_channel(config.num_workers);
-        let (our_tx, rx): OutboundChannel<X> = sync_channel(config.num_workers);
+        let (tx, our_rx): InboundChannel<Vec<u64>, C> = sync_channel(config.num_workers);
+        let (our_tx, rx): OutboundChannel = sync_channel(config.num_workers);
 
         let static_memory = loader::get_static_memory_image();
 
@@ -227,7 +230,6 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
         let emu_pool = Arc::new(EmuPool::new(&config));
         let thread_pool = Arc::new(Mutex::new(ThreadPool::new(config.num_workers)));
 
-        let emu_prep_fn = Arc::new(emu_prep_fn.unwrap_or_else(|| Box::new(hooking::emu_prep_fn)));
         let millisecond_timeout = config.millisecond_timeout.unwrap_or(0);
         let max_emu_steps = config.max_emu_steps.unwrap_or(0);
         let word_size = crate::util::architecture::word_size_in_bytes(config.arch, config.mode);
@@ -247,8 +249,7 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                     .collect::<HashMap<u8, u8>>()
             }));
         let handle = spawn(move || {
-            for payload in our_rx.iter() {
-                let emu_prep_fn = emu_prep_fn.clone();
+            for (payload, args) in our_rx.iter() {
                 let config = parameters.clone();
                 let bad_bytes = bad_bytes.clone();
                 let our_tx = our_tx.clone();
@@ -256,105 +257,100 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
                 let thread_pool = t_pool.lock().expect("Failed to unlock thread_pool mutex");
                 let emulator_pool = e_pool.clone();
                 let memory = mem.clone();
-                let inputs = inputs.clone();
+                let initial_register_state = if let Some(args) = args {
+                    Arc::new(args)
+                } else {
+                    initial_register_state.clone()
+                };
                 let disas = disas.clone();
                 // let's get a clean context to use here.
                 thread_pool.execute(move || {
-                    let profile = inputs.par_iter().map(|input| {
-                        // Acquire an emulator from the pool.
-                        let mut emu: Reusable<'_, C> = emulator_pool.pull();
-                        // Initialize the profiler
-                        let mut profiler = Profiler::new(&output_registers, &input);
-                        // Restore the context. TODO: define an emulator pool struct that handles this
+                    // Acquire an emulator from the pool.
+                    let mut emu: Reusable<'_, C> = emulator_pool.pull();
+                    // Initialize the profiler
+                    let mut profiler = Profiler::new(&output_registers, &initial_register_state);
+                    // load the inputs
+                    for (reg, val) in initial_register_state.iter() {
+                        emu.reg_write(*reg, *val).expect("Failed to load registers");
+                    }
+                    profiler.registers_at_last_ret = Arc::new(Mutex::new((*initial_register_state).clone()));
 
-                        // load the inputs
-                        for (reg, val) in input.iter() {
-                            emu.reg_write(*reg, *val).expect("Failed to load registers");
+                    // Pedantically check to make sure the registers are initialized
+                    if true || cfg!(debug_assertions) {
+                        for (r, expected) in initial_register_state.iter() {
+                            // TODO: figure out why the context restore isn't taking care of this
+                            emu.reg_write(*r, *expected).expect("Failed to write regsiter");
+                            // let val = emu.reg_read(*r).expect("Failed to read register!");
+                            // assert_eq!(val, *expected, "register has not been initialized");
                         }
-                        // Pedantically check to make sure the registers are initialized
-                        if true || cfg!(debug_assertions) {
-                            for (r,expected) in input.iter() {
-                                let val = emu.reg_read(*r).expect("Failed to read register!");
-                                assert_eq!(val, *expected, "register has not been initialized");
-                            }
-                        }
+                    }
 
-                        if config.record_basic_blocks {
-                            let _hook = hooking::install_basic_block_hook(&mut (*emu), &mut profiler, &payload.as_code_addrs(word_size, endian)).expect("Failed to install basic_block_hook");
-                        }
+                    let code = payload.pack(word_size, endian, (*bad_bytes).as_ref());
+                    let initial_pc = emu_prep_fn(&mut (*emu), &config, &code, &profiler).expect("Failure in the emulator preparation function.");
 
-                        if cfg!(feature = "disassemble_trace") {
-                            // install the disassembler hook
-                            let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone(), output_registers.clone()).expect("Failed to install tracer hook");
-                        }
+                    if config.record_basic_blocks {
+                        let _hook = hooking::install_code_logging_hook(&mut (*emu), &profiler, &payload.as_code_addrs(word_size, endian), config.break_on_calls).expect("Failed to install code_logging_hook");
+                    }
 
-                        let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
-                        if config.record_memory_writes {
-                            let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler).expect("Failed to install mem_write_hook");
-                        }
-                        let code = payload.pack(word_size, endian, (*bad_bytes).as_ref());
+                    // WONTFIX: It turns out that Unicorn never implemented a fetch hook. It's an unused enum in the C code. Balls.
+                    // let _hook = hooking::install_gadget_fetching_hook(&mut (*emu), &profiler).expect("Failed to install gadget_fetching_hook");
 
-                        // Prepare the emulator with the user-supplied preparation function.
-                        // This function will generally be used to load the payload and install
-                        // callbacks, which should be able to write to the Profiler instance.
-                        let start_addr = emu_prep_fn(&mut emu, &config, &code, &profiler).expect("Failure in the emulator preparation function.");
-                        // If the preparation was successful, launch the emulator and execute
-                        // the payload. We want to hang onto the exit code of this task.
-                        let start_time = Instant::now();
-                        /*******************************************************************/
-                        let result = emu.emu_start(
-                            start_addr,
-                            0,
-                            millisecond_timeout * unicorn::MILLISECOND_SCALE,
-                            max_emu_steps,
-                        );
-                        /*******************************************************************/
-                        profiler.emulation_time = start_time.elapsed();
-                        if let Err(error_code) = result {
-                            profiler.set_error(error_code)
-                        };
-                        profiler.read_registers(&mut emu);
+                    if cfg!(feature = "disassemble_trace") {
+                        // install the disassembler hook
+                        let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone(), output_registers.clone()).expect("Failed to install tracer hook");
+                    }
 
-                        // TODO : add this to the profiler
-                        let written_memory = tools::read_writeable_memory(&(*emu)).expect("Failed to read writeable memory").into_par_iter().filter(|seg| {
-                            // bit of a space/time tradeoff here. see how it goes.
-                            let stat = static_memory.try_dereference(seg.addr, None).unwrap();
-                            debug_assert_eq!(stat.len(), seg.data.len());
-                            stat != seg.data.as_slice()
-                        }).collect::<Vec<Seg>>();
-                        // could some sort of COW structure help here?
-                        // TODO consider defining a data structure that looks, from the
-                        // outside, like a vector, but which is actually composed of an
-                        // indexmap of written-to areas. use the mem-write log to learn
-                        // which areas of the writeable memory need to be read, and read
-                        // only those. then fallback to MEM_IMAGE, which should also 
-                        // contain writeable areas besides the stack.
+                    let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
+                    if config.record_memory_writes {
+                        let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler, config.monitor_stack_writes).expect("Failed to install mem_write_hook");
+                    }
+
+                    ;
+                    // If the preparation was successful, launch the emulator and execute
+                    // the payload. We want to hang onto the exit code of this task.
+                    let start_time = Instant::now();
+                    /*******************************************************************/
+                    let result = emu.emu_start(
+                        initial_pc,
+                        0,
+                        millisecond_timeout * unicorn::MILLISECOND_SCALE,
+                        max_emu_steps,
+                    );
+                    /*******************************************************************/
+                    profiler.emulation_time = start_time.elapsed();
+                    if let Err(error_code) = result {
+                        profiler.set_error(error_code)
+                    };
+
+                    let written_memory = tools::read_writeable_memory(&(*emu)).expect("Failed to read writeable memory").into_par_iter().filter(|seg| {
+                        let stat = static_memory.try_dereference(seg.addr, None).unwrap();
+                        debug_assert_eq!(stat.len(), seg.data.len());
+                        stat != seg.data.as_slice()
+                    }).collect::<Vec<Seg>>();
+
+                    profiler.written_memory = written_memory;
+
+                    // cleanup
+                    emu.remove_all_hooks().expect("Failed to clean up hooks");
 
 
-                        profiler.written_memory = written_memory;
-
-                        // cleanup
-                        emu.remove_all_hooks().expect("Failed to clean up hooks");
-
-
-                        // clean up writeable memory
-                        // there will never be *too* many segments, so iterating over them is cheap.
-                        if let Some(memory) = memory.as_ref() {
-                            memory.iter().filter(|s| s.is_writeable()).for_each(|seg| {
-                                emu.mem_write(seg.aligned_start(),
-                                              &seg.data,
-                                ).unwrap_or_else(|e| {
-                                    log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
-                                    seg.aligned_start(), seg.aligned_end(), e
-                                )
-                                });
+                    // clean up writeable memory
+                    // there will never be *too* many segments, so iterating over them is cheap.
+                    if let Some(memory) = memory.as_ref() {
+                        memory.iter().filter(|s| s.is_writeable()).for_each(|seg| {
+                            emu.mem_write(seg.aligned_start(),
+                                          &seg.data,
+                            ).unwrap_or_else(|e| {
+                                log::error!("Failed to refresh writeable memory at 0x{:x} - 0x{:x}: {:?}",
+                                seg.aligned_start(), seg.aligned_end(), e
+                            )
                             });
-                        }
-                        profiler
-                    }).collect::<Vec<Profiler<C>>>().into(); // into Profile
+                        });
+                    }
+                    let profile = profiler.into();
                     // Now send the code back, along with its profile information.
                     // (The genotype, along with its phenotype.)
-                    our_tx.send((payload, profile)).map_err(Error::from).expect("TX Failure in pipeline");
+                    our_tx.send(profile).map_err(Error::from).expect("TX Failure in pipeline");
                 });
             }
         });
@@ -370,25 +366,13 @@ impl<C: 'static + Cpu<'static> + Send, X: Pack + Send + Sync + Debug + 'static> 
         }
     }
 
-    pub fn execute(&self, payload: X) -> Result<(X, Profile), Error> {
-        self.tx.send(payload)?;
-        self.rx.recv().map_err(Error::from)
-    }
-
-    pub fn execute_batch<I: Iterator<Item = X>>(
+    pub fn execute(
         &self,
-        payloads: I,
-    ) -> Result<Vec<(X, Profile)>, Error> {
-        let mut count = 0;
-        for x in payloads {
-            self.tx.send(x)?;
-            count += 1;
-        }
-        let mut res = Vec::new();
-        for _ in 0..count {
-            res.push(self.rx.recv()?)
-        }
-        Ok(res)
+        payload: Vec<u64>,
+        args: Option<HashMap<Register<C>, u64>>,
+    ) -> Result<Profile, Error> {
+        self.tx.send((payload, args))?;
+        self.rx.recv().map_err(Error::from)
     }
 }
 // TODO: try to reduce the number of mutexes needed in this setup. it seems like a code smell.
@@ -415,30 +399,34 @@ pub mod tools {
 
     /// Returns the uppermost readable/writeable memory region, in the emulator's
     /// memory map.
-    pub fn find_stack<C: 'static + Cpu<'static>>(emu: &C) -> Result<MemRegion, Error> {
-        let regions = emu.mem_regions()?;
-        let mut bottom = 0;
-        let mut stack = None;
-        for region in regions.iter() {
-            if region.writeable() && region.readable() && region.begin >= bottom {
-                bottom = region.begin;
-                stack = Some(region)
-            };
-        }
-        match stack {
-            Some(m) => Ok(m.clone()),
-            None => unimplemented!("do this later"),
+    pub fn find_stack<C: 'static + Cpu<'static>>(emu: &C) -> Option<MemRegion> {
+        if let Ok(regions) = emu.mem_regions() {
+            let mut bottom = 0;
+            let mut stack = None;
+            for region in regions.iter() {
+                if region.writeable() && region.readable() && region.begin >= bottom {
+                    bottom = region.begin;
+                    stack = Some(region)
+                };
+            }
+            stack.cloned()
+        } else {
+            None
         }
     }
 }
 
 pub mod hooking {
+    use core::sync::atomic;
+
     use capstone::Insn;
     use hashbrown::HashSet;
-    use unicorn::{CodeHookType, MemHookType, MemType, Protection};
+    use unicorn::{CodeHookType, InsnSysX86, MemHookType, MemType, Protection};
 
-    use crate::emulator::profiler::{Block, MemLogEntry};
-    use crate::util::architecture::{endian, read_integer, word_size_in_bytes};
+    use crate::emulator::hatchery::tools::find_stack;
+    use crate::emulator::loader::get_static_memory_image;
+    use crate::emulator::profiler::{read_registers_in_hook, Block, MemLogEntry};
+    use crate::util::architecture::{endian, read_integer, word_size_in_bytes, Perms};
 
     use super::*;
 
@@ -454,15 +442,33 @@ pub mod hooking {
         }
     }
 
+    fn is_call(arch: unicorn::Arch, mode: unicorn::Mode, inst: &Insn<'_>) -> bool {
+        // use unicorn::Arch::*;
+        // use unicorn::Mode::*;
+
+        match (arch, mode, inst.mnemonic()) {
+            (_, _, Some("call")) => true,
+            _ => false, // TODO: implement other arches later if needed
+        }
+    }
+
+    fn is_ret(arch: unicorn::Arch, _mode: unicorn::Mode, inst_bytes: &[u8]) -> bool {
+        if (inst_bytes[0] == 0xC3 || inst_bytes[0] == 0xC2) && arch == unicorn::Arch::X86 {
+            return true;
+        }
+        false
+    }
+
     /// We want the emulator to halt on a syscall.
+    /// NOTE: this only really works on x86 architectures. TODO: generalize somehow
     pub fn install_syscall_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         arch: unicorn::Arch,
         mode: unicorn::Mode,
-    ) -> Result<unicorn::uc_hook, unicorn::Error> {
+    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
 
-        let callback = move |engine: &unicorn::Unicorn<'_>, a| {
+        let int_callback = move |engine: &unicorn::Unicorn<'_>, a| {
             // TODO log the errors
             if let Ok(address) = engine.reg_read(pc) {
                 log::trace!("Interrupt at address 0x{:x}. a = {:?}", pc, a);
@@ -476,7 +482,18 @@ pub mod hooking {
                 }
             }
         };
-        emu.add_intr_hook(callback)
+        // for that, we need a HOOK_INSN
+        let intr_hook = emu.add_intr_hook(int_callback)?;
+
+        let syscall_callback = move |engine: &unicorn::Unicorn<'_>| {
+            log::trace!("Syscall or Sysenter. Halting.");
+            engine.emu_stop().expect("Failed to stop engine!");
+        };
+        // VERIFY THAT BEGIN > END means range check always passes
+        let syscall_hook = emu.add_insn_sys_hook(InsnSysX86::SYSCALL, 1, 0, syscall_callback)?;
+        let sysenter_hook = emu.add_insn_sys_hook(InsnSysX86::SYSENTER, 1, 0, syscall_callback)?;
+
+        Ok(vec![intr_hook, syscall_hook, sysenter_hook])
     }
 
     pub fn install_disas_tracer_hook<C: 'static + Cpu<'static>>(
@@ -485,10 +502,6 @@ pub mod hooking {
         output_registers: Arc<Vec<Register<C>>>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let callback = move |engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
-            let disas = disassembler
-                .disas_from_mem_image(address, block_length as usize)
-                .expect("Failed to disassemble block");
-
             let registers: String = output_registers
                 .iter()
                 .map(|reg| {
@@ -497,27 +510,43 @@ pub mod hooking {
                     format!("{:?}: 0x{:x}", reg, val)
                 })
                 .collect::<Vec<String>>()
-                .join("\n");
+                .join(", ");
 
-            log::trace!("\n{}\n{}", registers, disas);
+            if let Ok(disas) = disassembler.disas_from_mem_image(address, block_length as usize) {
+                log::trace!("\n{}\n{}", registers, disas);
+            } else {
+                log::trace!(
+                    "\n{}\nUnable to disassemble 0x{:x} bytes at address 0x{:x}",
+                    registers,
+                    block_length,
+                    address
+                );
+            }
         };
+
         // TODO: print registers
-        code_hook_all(emu, CodeHookType::BLOCK, callback)
+        code_hook_all(emu, CodeHookType::CODE, callback)
     }
 
-    pub fn install_address_tracking_hook<C: 'static + Cpu<'static>>(
+    pub fn install_gadget_fetching_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         profiler: &Profiler<C>,
-        addresses: &[u64],
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let gadget_log = profiler.gadget_log.clone();
 
-        let callback = move |_engine, address, _insn_len| gadget_log.push(address);
+        let callback = move |_engine, _mem_type, address, _size, value| {
+            log::warn!(
+                "mem: {:?}, address = 0x{:x}, size = 0x{:x}, value = 0x{:x}",
+                _mem_type,
+                address,
+                _size,
+                value
+            );
+            gadget_log.push(address);
+            false
+        };
 
-        addresses
-            .iter()
-            .map(|addr| emu.add_code_hook(CodeHookType::CODE, *addr, addr + 1, callback.clone()))
-            .collect::<Result<Vec<unicorn::uc_hook>, _>>()
+        mem_hook_by_prot(emu, MemHookType::MEM_FETCH, Protection::ALL, callback, true)
     }
 
     pub fn emu_prep_fn<C: 'static + Cpu<'static>>(
@@ -527,9 +556,13 @@ pub mod hooking {
         _profiler: &Profiler<C>,
     ) -> Result<u64, Error> {
         // now write the payload
-        let stack = tools::find_stack(emu)?;
-        let sp = stack.begin + (stack.end - stack.begin) / 2;
-        emu.mem_write(sp, code)?;
+        let stack = tools::find_stack(emu).expect("Can't find stack");
+        let pad = 0x100;
+        let sp = stack.begin + pad;
+        let room = (stack.end - (stack.begin + pad)) as usize;
+        let end = room.min(code.len());
+        let payload = &code[0..end];
+        emu.mem_write(sp, payload)?;
         // set the stack pointer to the middle of the stack
         // now "pop" the stack into the program counter
         let word_size = word_size_in_bytes(emu.arch(), emu.mode());
@@ -544,38 +577,141 @@ pub mod hooking {
         }
     }
 
-    pub fn install_basic_block_hook<C: 'static + Cpu<'static>>(
+    pub fn install_code_logging_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
-        profiler: &mut Profiler<C>,
+        profiler: &Profiler<C>,
         gadget_addrs: &[u64],
-    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+        break_on_calls: bool,
+    ) -> Result<unicorn::uc_hook, unicorn::Error> {
+        let memory = get_static_memory_image();
+        // let stack_region: MemRegion = find_stack(emu).expect("Could not find stack");
+        // let stack_begin = stack_region.begin;
+        // let stack_end = stack_region.end;
+        let word_size = memory.word_size;
+        let endian = memory.endian;
+        let arch = memory.arch;
+        let mode = memory.mode;
         let gadget_addrs: Arc<HashSet<u64>> = Arc::new(gadget_addrs.iter().cloned().collect());
-        let block_log = profiler.block_log.clone();
+        let block_log = profiler.trace_log.clone();
         let gadget_log = profiler.gadget_log.clone();
+        let ret_count = profiler.ret_count.clone();
+        let call_stack_depth = profiler.call_stack_depth.clone();
+        let register_state = profiler.registers_at_last_ret.clone();
+        let registers_to_read = Arc::new(profiler.registers_to_read.clone());
+        let committed_write_log = profiler.committed_write_log.clone();
+        let committed_trace_log = profiler.committed_trace_log.clone();
+        let write_log = profiler.write_log.clone();
+        let sp: i32 = emu.stack_pointer().into();
         //let ret_log = profiler.ret_log.clone();
-        let bb_callback = move |_engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
+        let bb_callback = move |engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
+            let memory = get_static_memory_image();
 
+            let block = Block { entry, size };
+            block_log.push(block);
             if gadget_addrs.contains(&entry) {
                 gadget_log.push(entry);
             }
 
-            // If the code ends with a return, log it in the ret log.
-            // but how to make this platform-generic? We could define a
-            // return_insn method on the trait, like we did for the special
-            // registers. TODO: low priority
-            let block = Block { entry, size };
-            block_log.push(block);
+            if let Ok(inst) = engine.mem_read_as_vec(entry, size) {
+                // Once we have reached a `ret` instruction, we have reached a point at which our
+                // gadget chain is composable with additional gadgets. This is where we want to
+                // commit our various trace logs.
+                if is_ret(arch, mode, &inst) {
+                    // it would actually be interesting to see if the stack pointer is ever pointing to the heap
+                    // could we evolve a stack pivot?
+                    // TODO: we can actually check, on each ret, to see if the stack pointer
+                    // is pointing to the payload region! Fuck, why didn't I think of this
+                    // sooner.
+                    let stack_pointer = engine.reg_read(sp).expect("Failed to read stack pointer");
+                    // if !(stack_begin <= stack_pointer && stack_pointer < stack_end) {
+                    //     if let Some(perm) = memory.perm_of_addr(stack_pointer) {
+                    //         if perm.intersects(Perms::WRITE)
+                    //             && committed_write_log
+                    //                 .lock()
+                    //                 .unwrap()
+                    //                 .any_writes(stack_pointer)
+                    //         {
+                    //             log::error!("Stack pointer is pointing to a non-stack writeable and written-to region of memory: 0x{:x}. Stack pivot!", stack_pointer);
+                    //         }
+                    //     }
+                    // }
+                    if let Some(addr) = engine
+                        .mem_read_as_vec(stack_pointer, word_size)
+                        .ok()
+                        .and_then(|v| read_integer(&v, endian, word_size))
+                    {
+                        // We check to see if the return address is 0, too, because this is what we expect at
+                        // the end of a healthy rop chain execution.
+                        // TODO: use a magic word instead of 0? like 0xBAAD_F00D?
+                        // we could use a weaker restriction here, and just ensure that the addr is executable
+                        // but no, then we wouldn't really be safeguarding composability
+                        // more loosely, the ret marks a composable joint if the stack pointer points to writeable memory
+                        if addr == 0
+                            || (Some(true)
+                                == memory
+                                    .perm_of_addr(stack_pointer)
+                                    .map(|p| p.intersects(Perms::WRITE)))
+                        {
+                            //payload.contains(&addr) {
+                            // should be okay if it points beyond the payload, on last gadget
+                            // it's composable!
+                            let registers_to_read = registers_to_read.clone();
+                            if !break_on_calls
+                                && call_stack_depth.load(atomic::Ordering::Relaxed) > 0
+                            {
+                                call_stack_depth.fetch_sub(1, atomic::Ordering::Relaxed);
+                            } else {
+                                ret_count.fetch_add(1, atomic::Ordering::Relaxed);
+
+                                read_registers_in_hook::<C>(
+                                    register_state.clone(),
+                                    &registers_to_read,
+                                    &engine,
+                                );
+                                committed_write_log
+                                    .lock()
+                                    .unwrap()
+                                    .absorb_segqueue(&write_log);
+                                if let Ok(mut log) = committed_trace_log.lock() {
+                                    while let Ok(b) = block_log.pop() {
+                                        log.push(b)
+                                    }
+                                }
+                            }
+                            // Quietly stop the emulator if there's an attempt to return to 0
+                            if addr == 0 {
+                                engine.emu_stop().expect("Failed to stop emulator");
+                            }
+                        }
+                    }
+                // it would be cool if we could save the context at each ret, so that we can rewind
+                // bad gadgets.
+                } else {
+                    // if not a RETURN
+                    // EXPERIMENTAL: halt execution at calls. see what happens.
+                    if let Some(insts) = memory.disassemble(entry, size, Some(1)) {
+                        for inst in insts.iter() {
+                            if is_call(arch, mode, &inst) {
+                                call_stack_depth.fetch_add(1, atomic::Ordering::Relaxed);
+                                if break_on_calls {
+                                    engine.emu_stop().expect("Failed to stop emulator");
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
         };
 
-        let hooks = code_hook_all(emu, CodeHookType::BLOCK, bb_callback)?;
-
-        Ok(hooks)
+        emu.add_code_hook(CodeHookType::CODE, 1, 0, bb_callback) //code_hook_all(emu, CodeHookType::CODE, bb_callback)?;
     }
 
     pub fn install_mem_write_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
         profiler: &Profiler<C>,
+        monitor_stack_writes: bool,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let pc: i32 = emu.program_counter().into();
         let write_log = profiler.write_log.clone();
@@ -592,7 +728,7 @@ pub mod hooking {
                         value: value as u64,
                     };
                     write_log.push(entry);
-                    true // NOTE: I'm not really sure what this return value means, here.
+                    false // means "handled"
                 } else {
                     false
                 }
@@ -603,6 +739,7 @@ pub mod hooking {
             MemHookType::MEM_WRITE,
             Protection::WRITE,
             mem_write_callback,
+            monitor_stack_writes,
         )?;
 
         Ok(hooks)
@@ -615,11 +752,13 @@ pub mod hooking {
     /// - the memory address accessed
     /// - the number of bytes written or read
     /// - the value
+    /// NOTE: we want to ignore the stack here.
     pub fn mem_hook_by_prot<F, C: 'static + Cpu<'static>>(
         emu: &mut C,
         hook_type: MemHookType,
         protections: Protection,
         callback: F,
+        monitor_stack_writes: bool,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error>
     where
         F: 'static
@@ -627,7 +766,12 @@ pub mod hooking {
             + Clone,
     {
         let mut hooks = Vec::new();
-        for region in emu.mem_regions()? {
+        let stack_region = find_stack(emu).expect("Could not find stack");
+        for region in emu
+            .mem_regions()?
+            .into_iter()
+            .filter(|reg| monitor_stack_writes || reg.begin != stack_region.begin)
+        {
             if region.perms.intersects(protections) {
                 let hook =
                     emu.add_mem_hook(hook_type, region.begin, region.end, callback.clone())?;
@@ -649,27 +793,24 @@ pub mod hooking {
         callback: F,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error>
     where
-        F: 'static + FnMut(&'static unicorn::Unicorn<'static>, u64, u32) -> () + Clone,
+        F: 'static + FnMut(&'static unicorn::Unicorn<'static>, u64, u32) -> (),
     {
         let mut hooks = Vec::new();
-        for region in emu.mem_regions()? {
-            if region.executable() {
-                let hook =
-                    emu.add_code_hook(hook_type, region.begin, region.end, callback.clone())?;
-                hooks.push(hook)
-            }
-        }
+        hooks.push(emu.add_code_hook(hook_type, 1, 0, callback)?);
+        // for region in emu.mem_regions()? {
+        //     if region.executable() {
+        //         let hook =
+        //             emu.add_code_hook(hook_type, region.begin, region.end, callback.clone())?;
+        //         hooks.push(hook)
+        //     }
+        // }
         Ok(hooks)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::iter;
-
-    use byteorder::{ByteOrder, LittleEndian};
     use rand::{thread_rng, Rng};
-    use unicorn::{CpuX86, RegisterX86};
 
     use crate::hashmap;
     use crate::util::architecture::{endian, word_size_in_bytes};
@@ -688,7 +829,7 @@ mod test {
             _profiler: &Profiler<C>,
         ) -> Result<Address, Error> {
             // now write the payload
-            let stack = tools::find_stack(emu)?;
+            let stack = tools::find_stack(emu).expect("no stack");
             let sp = stack.begin + (stack.end - stack.begin) / 2;
             emu.mem_write(sp, code)?;
             // set the stack pointer to the middle of the stack
@@ -742,62 +883,62 @@ mod test {
     }
 
     // FIXME - currently broken for want for full Pack impl for Vec<u8> #[test]
-    fn test_hatchery() {
-        env_logger::init();
-        let config = RoperConfig {
-            gadget_file: None,
-            num_workers: 500,
-            num_emulators: 510,
-            wait_limit: 50,
-            mode: unicorn::Mode::MODE_64,
-            arch: unicorn::Arch::X86,
-            max_emu_steps: Some(0x10000),
-            millisecond_timeout: Some(100),
-            record_basic_blocks: true,
-            record_memory_writes: false,
-            emulator_stack_size: 0x1000,
-            binary_path: "/bin/sh".to_string(),
-            soup: None,
-            soup_size: None,
-            ..Default::default()
-        };
-        fn random_rop() -> Vec<u8> {
-            let mut rng = thread_rng();
-            let addresses: Vec<u64> = iter::repeat(())
-                .take(100)
-                .map(|()| rng.gen_range(0x41_b000_u64, 0x4a_5fff_u64))
-                .collect();
-            let mut packed = vec![0_u8; addresses.len() * 8];
-            LittleEndian::write_u64_into(&addresses, &mut packed);
-            packed
-        }
-
-        let expected_num = 0x100;
-        let mut counter = 0;
-        let code_iterator = iter::repeat(()).take(expected_num).map(|()| random_rop());
-
-        use RegisterX86::*;
-        let output_registers = Arc::new(vec![RAX, RSP, RIP, RBP, RBX, RCX, EFLAGS]);
-        let mut inputs = vec![hashmap! { RCX => 0xdead_beef, RDX => 0xcafe_babe }];
-        for _ in 0..100 {
-            inputs.push(hashmap! { RCX => rand::random(), RAX => rand::random() });
-        }
-        let hatchery: Hatchery<CpuX86<'_>, Code> =
-            Hatchery::new(Arc::new(config), Arc::new(inputs), output_registers, None);
-
-        let results = hatchery.execute_batch(code_iterator);
-        for (_code, profile) in results.expect("boo") {
-            log::info!("[{}] Output: {:#?}", counter, profile.paths);
-            counter += 1;
-        }
-        // for code in code_iterator {
-        //     counter += 1;
-        //     let code_in = code.clone();
-        //     let (code_out, profile) = hatchery.execute(code).expect("execution failure");
-        //     assert_eq!(code_in, code_out); // should fail sometimes
-        //     log::info!("[{}] Output: {:#?}", counter, profile.paths);
-        // }
-        assert_eq!(counter, expected_num);
-        log::info!("FINISHED");
-    }
+    // fn test_hatchery() {
+    //     env_logger::init();
+    //     let config = RoperConfig {
+    //         gadget_file: None,
+    //         num_workers: 500,
+    //         num_emulators: 510,
+    //         wait_limit: 50,
+    //         mode: unicorn::Mode::MODE_64,
+    //         arch: unicorn::Arch::X86,
+    //         max_emu_steps: Some(0x10000),
+    //         millisecond_timeout: Some(100),
+    //         record_basic_blocks: true,
+    //         record_memory_writes: false,
+    //         emulator_stack_size: 0x1000,
+    //         binary_path: "/bin/sh".to_string(),
+    //         soup: None,
+    //         soup_size: None,
+    //         ..Default::default()
+    //     };
+    //     fn random_rop() -> Vec<u8> {
+    //         let mut rng = thread_rng();
+    //         let addresses: Vec<u64> = iter::repeat(())
+    //             .take(100)
+    //             .map(|()| rng.gen_range(0x41_b000_u64, 0x4a_5fff_u64))
+    //             .collect();
+    //         let mut packed = vec![0_u8; addresses.len() * 8];
+    //         LittleEndian::write_u64_into(&addresses, &mut packed);
+    //         packed
+    //     }
+    //
+    //     let expected_num = 0x100;
+    //     let mut counter = 0;
+    //     let code_iterator = iter::repeat(()).take(expected_num).map(|()| random_rop());
+    //
+    //     use RegisterX86::*;
+    //     let output_registers = Arc::new(vec![RAX, RSP, RIP, RBP, RBX, RCX, EFLAGS]);
+    //     let mut inputs = vec![hashmap! { RCX => 0xdead_beef, RDX => 0xcafe_babe }];
+    //     for _ in 0..100 {
+    //         inputs.push(hashmap! { RCX => rand::random(), RAX => rand::random() });
+    //     }
+    //     let hatchery: Hatchery<CpuX86<'_>, Code> =
+    //         Hatchery::new(Arc::new(config), Arc::new(inputs), output_registers, None);
+    //
+    //     let results = hatchery.execute_batch(code_iterator);
+    //     for (_code, profile) in results.expect("boo") {
+    //         log::info!("[{}] Output: {:#?}", counter, profile.paths);
+    //         counter += 1;
+    //     }
+    //     // for code in code_iterator {
+    //     //     counter += 1;
+    //     //     let code_in = code.clone();
+    //     //     let (code_out, profile) = hatchery.execute(code).expect("execution failure");
+    //     //     assert_eq!(code_in, code_out); // should fail sometimes
+    //     //     log::info!("[{}] Output: {:#?}", counter, profile.paths);
+    //     // }
+    //     assert_eq!(counter, expected_num);
+    //     log::info!("FINISHED");
+    // }
 }

@@ -1,1 +1,16 @@
 ./target
+./binaries
+./experiments
+/.git
+
+./findings
+./notes
+./gadgets
+./img
+./data
+./doc
+./resources
+./tmp
+./cache
+.gdb_history
+.idea

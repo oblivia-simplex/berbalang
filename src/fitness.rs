@@ -200,15 +200,6 @@ impl fmt::Debug for Pareto<'_> {
     }
 }
 
-// impl IndexMut<&str> for Pareto<'static> {
-//     fn index_mut(&mut self, i: &str) -> &mut Self::Output {
-//         &mut self.0[i]
-//     }
-// }
-
-// Let's define a semilattice over fitness values. This might be more efficient and
-// easier to reason over than the "non-dominated sort".
-
 pub type Lexical<T> = Vec<T>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -291,12 +282,7 @@ impl FitnessScore for ShuffleFit {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Weighted<'a> {
-    // weights: Arc<FitnessMap<String, String>>,
     weighting: String,
-    //   #[serde(skip)]
-    //   pub weights: FitnessMap<String, fasteval::Instruction>,
-    //#[serde(skip)]
-    //slab: Mutex<Slab>,
     #[serde(borrow)]
     pub scores: BTreeMap<&'a str, f64>,
     cached_scalar: Mutex<Option<f64>>,
@@ -308,18 +294,34 @@ impl PartialEq for Weighted<'_> {
     }
 }
 
-// fn compile_weight_expression(
-//     expr: &str,
-//     slab: &mut fasteval::Slab,
-//     parser: &fasteval::Parser,
-// ) -> fasteval::Instruction {
-//     // See the `parse` documentation to understand why we use `from` like this:
-//     parser
-//         .parse(expr, &mut slab.ps)
-//         .expect("Failed to parse expression")
-//         .from(&slab.ps)
-//         .compile(&slab.ps, &mut slab.cs)
-// }
+impl std::ops::Add for Weighted<'static> {
+    type Output = Weighted<'static>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        add_weighted(&self, &rhs)
+        // let mut res = self.clone();
+        // let mut keys = rhs.scores.keys().collect::<Vec<&&'static str>>();
+        // keys.extend(self.scores.keys());
+        // keys.sort();
+        // keys.dedup();
+        // for k in keys.into_iter() {
+        //     *res.scores.entry(*k).or_insert(0.0) += rhs.scores.get(*k).cloned().unwrap_or(0.0);
+        // }
+        // res
+    }
+}
+
+fn add_weighted(a: &Weighted<'static>, b: &Weighted<'static>) -> Weighted<'static> {
+    let mut res = a.clone();
+    let mut keys = a.scores.keys().collect::<Vec<_>>();
+    keys.extend(b.scores.keys());
+    keys.sort();
+    keys.dedup();
+    for k in keys.into_iter() {
+        *res.scores.entry(*k).or_insert(0.0) += b.scores.get(*k).cloned().unwrap_or(0.0);
+    }
+    res
+}
 
 impl Clone for Weighted<'_> {
     fn clone(&self) -> Self {
@@ -331,58 +333,43 @@ impl Clone for Weighted<'_> {
     }
 }
 
-// TODO: this could be optimized quite a bit by parsing the fasteval expressions
-// // when constructing the Weighted instance.
-// fn apply_weighting(
-//     weighting: &fasteval::Instruction,
-//     score: f64,
-//     mut slab: &mut Slab,
-// ) -> Result<f64, Error> {
-//     let mut map = BTreeMap::new();
-//     map.insert("x".to_string(), score);
-//     let res = fasteval::eval_compiled_ref!(weighting, &mut slab, &mut map);
-//     Ok(res)
-// }
-
-// fn apply_weighting(weighting: &str, score: f64) -> (bool, f64) {
-//     let mut ns = BTreeMap::new();
-//     let mut should_cache = true;
-//     ns.insert("x", score);
-//     if weighting.contains('E') {
-//         should_cache = false;
-//         ns.insert("E", get_epoch_counter() as f64);
-//     }
-//     let score =
-//         fasteval::ez_eval(weighting, &mut ns).expect("Failed to evaluate weighting expression");
-//     (should_cache, score)
-// }
-
-// fn compile_weight_map(
-//     weights: &FitnessMap<String, String>,
-//     mut slab: &mut Slab,
-// ) -> FitnessMap<String, fasteval::Instruction> {
-//     let parser = fasteval::Parser::new();
-//     let mut weight_map = FitnessMap::new();
-//     for (attr, weight) in weights.iter() {
-//         let compiled = compile_weight_expression(weight, &mut slab, &parser);
-//         weight_map.insert(attr.clone(), compiled);
-//     }
-//     weight_map
-// }
-
 impl Weighted<'static> {
     pub fn new(weighting: &str) -> Self {
         Self {
-            //slab: Mutex::new(slab),
             weighting: weighting.to_string(),
-            //weights: weight_map,
             scores: FitnessMap::new(),
             cached_scalar: Mutex::new(None),
         }
     }
 
+    fn powf(&self, n: f64) -> Self {
+        let mut res = self.clone();
+        for v in res.scores.values_mut() {
+            *v = v.powf(n);
+        }
+        res
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &f64> {
+        self.scores.iter().sorted_by_key(|p| p.0).map(|(_k, v)| v)
+    }
+
+    pub fn scale_by(&mut self, factor: f64) {
+        for (_, v) in self.scores.iter_mut() {
+            *v = *v / factor
+        }
+    }
+
     pub fn insert(&mut self, key: &'static str, val: f64) {
         self.scores.insert(key, val);
+    }
+
+    pub fn get(&self, key: &'static str) -> Option<&f64> {
+        self.scores.get(key)
+    }
+
+    pub fn insert_or_add(&mut self, key: &'static str, val: f64) {
+        *self.scores.entry(key).or_insert(0.0) += val
     }
 
     pub fn scalar(&self) -> f64 {
@@ -415,6 +402,34 @@ impl Weighted<'static> {
     }
 }
 
+pub fn average_weighted(ws: &[Weighted<'static>]) -> Weighted<'static> {
+    let len = ws.len();
+    let mut iter = ws.iter();
+    let mut first = iter
+        .next()
+        .expect("weight vector must not be empty")
+        .clone();
+    for w in iter {
+        first = add_weighted(&first, w);
+    }
+    first.scale_by(len as f64);
+    first
+}
+
+pub fn stddev_weighted(ws: &[Weighted<'static>], mean: &Weighted<'static>) -> Weighted<'static> {
+    let mut neg_mean = mean.clone();
+    neg_mean.scale_by(-1.0);
+    let mut res = Weighted::new(&neg_mean.weighting);
+    for w in ws
+        .iter()
+        .map(|w| add_weighted(w, &neg_mean))
+        .map(|w| w.powf(2.0))
+    {
+        res = add_weighted(&res, &w);
+    }
+    res.powf(0.5) // square root
+}
+
 impl HasScalar for Weighted<'static> {
     fn scalar(&self) -> f64 {
         Weighted::scalar(&self)
@@ -443,30 +458,6 @@ impl MapFit for Weighted<'static> {
         Self: Sized,
     {
         unimplemented!("doesn't really make sense for Weighted")
-    }
-
-    fn average(frame: &[&Self]) -> Self {
-        debug_assert!(!frame.is_empty(), "Don't try to average empty frames");
-        let mut map = FitnessMap::new();
-        let mut weighting = None;
-        for p in frame.iter() {
-            if weighting.is_none() {
-                weighting = Some(p.weighting.clone());
-            }
-            for (&k, &v) in p.inner().iter() {
-                *(map.entry(k).or_insert(0.0)) += v;
-            }
-        }
-        let len = frame.len() as f64;
-        for (_k, v) in map.iter_mut() {
-            *v /= len;
-        }
-        let weighting = weighting.unwrap();
-        Self {
-            weighting,
-            scores: map,
-            cached_scalar: Mutex::new(None),
-        }
     }
 }
 
@@ -504,6 +495,52 @@ mod test {
         assert_eq!(ps[0], &p2);
     }
 
+    #[test]
+    fn test_add_weighted() {
+        let mut w1 = Weighted::new("foo + 2 * bar");
+        w1.insert("foo", 0.5);
+        w1.insert("bar", 0.25);
+
+        let mut w2 = Weighted::new("foo + 2 * bar");
+        w2.insert("foo", 0.1);
+        w2.insert("bar", 0.75);
+
+        // 0.5 + 2 * 0.25 = 0.5 + 0.5 = 1.0
+        assert_eq!(w1.scalar(), 1.0);
+        // 0.1 + 2 * 0.75 = 0.1 + 1.50 = 1.6
+        assert_eq!(w2.scalar(), 1.6);
+
+        let w_sum = w1 + w2;
+        let foo = w_sum.get("foo").cloned().unwrap();
+        let bar = w_sum.get("bar").cloned().unwrap();
+        assert_eq!(foo, 0.6);
+        assert_eq!(bar, 1.0);
+        assert_eq!(w_sum.scalar(), 2.6);
+    }
+
+    #[test]
+    fn test_average_and_stddev_weighted() {
+        let mut w1 = Weighted::new("foo + bar");
+        w1.insert("foo", 1.0);
+        w1.insert("bar", 2.0);
+        let mut w2 = Weighted::new("foo + bar");
+        w2.insert("foo", 2.0);
+        w2.insert("bar", 1.0);
+        let ws = &[w1, w2];
+        let w_mean = average_weighted(ws);
+        println!("w_mean = {:?}", w_mean);
+        let w_mean_foo = w_mean.get("foo").cloned().unwrap();
+        let w_mean_bar = w_mean.get("bar").cloned().unwrap();
+        assert_eq!(w_mean_foo, 1.5);
+        assert_eq!(w_mean_bar, 1.5);
+
+        let std_dev = stddev_weighted(ws, &w_mean);
+        println!("std_dev = {:?}", std_dev);
+        let s_foo = std_dev.get("foo").cloned().unwrap();
+        let s_bar = std_dev.get("bar").cloned().unwrap();
+        assert_eq!(s_foo, 0.7071067811865476);
+        assert_eq!(s_bar, 0.7071067811865476);
+    }
     // #[test]
     // fn test_find_minima() {
     //     fn random_pareto() -> Pareto<'static> {

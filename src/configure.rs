@@ -3,10 +3,10 @@ use std::fmt::Debug;
 use std::path::Path;
 
 use chrono::prelude::*;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::emulator::register_pattern::{RegisterPattern, RegisterPatternConfig};
+use crate::emulator::register_pattern::{parse_register_pattern_file, RegisterPattern};
 use crate::error::Error;
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -28,7 +28,7 @@ impl Default for Job {
 }
 
 fn default_num_islands() -> usize {
-    num_cpus::get()
+    num_cpus::get() / 2
 }
 
 fn default_random_seed() -> u64 {
@@ -39,16 +39,28 @@ fn default_one() -> f64 {
     1.0
 }
 
+fn default_crossover_algorithm() -> String {
+    "alternating".to_string()
+}
+
+fn default_timeout() -> String {
+    "1 week".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Config {
     pub job: Job,
+    #[serde(default = "default_timeout")]
+    pub timeout: String,
     pub selection: Selection,
     #[serde(default = "default_num_islands")]
     pub num_islands: usize,
     // The island identifier is used internally
     #[serde(default)]
-    pub island_identifier: usize,
+    pub island_id: usize,
     pub crossover_period: f64,
+    #[serde(default = "default_crossover_algorithm")]
+    pub crossover_algorithm: String,
     pub crossover_rate: f32,
     #[serde(default)]
     pub data: DataConfig,
@@ -64,7 +76,7 @@ pub struct Config {
     pub mutation_exponent: f64,
     pub observer: ObserverConfig,
     pub pop_size: usize,
-    pub problems: Option<Vec<IOProblem>>,
+    pub problems: Option<Vec<ClassificationProblem>>,
     #[serde(default)]
     pub roulette: RouletteConfig,
     #[serde(default)]
@@ -81,6 +93,12 @@ pub struct Config {
     pub random_seed: u64,
     #[serde(default)]
     pub push_vm: PushVm,
+}
+
+impl Config {
+    pub fn epoch_length(&self) -> usize {
+        self.pop_size / self.tournament.num_offspring
+    }
 }
 
 fn default_tournament_size() -> usize {
@@ -105,9 +123,20 @@ pub struct FitnessConfig {
     pub target: f64,
     pub eval_by_case: bool,
     pub dynamic: bool,
-    pub priority: String,
+    #[serde(default)]
+    priority: String,
     pub function: String,
     pub weighting: String,
+}
+
+impl FitnessConfig {
+    pub fn priority(&self) -> &str {
+        if self.priority.is_empty() {
+            &self.weighting
+        } else {
+            &self.priority
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -142,8 +171,8 @@ pub struct ObserverConfig {
     pub dump_population: bool,
     pub dump_soup: bool,
     pub window_size: usize,
-    pub report_every: usize,
-    pub dump_every: usize,
+    pub report_every: Option<usize>,
+    pub dump_every: Option<usize>,
     #[serde(default)]
     pub full_data_directory: String,
     data_directory: String,
@@ -192,7 +221,7 @@ impl Config {
             selection = self.selection,
             date = local_date.format("%Y/%m/%d"),
             pop_name = self.observer.population_name,
-            island = self.island_identifier,
+            island = self.island_id,
         );
 
         for sub in ["", "soup", "population", "champions"].iter() {
@@ -240,10 +269,12 @@ pub struct RoperConfig {
     #[serde(default)]
     pub output_registers: Vec<String>,
     #[serde(default)]
+    pub input_registers: Vec<String>,
+    #[serde(default)]
     pub randomize_registers: bool,
-    pub register_pattern: Option<RegisterPatternConfig>,
+    pub register_pattern_file: Option<String>,
     #[serde(skip)]
-    pub parsed_register_pattern: Option<RegisterPattern>,
+    pub parsed_register_patterns: Vec<RegisterPattern>,
     #[serde(default = "Default::default")]
     pub soup: Option<Vec<u64>>,
     pub soup_size: Option<usize>,
@@ -271,17 +302,42 @@ pub struct RoperConfig {
     pub ld_paths: Option<Vec<String>>,
     #[serde(default)]
     pub bad_bytes: Option<HashMap<String, u8>>,
+    pub memory_pattern: Option<Vec<u8>>,
+    #[serde(default)]
+    pub break_on_calls: bool,
+    #[serde(default)]
+    pub monitor_stack_writes: bool,
 }
 
 impl RoperConfig {
-    pub fn parse_register_pattern(&mut self) {
-        if let Some(ref rp) = self.register_pattern {
-            self.parsed_register_pattern = Some(rp.into());
+    pub fn parse_register_patterns(&mut self) {
+        if let Some(ref pat_file) = self.register_pattern_file {
+            let ps = parse_register_pattern_file(pat_file)
+                .expect("Failed to parse register pattern file");
+            log::info!("Parsed and reduced register patterns: {:#x?}", ps);
+            self.parsed_register_patterns = ps;
         }
     }
 
-    pub fn register_pattern(&self) -> Option<&RegisterPattern> {
-        self.parsed_register_pattern.as_ref()
+    pub fn register_patterns(&self) -> &[RegisterPattern] {
+        &self.parsed_register_patterns
+    }
+
+    pub fn registers_to_check(&self) -> Vec<String> {
+        let mut set = HashSet::new();
+        for r in self
+            .output_registers
+            .iter()
+            .chain(self.input_registers.iter())
+        {
+            set.insert(r.clone());
+        }
+        for rp in self.parsed_register_patterns.iter() {
+            for r in rp.0.keys() {
+                set.insert(r.clone());
+            }
+        }
+        set.into_iter().collect::<Vec<String>>()
     }
 }
 
@@ -307,13 +363,15 @@ impl Default for RoperConfig {
             use_push: false,
             gadget_file: None,
             output_registers: vec![],
+            input_registers: vec![],
             randomize_registers: false,
-            register_pattern: None,
-            parsed_register_pattern: None,
+            register_pattern_file: None,
+            parsed_register_patterns: vec![],
             soup: None,
             soup_size: None,
             arch: unicorn::Arch::X86,
             mode: unicorn::Mode::MODE_64,
+            memory_pattern: None,
             num_workers: 8,
             num_emulators: 8,
             wait_limit: 500,
@@ -325,6 +383,8 @@ impl Default for RoperConfig {
             binary_path: "/bin/sh".to_string(),
             ld_paths: None,
             bad_bytes: None,
+            break_on_calls: false,
+            monitor_stack_writes: false,
         }
     }
 }
@@ -337,7 +397,7 @@ impl Config {
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash, Serialize)]
-pub struct IOProblem {
+pub struct ClassificationProblem {
     pub input: Vec<i32>,
     // TODO make this more generic
     pub output: i32,
@@ -345,13 +405,13 @@ pub struct IOProblem {
     pub tag: u64,
 }
 
-impl PartialOrd for IOProblem {
+impl PartialOrd for ClassificationProblem {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.tag.partial_cmp(&other.tag)
     }
 }
 
-impl Ord for IOProblem {
+impl Ord for ClassificationProblem {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tag.cmp(&other.tag)
     }
@@ -369,4 +429,11 @@ impl Default for Selection {
     fn default() -> Self {
         Self::Tournament
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum Problem {
+    Classification(ClassificationProblem),
+    RegisterSpecification(RegisterPattern),
+    MemoryPattern(Vec<u8>),
 }

@@ -44,6 +44,18 @@ impl HasProfile for Creature {
     fn profile(&self) -> Option<&Profile> {
         self.profile.as_ref()
     }
+
+    fn add_profile(&mut self, profile: Profile) {
+        if let Some(ref mut p) = self.profile {
+            p.absorb(profile)
+        } else {
+            self.profile = Some(profile)
+        }
+    }
+
+    fn set_profile(&mut self, profile: Profile) {
+        self.profile = Some(profile)
+    }
 }
 
 impl Hash for Creature {
@@ -115,6 +127,19 @@ impl fmt::Debug for Creature {
         )?;
         writeln!(f, "Generation: {}", self.chromosome.generation)?;
         let memory = loader::get_static_memory_image();
+        let mut starred = self
+            .chromosome()
+            .iter()
+            .map(|a| {
+                (
+                    *a,
+                    self.profile
+                        .as_ref()
+                        .map(|p| p.times_executed(*a))
+                        .unwrap_or(0),
+                )
+            })
+            .collect::<HashMap<u64, usize>>();
         for i in 0..self.chromosome.len() {
             let parent = if self.chromosome.parent_names.is_empty() {
                 "seed"
@@ -126,22 +151,32 @@ impl fmt::Debug for Creature {
                 .perm_of_addr(allele)
                 .map(|p| format!(" ({:?})", p))
                 .unwrap_or_else(|| "".to_string());
-            let was_it_executed = self
-                .profile
-                .as_ref()
-                .map(|p| p.gadgets_executed.contains(&allele))
-                .unwrap_or(false);
+            let exec_star = starred.get(&allele).cloned().unwrap_or(0) > 0;
+            if exec_star {
+                if let Some(x) = starred.get_mut(&allele) {
+                    *x -= 1;
+                }
+            }
             let mutation = self.chromosome.mutations[i];
             writeln!(
                 f,
-                "[{}][{}] 0x{:010x}{}{} {}",
-                i,
-                parent,
-                allele,
-                perms,
-                if was_it_executed { " *" } else { "" },
-                mutation
-                    .map(|m| format!("{:?}", m))
+                "[{i}][{parent}] 0x{allele}{perms}{stack}{exec}{mutation}",
+                i = i,
+                parent = parent,
+                allele = if memory.word_size == 8 {
+                    format!("{:0>16x}", allele)
+                } else {
+                    format!("{:0>8x}", allele)
+                },
+                perms = perms,
+                stack = if memory.is_stack_addr(allele) {
+                    " (stack)"
+                } else {
+                    ""
+                },
+                exec = if exec_star { " *" } else { "" },
+                mutation = mutation
+                    .map(|m| format!(" {:?}", m))
                     .unwrap_or_else(String::new),
             )?;
         }
@@ -153,6 +188,10 @@ impl fmt::Debug for Creature {
             //writeln!(f, "Register state: {:#x?}", profile.registers)?;
             for state in &profile.registers {
                 writeln!(f, "\nSpidered register state:\n{:?}", state)?;
+            }
+            for mem in profile.memory_writes.iter() {
+                writeln!(f, "Memory writes: {:#x?}", mem)?;
+                // writeln!(f, "telescoped: {:#x?}", mem.telescope())?;
             }
             writeln!(f, "CPU Error code(s): {:?}", profile.cpu_errors)?;
         }
@@ -194,6 +233,14 @@ fn try_to_ensure_exec(mut chromosome: Vec<u64>) -> Vec<u64> {
 
 impl Genome for Creature {
     type Allele = u64;
+
+    fn generation(&self) -> usize {
+        self.chromosome.generation
+    }
+
+    fn num_offspring(&self) -> usize {
+        self.num_offspring
+    }
 
     fn chromosome(&self) -> &[Self::Allele] {
         &self.chromosome.chromosome
@@ -240,7 +287,7 @@ impl Genome for Creature {
             fitness: None,
             front: None,
             num_offspring: 0,
-            native_island: config.island_identifier,
+            native_island: config.island_id,
             description: None,
         }
     }
@@ -391,7 +438,7 @@ impl Phenome for Creature {
     }
 
     fn is_goal_reached(&self, config: &Config) -> bool {
-        self.scalar_fitness(&config.fitness.priority)
+        self.scalar_fitness(&config.fitness.priority())
             .map(|p| p - config.fitness.target <= std::f64::EPSILON)
             .unwrap_or(false)
     }
