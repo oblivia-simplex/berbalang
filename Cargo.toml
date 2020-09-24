@@ -49,6 +49,7 @@ distance = "0.4"
 falcon = { git = "https://github.com/oblivia-simplex/falcon", features = [ "capstone4", "thread_safe" ] }
 fasteval = { git = "https://github.com/oblivia-simplex/fasteval"}
 fnv = "1"
+gethostname = "0.2"
 goblin = { version = "0.2", features = [ "alloc" ] }
 hamming = "0.1"
 hashbrown = { version = "0.7", features = ["serde", "rayon", "inline-more"] }

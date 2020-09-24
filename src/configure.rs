@@ -95,12 +95,6 @@ pub struct Config {
     pub push_vm: PushVm,
 }
 
-impl Config {
-    pub fn epoch_length(&self) -> usize {
-        self.pop_size / self.tournament.num_offspring
-    }
-}
-
 fn default_tournament_size() -> usize {
     4
 }
@@ -181,6 +175,15 @@ pub struct ObserverConfig {
 }
 
 impl Config {
+    pub fn epoch_length(&self) -> usize {
+        self.pop_size / self.tournament.num_offspring
+    }
+
+    pub fn assert_invariants(&self) {
+        assert!(self.tournament.tournament_size >= self.tournament.num_offspring + 2);
+        //assert_eq!(self.num_offspring, 2); // all that's supported for now
+    }
+
     pub fn from_path<P: AsRef<Path>>(
         path: P,
         population_name: Option<String>,
@@ -189,6 +192,14 @@ impl Config {
         if let Some(population_name) = population_name {
             config.observer.population_name = population_name;
         }
+        // add the hostname
+        config.observer.population_name = format!(
+            "{}-{}",
+            gethostname::gethostname()
+                .to_str()
+                .expect("Failed to get hostname"),
+            config.observer.population_name
+        );
         config.assert_invariants();
         config.set_data_directory();
         // copy the config file to the data directory for posterity
@@ -386,13 +397,6 @@ impl Default for RoperConfig {
             break_on_calls: false,
             monitor_stack_writes: false,
         }
-    }
-}
-
-impl Config {
-    pub fn assert_invariants(&self) {
-        assert!(self.tournament.tournament_size >= self.tournament.num_offspring + 2);
-        //assert_eq!(self.num_offspring, 2); // all that's supported for now
     }
 }
 
