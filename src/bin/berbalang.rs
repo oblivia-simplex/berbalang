@@ -11,7 +11,7 @@ fn main() {
     let mut config = Config::from_path(&config_file, population_name)
         .unwrap_or_else(|e| panic!("Failed to generate Config from {:?}: {:?}", &config_file, e));
     logger::init(&config.observer.population_name);
-    config.roper.parse_register_patterns();
+    // config.roper.parse_register_patterns();
     if let Ok(n) = std::env::var("BERBALANG_LIMIT_THREADS") {
         limit_threads(
             n.parse()

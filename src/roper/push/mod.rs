@@ -1286,7 +1286,9 @@ fn register_pattern_to_push_args(rp: &RegisterPattern) -> Vec<Val> {
     // by register name.
     let mut args = Vec::new();
     for (_reg, rval) in rp.0.iter().sorted_by_key(|p| p.0) {
-        args.push(Val::Word(rval.val));
+        for w in rval.vals.iter() {
+            args.push(Val::Word(*w));
+        }
         // alternately, to do this in an easier way, if deref > 0, then
         // first search memory for an occurrence of val, and then return the
         // address.

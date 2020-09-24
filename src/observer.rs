@@ -259,7 +259,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
     }
 
     pub fn log_record<S: LogRecord + Debug>(&self, record: S, name: &str) {
-        log::info!(
+        log::debug!(
             "Island {}, logging to {}: {:#?}",
             self.config.island_id,
             name,
@@ -268,7 +268,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         let filename = get_log_filename(name, &self.config);
         // check to see if file exists yet
         let msg = if !Path::exists((&filename).as_ref()) {
-            log::info!("Creating header for {}", filename);
+            log::debug!("Creating header for {}", filename);
             format!("{}\n{}\n", record.header(), record.row())
         } else {
             format!("{}\n", record.row())
@@ -279,7 +279,6 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             .open(&filename)
             .expect("Failed to open log file");
         let mut w = BufWriter::new(fd);
-        log::debug!("Logging to {}:\n{}", filename, msg);
         write!(w, "{}", msg).expect("Failed to log row");
 
         // self.stat_writers[name]
@@ -327,7 +326,11 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             return;
         }
         let mut soup = self.soup();
-        log::info!("Soup size: {} alleles", soup.len());
+        log::info!(
+            "Island {} soup size: {} alleles",
+            self.config.island_id,
+            soup.len()
+        );
         let path = format!(
             "{}/soup/soup_{}.json",
             self.config.data_directory(),

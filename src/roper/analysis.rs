@@ -184,7 +184,7 @@ where
     let epoch = get_epoch_counter();
 
     let record = StatRecord::mean_from_window(window, counter);
-    log::info!(
+    log::debug!(
         "Island #{island} {record:#?}",
         island = config.island_id,
         record = record,
@@ -201,7 +201,7 @@ where
         window.log_record(best_record, "best");
     }
 
-    log::info!(
+    log::debug!(
         "Island #{island} Champion: {champion:#?}\nIsland #{island} Best: {best:#?}\nIsland #{island}, Epoch {epoch}",
         island = config.island_id,
         best = window.best,

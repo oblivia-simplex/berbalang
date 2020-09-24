@@ -1,9 +1,7 @@
-use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
-use byteorder::{ByteOrder, LittleEndian};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -13,7 +11,7 @@ use crate::emulator::loader;
 use crate::emulator::loader::{get_static_memory_image, Seg};
 use crate::error::Error;
 use crate::util;
-use crate::util::architecture::Endian;
+use crate::util::architecture::{write_integer, Endian};
 use crate::util::bitwise;
 use crate::util::bitwise::nybble;
 
@@ -49,13 +47,33 @@ pub type Register<C> = <C as Cpu<'static>>::Reg;
 /// and so on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct RegisterValue {
-    pub val: u64,
+    pub vals: Vec<u64>, // Alternatives
     pub deref: usize,
+}
+
+impl RegisterValue {
+    fn reduce_references(&mut self) {
+        if self.deref == 0 {
+            return;
+        }
+        let memory = get_static_memory_image();
+        let mut target = vec![0_u8; memory.word_size];
+        // TODO: this could be applied iteratively, but this is good enough for now.
+        write_integer(memory.endian, memory.word_size, self.vals[0], &mut target);
+        let results = memory.seek_all_segs_exhaustively(&target, None, 100);
+        if results.len() > 0 {
+            self.vals = results;
+            self.deref -= 1;
+        }
+    }
 }
 
 impl From<u64> for RegisterValue {
     fn from(val: u64) -> Self {
-        Self { val, deref: 0 }
+        Self {
+            vals: vec![val],
+            deref: 0,
+        }
     }
 }
 
@@ -83,7 +101,10 @@ impl FromStr for RegisterValue {
                     let s = chars.collect::<String>();
                     // FIXME: don't hardcode the endian
                     if let Some(w) = bitwise::try_str_as_word(s, Endian::Little) {
-                        Ok(RegisterValue { val: w, deref })
+                        Ok(RegisterValue {
+                            vals: vec![w],
+                            deref,
+                        })
                     } else {
                         Err(Error::Parsing(
                             "can only encode strings of fewer than 8 characters".into(),
@@ -99,7 +120,10 @@ impl FromStr for RegisterValue {
                     } else {
                         u64::from_str_radix(&numeral, 10)?
                     };
-                    Ok(RegisterValue { val, deref })
+                    Ok(RegisterValue {
+                        vals: vec![val],
+                        deref,
+                    })
                 }
             }
         }
@@ -144,11 +168,13 @@ impl From<&RegisterPatternConfig> for RegisterPattern {
     fn from(rp: &RegisterPatternConfig) -> Self {
         let mut map = HashMap::new();
         for (k, v) in rp.0.iter() {
-            map.insert(
-                k.to_string(),
-                v.parse::<RegisterValue>()
-                    .expect("Failed to parse RegisterValue"),
-            );
+            let mut value = v
+                .parse::<RegisterValue>()
+                .expect("Failed to parse RegisterValue");
+            log::debug!("Before reduction: {:#x?}", value);
+            value.reduce_references();
+            log::debug!("After reduction: {:#x?}", value);
+            map.insert(k.to_string(), value);
         }
         Self(map)
     }
@@ -162,21 +188,6 @@ impl From<RegisterPatternConfig> for RegisterPattern {
 
 #[derive(Debug)]
 pub struct UnicornRegisterState<C: 'static + Cpu<'static>>(pub HashMap<Register<C>, u64>);
-
-impl<C: 'static + Cpu<'static>> TryFrom<&RegisterPattern> for UnicornRegisterState<C> {
-    type Error = Error;
-
-    fn try_from(rp: &RegisterPattern) -> Result<Self, Self::Error> {
-        let mut map = HashMap::new();
-        for (k, v) in rp.0.iter() {
-            let reg = k
-                .parse()
-                .map_err(|_| Self::Error::Parsing("Failed to parse register string".to_string()))?;
-            map.insert(reg, v.val);
-        }
-        Ok(UnicornRegisterState(map))
-    }
-}
 
 // TODO: write down your thoughts on the complications of "similarity" or
 // "distance" in this framework, where we're concerned, essentially, with
@@ -198,6 +209,11 @@ fn word_distance2(w1: u64, w2: u64) -> f64 {
 
 fn word_distance(w1: u64, w2: u64) -> f64 {
     (w1 ^ w2).count_ones() as f64
+}
+
+fn least_word_distance(w1: u64, w2s: &[u64]) -> f64 {
+    assert!(w2s.len() > 0, "w2s must contain at least one word");
+    w2s.iter().map(|w2| (w1 ^ *w2).count_ones()).min().unwrap() as f64
 }
 
 fn max_word_distance() -> f64 {
@@ -256,34 +272,34 @@ impl RegisterPattern {
             .collect()
     }
 
-    pub fn spider(&self, extra_segs: Option<&[Seg]>) -> HashMap<String, Vec<u64>> {
-        let mut map = HashMap::new();
-        let memory = loader::get_static_memory_image();
-        for (k, v) in self.0.iter() {
-            let path = memory.deref_chain(v.val, 10, extra_segs);
-            map.insert(k.to_string(), path);
-        }
-        map
-    }
+    // pub fn spider(&self, extra_segs: Option<&[Seg]>) -> HashMap<String, Vec<u64>> {
+    //     let mut map = HashMap::new();
+    //     let memory = loader::get_static_memory_image();
+    //     for (k, v) in self.0.iter() {
+    //         let path = memory.deref_chain(v.vals, 10, extra_segs);
+    //         map.insert(k.to_string(), path);
+    //     }
+    //     map
+    // }
 
     pub fn features(&self) -> Vec<RegisterFeature> {
         RegisterFeature::decompose_reg_pattern(self)
     }
 }
 
-impl From<&RegisterPattern> for Vec<u8> {
-    fn from(rp: &RegisterPattern) -> Vec<u8> {
-        const WORD_SIZE: usize = 8; // FIXME
-        let len = rp.0.keys().len();
-        let mut buf = vec![0_u8; len * WORD_SIZE];
-        let mut offset = 0;
-        for word in rp.0.values() {
-            LittleEndian::write_u64(&mut buf[offset..], word.val);
-            offset += WORD_SIZE;
-        }
-        buf
-    }
-}
+// impl From<&RegisterPattern> for Vec<u8> {
+//     fn from(rp: &RegisterPattern) -> Vec<u8> {
+//         const WORD_SIZE: usize = 8; // FIXME
+//         let len = rp.0.keys().len();
+//         let mut buf = vec![0_u8; len * WORD_SIZE];
+//         let mut offset = 0;
+//         for word in rp.0.values() {
+//             LittleEndian::write_u64(&mut buf[offset..], word.vals);
+//             offset += WORD_SIZE;
+//         }
+//         buf
+//     }
+// }
 
 #[derive(Clone, Debug, Hash)]
 pub struct RegisterFeature {
@@ -298,7 +314,7 @@ impl RegisterFeature {
         let word_size = get_static_memory_image().word_size;
 
         for i in 0..(word_size * 2) {
-            let nybble = nybble(reg_val.val, i);
+            let nybble = nybble(reg_val.vals[0], i);
             let deref = reg_val.deref;
             reg_feats.push(Self {
                 register: register.to_string(),
@@ -412,18 +428,19 @@ impl RegisterState {
         if let Some(vals) = self.0.get(reg) {
             let distance = if r_val.deref == 0 {
                 // Immediate values
-                word_distance(vals[0], r_val.val)
+                least_word_distance(vals[0], &r_val.vals)
             } else {
                 // dereferenced values
                 vals.iter()
                     .enumerate()
                     .map(|(i, val)| {
                         if is_mutable(i, &vals) {
-                            word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
-                        } else if *val == r_val.val {
+                            least_word_distance(*val, &r_val.vals)
+                        } else if r_val.vals.iter().any(|v| v == val) {
                             0.0 + pos_distance(i, r_val.deref)
                         } else {
-                            2.0 * word_distance(*val, r_val.val) + pos_distance(i, r_val.deref)
+                            2.0 * least_word_distance(*val, &r_val.vals)
+                                + pos_distance(i, r_val.deref)
                         }
                     })
                     .fold1(|a, b| a.min(b))
@@ -522,22 +539,22 @@ mod test {
             (
                 "0xdeadbeef",
                 RegisterValue {
-                    val: 0xdead_beef,
+                    vals: 0xdead_beef,
                     deref: 0,
                 },
             ),
             (
                 "&0xbeef",
                 RegisterValue {
-                    val: 0xbeef,
+                    vals: 0xbeef,
                     deref: 1,
                 },
             ),
-            ("&&0", RegisterValue { val: 0, deref: 2 }),
+            ("&&0", RegisterValue { vals: 0, deref: 2 }),
             (
                 "& & & & 1234",
                 RegisterValue {
-                    val: 1234,
+                    vals: 1234,
                     deref: 4,
                 },
             ),
@@ -629,7 +646,7 @@ mod test {
             .distance_from_register_val(
                 "RAX",
                 &RegisterValue {
-                    val: 0xbeef,
+                    vals: 0xbeef,
                     deref: 1,
                 },
             )
@@ -637,7 +654,7 @@ mod test {
         assert!(res < std::f64::EPSILON, "Match failed");
 
         let res = register_state
-            .distance_from_register_val("RBX", &RegisterValue { val: 3, deref: 2 })
+            .distance_from_register_val("RBX", &RegisterValue { vals: 3, deref: 2 })
             .unwrap();
         assert!(res < std::f64::EPSILON, "Match failed");
 
@@ -645,7 +662,7 @@ mod test {
             .distance_from_register_val(
                 "RAX",
                 &RegisterValue {
-                    val: 0x1000_beef,
+                    vals: 0x1000_beef,
                     deref: 1,
                 },
             )
@@ -656,7 +673,7 @@ mod test {
             .distance_from_register_val(
                 "RAX",
                 &RegisterValue {
-                    val: 0x1000_beef,
+                    vals: 0x1000_beef,
                     deref: 0,
                 },
             )
@@ -669,7 +686,7 @@ mod test {
             "RAX".to_string() => vec![1, 7],
         });
         let res = register_state
-            .distance_from_register_val("RAX", &RegisterValue { val: 9, deref: 3 })
+            .distance_from_register_val("RAX", &RegisterValue { vals: 9, deref: 3 })
             .unwrap();
         println!("res = {}", res);
         assert!(res - (1.0 + 3.0) < std::f64::EPSILON);

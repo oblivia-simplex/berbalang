@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use unicorn::Cpu;
@@ -6,7 +5,7 @@ use unicorn::Cpu;
 use crate::configure::Config;
 use crate::emulator::hatchery::Hatchery;
 use crate::emulator::profiler::{HasProfile, Profile};
-use crate::emulator::register_pattern::{Register, RegisterPattern, UnicornRegisterState};
+use crate::emulator::register_pattern::{Register, RegisterPattern};
 use crate::evolution::{Genome, Phenome};
 use crate::fitness::Weighted;
 use crate::ontogenesis::{Develop, FitnessFn};
@@ -26,29 +25,12 @@ impl<C: 'static + Cpu<'static>> Evaluator<C> {
     pub fn spawn(config: &Config, fitness_fn: FitnessFn<Creature, Sketches, Config>) -> Self {
         let config = config.clone();
         let hatch_config = Arc::new(config.roper.clone());
-        let register_patterns = config.roper.register_patterns();
-        let output_registers: Vec<Register<C>> = {
-            let mut out_reg: Vec<Register<C>> = config
-                .roper
-                .output_registers
-                .iter()
-                .map(|s| s.parse().ok().expect("Failed to parse output register"))
-                .collect::<Vec<_>>();
-            // This is a bit of a hack, where we assume that all the register patterns
-            // use the same registers. It can be FIXME'd later, so that we gather ALL the
-            // registers used. But let's keep things simple for now.
-            if let Some(pat) = register_patterns.last() {
-                let arch_specific_pat: UnicornRegisterState<C> =
-                    pat.try_into().expect("Failed to parse register pattern");
-                let regs_in_pat = arch_specific_pat.0.keys().cloned().collect::<Vec<_>>();
-                out_reg.extend_from_slice(&regs_in_pat);
-                out_reg.dedup();
-                out_reg
-            } else {
-                out_reg
-                //todo!("implement a conversion method from problem sets to register maps");
-            }
-        };
+        let output_registers: Vec<Register<C>> = config
+            .roper
+            .registers_to_check()
+            .iter()
+            .map(|r| r.parse().ok().expect("Failed to parse register"))
+            .collect::<Vec<_>>();
         let initial_register_state = if config.roper.randomize_registers {
             util::architecture::random_register_state::<u64, C>(
                 &output_registers,

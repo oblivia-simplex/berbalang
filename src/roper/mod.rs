@@ -45,7 +45,10 @@ pub fn init_soup(config: &mut Config) -> Result<(), Error> {
     let mut soup = Vec::new();
     //might as well take the constants from the register pattern
     for pattern in config.roper.register_patterns() {
-        pattern.0.values().for_each(|w| soup.push(w.val))
+        pattern
+            .0
+            .values()
+            .for_each(|w| w.vals.iter().for_each(|word| soup.push(*word)))
     }
     if let Some(gadget_file) = config.roper.gadget_file.as_ref() {
         // parse the gadget file
@@ -143,6 +146,7 @@ impl DominanceOrd<&push::Creature> for CreatureDominanceOrd {}
 pub fn run(mut config: Config) {
     let _ = loader::falcon_loader::load_from_path(&mut config, true)
         .expect("Failed to load binary image");
+    config.roper.parse_register_patterns();
     init_soup(&mut config).expect("Failed to initialize the soup");
 
     use unicorn::Arch::*;

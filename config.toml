@@ -106,8 +106,8 @@ millisecond_timeout = 4
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 output_registers= ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
-randomize_registers = false
-register_pattern_file = "./register_pattern.txt"
+randomize_registers = true
+register_pattern_file = "./experiments/register_pattern.txt"
 memory_pattern = [0x41, 0x42, 0x43, 0x44]
 break_on_calls = true
 # this similarity in field names is a bit confusing. maybe it would

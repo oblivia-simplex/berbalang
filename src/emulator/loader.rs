@@ -161,11 +161,17 @@ impl MemoryImage {
     }
 
     pub fn seek(&self, offset: u64, sequence: &[u8], extra_segs: Option<&[Seg]>) -> Option<u64> {
+        log::debug!(
+            "seeking sequence {:x?} from offset 0x{:x}",
+            sequence,
+            offset
+        );
         if let Some(s) = self.containing_seg(offset, extra_segs) {
             let start = (offset - s.aligned_start()) as usize;
-            let mut ptr = start;
+            let mut ptr = offset;
             for window in s.data[start..].windows(sequence.len()) {
                 if window == sequence {
+                    log::debug!("Found sequence at address 0x{:x}", ptr);
                     return Some(ptr as u64);
                 } else {
                     ptr += 1
@@ -185,6 +191,26 @@ impl MemoryImage {
             }
         }
         None
+    }
+
+    pub fn seek_all_segs_exhaustively(
+        &self,
+        sequence: &[u8],
+        extra_segs: Option<&[Seg]>,
+        limit: usize, // 0 for all
+    ) -> Vec<u64> {
+        let mut occurrences = Vec::new();
+        for seg in self.segments() {
+            let mut offset = seg.aligned_start();
+            while let Some(res) = self.seek(offset, sequence, extra_segs) {
+                offset = res + 1;
+                occurrences.push(res);
+                if occurrences.len() == limit {
+                    return occurrences;
+                }
+            }
+        }
+        occurrences
     }
 
     pub fn seek_from_random_address<H: Hash>(&self, sequence: &[u8], seed: H) -> Option<u64> {
