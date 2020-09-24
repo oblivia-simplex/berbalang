@@ -93,7 +93,15 @@ impl<
         let mut chromosome = Vec::new();
         let mut parentage = Vec::new();
         let mut counter = 0;
-        for i in 0..splice_f {
+        // let there be some chance of the first allele being dropped.
+        // because it's unlikely this will happen otherwise. the first allele
+        // decides a lot.
+        let start = if rng.gen_bool(config.mutation_rate) {
+            1
+        } else {
+            0
+        };
+        for i in start..splice_f {
             chromosome.push(father.chromosome[i].clone());
             parentage.push(father_idx);
             counter += 1;

@@ -1,6 +1,0 @@
-# execve("/bin", NULL, NULL);
-
-EAX = "0xb"
-EBX = "&'/bin"
-ECX = "&0"
-EDX = "0"

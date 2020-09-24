@@ -502,10 +502,6 @@ pub mod hooking {
         output_registers: Arc<Vec<Register<C>>>,
     ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
         let callback = move |engine: &unicorn::Unicorn<'_>, address: u64, block_length: u32| {
-            let disas = disassembler
-                .disas_from_mem_image(address, block_length as usize)
-                .expect("Failed to disassemble block");
-
             let registers: String = output_registers
                 .iter()
                 .map(|reg| {
@@ -516,8 +512,18 @@ pub mod hooking {
                 .collect::<Vec<String>>()
                 .join(", ");
 
-            log::trace!("\n{}\n{}", registers, disas);
+            if let Ok(disas) = disassembler.disas_from_mem_image(address, block_length as usize) {
+                log::trace!("\n{}\n{}", registers, disas);
+            } else {
+                log::trace!(
+                    "\n{}\nUnable to disassemble 0x{:x} bytes at address 0x{:x}",
+                    registers,
+                    block_length,
+                    address
+                );
+            }
         };
+
         // TODO: print registers
         code_hook_all(emu, CodeHookType::CODE, callback)
     }

@@ -70,8 +70,14 @@ impl Disassembler {
             None => return Err(Error::BadAddress(start)),
         };
         if let Some(offset) = memory.offset_of_addr(start) {
-            let code = &seg.data[(offset as usize)..(offset as usize + num_bytes)];
-            self.disas(code, start, None)
+            let begin = offset as usize;
+            let end = begin + num_bytes;
+            if end <= seg.data.len() {
+                let code = &seg.data[begin..end];
+                self.disas(code, start, None)
+            } else {
+                Err(Error::BadAddress(end as u64))
+            }
         } else {
             Err(Error::BadAddress(start))
         }

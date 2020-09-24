@@ -98,6 +98,7 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
         // For now, only Island 0 can increment the epoch. We can weigh the
         // pros and cons of letting each island have its own epoch, later.
         if config.island_id == 0
+            && iteration > 0
             && iteration % (config.pop_size / config.tournament.num_offspring) == 0
         {
             crate::increment_epoch_counter();

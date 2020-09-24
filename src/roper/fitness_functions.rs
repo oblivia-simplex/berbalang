@@ -45,9 +45,6 @@ where
     // measure fitness
     // for now, let's just handle the register pattern task
     if let Some(ref profile) = creature.profile() {
-        //sketch.insert(&profile.registers);
-        //let reg_freq = sketch.query(&profile.registers);
-        //if let Some(pattern) = config.roper.register_patterns() {
         let number_of_cases = profile.registers.len();
         let mut fitness = Weighted::new(&config.fitness.weighting);
         // If the specimen doesn't report the right number of register states, then
@@ -87,16 +84,11 @@ where
             let ret_count = profile.ret_counts[idx];
             weighted_fitness.insert_or_add("ret_count", ret_count as f64);
 
-            // FIXME: not sure how sound this frequency gauging scheme is.
             creature.record_genetic_frequency(&mut sketch.genetic);
             let gen_freq = creature.query_genetic_frequency(&sketch.genetic);
             weighted_fitness.scores.insert("genetic_freq", gen_freq);
 
-            log::debug!("adding {:?} to {:?}", weighted_fitness, fitness);
-            // NB: There's a quirk in the fitness addition implementation that makes it
-            // non-commutative, in the general case. FIXME
             fitness = weighted_fitness + fitness;
-            log::debug!("Result is {:?}", fitness);
         }
         fitness.scale_by(number_of_cases as f64);
         // Now add a constancy penalty if appropriate
@@ -181,6 +173,7 @@ where
         "subpattern_4",
         "subpattern_5",
     ];
+    // TODO: iterate through the different cases here, as above
     if let Some(profile) = creature.profile() {
         let mut fitness = Weighted::new(&config.fitness.weighting);
 
@@ -211,27 +204,16 @@ where
             .map(|data| data.len())
             .sum::<usize>() as f64;
 
-        // let gadgets_executed = profile
-        //     .gadgets_executed
-        //     .iter()
-        //     .map(|h| h.len())
-        //     .sum::<usize>() as f64;
-
-        let gadgets_executed = profile.gadgets_executed(0) as f64;
         let ret_count = profile.ret_counts[0] as f64;
 
         creature.record_genetic_frequency(&mut sketch.genetic);
         let genetic_freq = creature.query_genetic_frequency(&sketch.genetic);
 
         fitness.insert_or_add("num_writes", num_mem_writes);
-        fitness.insert_or_add("gadgets_executed", gadgets_executed);
         fitness.insert_or_add("ret_count", ret_count);
-        // fitness.insert_or_add("ret_count", ret_count);
         fitness.insert_or_add("genetic_freq", genetic_freq);
 
         creature.set_fitness(fitness);
-        // actually, we probably want to average normalized scores
-        // for the time being, not a huge concern. we'll start with a single case.
     }
     creature
 }
@@ -271,7 +253,7 @@ where
 
         let mut fitness = Weighted::new(&config.fitness.weighting);
         fitness.insert("code_coverage", code_coverage);
-        fitness.insert("code_frequency", avg_freq);
+        fitness.insert("code_freq", avg_freq);
 
         let gadgets_executed = profile.ret_counts.iter().sum::<usize>();
         fitness.insert("ret_count", gadgets_executed as f64);
