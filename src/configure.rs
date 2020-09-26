@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 use crate::emulator::register_pattern::{parse_register_pattern_file, RegisterPattern};
 use crate::error::Error;
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DataConfig {
     pub path: String,
 }
 
-#[derive(Clone, Debug, Copy, Deserialize)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum Job {
     Roper,
     Hello,
@@ -43,7 +43,7 @@ fn default_crossover_algorithm() -> String {
     "alternating".to_string()
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Config {
     pub job: Job,
     pub timeout: Option<String>,
@@ -76,11 +76,11 @@ pub struct Config {
     pub roulette: RouletteConfig,
     #[serde(default)]
     pub tournament: TournamentConfig,
-    #[serde(default = "Default::default")]
+    #[serde(default)]
     pub roper: RoperConfig,
-    #[serde(default = "Default::default")]
+    #[serde(default)]
     pub linear_gp: LinearGpConfig,
-    #[serde(default = "Default::default")]
+    #[serde(default)]
     pub hello: HelloConfig,
     pub num_epochs: usize,
     pub fitness: FitnessConfig,
@@ -98,7 +98,7 @@ fn default_push_vm_max_steps() -> usize {
     0x1000
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PushVm {
     #[serde(default = "default_push_vm_max_steps")]
     pub max_steps: usize,
@@ -107,7 +107,7 @@ pub struct PushVm {
     pub literal_rate: f64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FitnessConfig {
     pub target: f64,
     pub eval_by_case: bool,
@@ -128,7 +128,7 @@ impl FitnessConfig {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TournamentConfig {
     #[serde(default = "default_tournament_size")]
     pub tournament_size: usize,
@@ -142,7 +142,7 @@ fn default_weight_decay() -> f64 {
     0.75
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RouletteConfig {
     #[serde(default = "default_weight_decay")]
     pub weight_decay: f64,
@@ -155,7 +155,7 @@ fn random_population_name() -> String {
     crate::util::name::random(2, seed)
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ObserverConfig {
     pub dump_population: bool,
     pub dump_soup: bool,
@@ -245,12 +245,12 @@ impl Config {
     }
 }
 
-#[derive(Default, Clone, Debug, Deserialize)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct HelloConfig {
     pub target: String,
 }
 
-#[derive(Default, Clone, Debug, Deserialize)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct LinearGpConfig {
     pub max_steps: usize,
     // NOTE: these register values will be overridden if a data
@@ -267,7 +267,7 @@ fn default_mode() -> unicorn::Mode {
     unicorn::Mode::MODE_32
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct RoperConfig {
     #[serde(default)]
     pub use_push: bool,
@@ -395,7 +395,7 @@ impl Default for RoperConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Hash, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ClassificationProblem {
     pub input: Vec<i32>,
     // TODO make this more generic
@@ -416,7 +416,7 @@ impl Ord for ClassificationProblem {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Selection {
     Tournament,
     Roulette,
