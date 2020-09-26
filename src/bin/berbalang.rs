@@ -12,7 +12,9 @@ fn main() {
         .unwrap_or_else(|e| panic!("Failed to generate Config from {:?}: {:?}", &config_file, e));
     logger::init(&config.observer.population_name);
     set_starting_timestamp();
-    set_timeout(&config.timeout);
+    if let Some(ref timeout) = config.timeout {
+        set_timeout(timeout);
+    }
 
     // config.roper.parse_register_patterns();
     if let Ok(n) = std::env::var("BERBALANG_LIMIT_THREADS") {

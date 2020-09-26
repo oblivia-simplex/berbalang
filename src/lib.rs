@@ -58,8 +58,13 @@ pub fn uptime() -> Duration {
     }
 }
 
+/// If no `timeout` parameter is set, then this check always fails, and the process never times out.
 pub fn timeout_expired() -> bool {
-    let timeout = Duration::from_secs(TIMEOUT.load(atomic::Ordering::Relaxed) as u64);
+    let timeout = TIMEOUT.load(atomic::Ordering::Relaxed) as u64;
+    if timeout == 0 {
+        return false;
+    }
+    let timeout = Duration::from_secs(timeout);
     let up_for = uptime();
     log::debug!("Uptime: {:?}", up_for);
     let expired = up_for > timeout;
