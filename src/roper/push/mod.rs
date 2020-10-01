@@ -1395,6 +1395,10 @@ pub mod creature {
             &mut self.chromosome.chromosome
         }
 
+        fn native_island(&self) -> usize {
+            self.native_island
+        }
+
         fn random<H: Hash>(config: &Config, salt: H) -> Self
         where
             Self: Sized,

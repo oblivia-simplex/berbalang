@@ -1,4 +1,4 @@
-## sshd_x86_regpat_random.toml
+## sshd_x86_regpat_ropgadget.toml
 job = "Roper"
 selection = "Tournament"
 mutation_rate = 0.03
@@ -16,7 +16,7 @@ num_epochs = 300
 num_offspring = 2
 num_parents = 2
 tournament_size = 4
-geographic_radius = 10
+geographic_radius = 0 # Maximum
 migration_rate = 0.1
 
 [observer]
@@ -28,7 +28,7 @@ report_every = 1000
 dump_every = 1000
 
 [roper]
-soup_size = 0x40000
+gadget_file = "./gadgets/sshd_ropgadget.json"
 binary_path = "./binaries/X86/MODE_32/sshd"
 max_emu_steps = 0x2000
 millisecond_timeout = 3
@@ -48,3 +48,4 @@ eval_by_case = false
 dynamic = false
 function = "register_pattern"
 weighting = "register_error"
+

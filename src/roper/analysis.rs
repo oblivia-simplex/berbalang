@@ -15,6 +15,8 @@ pub struct StatRecord {
     pub counter: usize,
     pub epoch: usize,
     pub generation: f64,
+    pub indigeneity: f64,
+    pub num_offspring: f64,
     pub ratio_visited: f64,
     pub soup_len: usize,
     pub length: f64,
@@ -25,8 +27,9 @@ pub struct StatRecord {
 
 impl LogRecord for StatRecord {
     fn header(&self) -> String {
-        let mut s =
-            format!("epoch,generation,length,emulation_time,ratio_visited,soup_len,fitness");
+        let mut s = format!(
+            "epoch,generation,indigeneity,offspring,length,emulation_time,ratio_visited,soup_len,fitness"
+        );
         if self.stdev_fitness.is_some() {
             s.push_str(",stdev_fitness");
         }
@@ -42,9 +45,11 @@ impl LogRecord for StatRecord {
 
     fn row(&self) -> String {
         let mut s = format!(
-            "{epoch},{generation},{length},{emulation_time},{ratio_visited},{soup_len},{fitness}",
+            "{epoch},{generation},{indigeneity},{offspring},{length},{emulation_time},{ratio_visited},{soup_len},{fitness}",
             epoch = self.epoch,
             generation = self.generation,
+            indigeneity = self.indigeneity,
+            offspring = self.num_offspring,
             length = self.length,
             emulation_time = self.emulation_time,
             ratio_visited = self.ratio_visited,
@@ -72,7 +77,7 @@ impl LogRecord for StatRecord {
 }
 
 impl StatRecord {
-    fn for_specimen<C>(specimen: &C, counter: usize, epoch: usize) -> Self
+    fn for_specimen<C>(specimen: &C, counter: usize, epoch: usize, island_id: usize) -> Self
     where
         C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
     {
@@ -90,10 +95,18 @@ impl StatRecord {
         let code_size = get_static_memory_image().size_of_executable_memory();
         let ratio_visited = addresses_visited / code_size as f64;
 
+        let indigeneity = if specimen.native_island() == island_id {
+            1.0
+        } else {
+            0.0
+        };
+
         Self {
             counter,
             epoch,
             generation: specimen.generation() as f64,
+            indigeneity,
+            num_offspring: specimen.num_offspring() as f64,
             soup_len: 0,
             length: specimen_len,
             emulation_time: specimen_emulation_time,
@@ -125,6 +138,8 @@ impl StatRecord {
             })
             .collect::<Vec<&C>>();
 
+        let frame_len = frame.len() as f64;
+
         let mut addresses_visited = HashSet::new();
 
         for addresses in frame
@@ -143,8 +158,7 @@ impl StatRecord {
         // let ratio_eligible = frame.len() as f64 / window.frame.len() as f64;
         // log::info!("Ratio eligible = {}", ratio_eligible);
 
-        let length =
-            frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame.len() as f64;
+        let length = frame.iter().map(|c| c.chromosome().len()).sum::<usize>() as f64 / frame_len;
 
         let fitnesses = frame
             .iter()
@@ -160,8 +174,22 @@ impl StatRecord {
             .sum::<f64>()
             / frame.len() as f64;
 
-        let generation =
-            frame.iter().map(|g| g.generation()).sum::<usize>() as f64 / frame.len() as f64;
+        let generation = frame.iter().map(|g| g.generation()).sum::<usize>() as f64 / frame_len;
+
+        let num_offspring =
+            frame.iter().map(|g| g.num_offspring()).sum::<usize>() as f64 / frame_len;
+
+        let indigeneity = frame
+            .iter()
+            .map(|g| {
+                if g.native_island() == window.config.island_id {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f64>()
+            / frame_len;
 
         StatRecord {
             counter,
@@ -169,6 +197,8 @@ impl StatRecord {
             ratio_visited,
             soup_len,
             generation,
+            num_offspring,
+            indigeneity,
             length,
             emulation_time,
             fitness: mean_fitness,
@@ -192,12 +222,13 @@ where
     window.log_record(record, "mean");
 
     if let Some(ref champion) = window.champion {
-        let champion_record = StatRecord::for_specimen(champion, counter, epoch);
+        let champion_record =
+            StatRecord::for_specimen(champion, counter, epoch, window.config.island_id);
         window.log_record(champion_record, "champion");
     }
 
     if let Some(ref best) = window.best {
-        let best_record = StatRecord::for_specimen(best, counter, epoch);
+        let best_record = StatRecord::for_specimen(best, counter, epoch, window.config.island_id);
         window.log_record(best_record, "best");
     }
 

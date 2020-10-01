@@ -250,6 +250,10 @@ impl Genome for Creature {
         &mut self.chromosome.chromosome
     }
 
+    fn native_island(&self) -> usize {
+        self.native_island
+    }
+
     fn random<H: Hash>(config: &Config, salt: H) -> Self {
         let mut hasher = fnv::FnvHasher::default();
         salt.hash(&mut hasher);
@@ -305,7 +309,7 @@ impl Genome for Creature {
             fitness: None,
             front: None,
             num_offspring: 0,
-            native_island: 0,
+            native_island: config.island_id,
             description: None,
         }
     }

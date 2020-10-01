@@ -1,9 +1,9 @@
-## sshd_x86_regpat_random.toml
+## sshd_x86_codecov_random_calls.toml
 job = "Roper"
 selection = "Tournament"
 mutation_rate = 0.03
 mutation_exponent = 2.0
-crossover_algorithm = "one_point"
+crossover_algorithm = "alternating"
 crossover_period = 2
 crossover_rate = 1.0
 max_init_len = 100
@@ -35,10 +35,8 @@ millisecond_timeout = 3
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 output_registers = ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
-randomize_registers = true
-register_pattern_file = "./experiments/register_pattern.txt"
-
-break_on_calls = true
+randomize_registers = false
+break_on_calls = false
 record_memory_writes = true
 monitor_stack_writes = true
 
@@ -46,5 +44,7 @@ monitor_stack_writes = true
 target = 0
 eval_by_case = false
 dynamic = false
-function = "register_pattern"
-weighting = "register_error"
+function = "code_coverage"
+weighting = "(1 - code_coverage) "
+
+priority = "1 - code_coverage"

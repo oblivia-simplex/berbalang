@@ -285,6 +285,7 @@ pub struct Creature {
     name: String,
     parents: Vec<String>,
     generation: usize,
+    native_island: usize,
     num_offspring: usize,
 }
 
@@ -296,7 +297,13 @@ impl Hash for Creature {
 
 impl Debug for Creature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Name: {}, generation: {}", self.name, self.generation)?;
+        writeln!(
+            f,
+            "Name: {}, generation: {}, from island {}",
+            self.name,
+            self.generation,
+            self.native_island()
+        )?;
         for (i, inst) in self.chromosome().iter().enumerate() {
             let mutation = self.chromosome_mutation[i];
             writeln!(
@@ -402,6 +409,10 @@ impl Genome for Creature {
         self.num_offspring += n
     }
 
+    fn native_island(&self) -> usize {
+        self.native_island
+    }
+
     fn chromosome(&self) -> &[Self::Allele] {
         &self.chromosome
     }
@@ -460,6 +471,7 @@ impl Genome for Creature {
             name,
             parents: parent_names,
             generation,
+            native_island: config.island_id,
             num_offspring: 0,
         }
     }

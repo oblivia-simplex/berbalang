@@ -1,4 +1,4 @@
-## sshd_x86_regpat_random.toml
+## sshd_x86_mempat_random_calls.toml
 job = "Roper"
 selection = "Tournament"
 mutation_rate = 0.03
@@ -35,16 +35,18 @@ millisecond_timeout = 3
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 output_registers = ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
-randomize_registers = true
+randomize_registers = false
 register_pattern_file = "./experiments/register_pattern.txt"
-
-break_on_calls = true
+memory_pattern = [0xde, 0xad, 0xbe, 0xef]
+break_on_calls = false
 record_memory_writes = true
-monitor_stack_writes = true
+monitor_stack_writes = false
 
 [fitness]
 target = 0
 eval_by_case = false
 dynamic = false
-function = "register_pattern"
-weighting = "register_error"
+function = "memory_pattern"
+weighting = "(10000 / (1 + subpattern_4)) + (1000 / (1 + subpattern_3)) + (100 / (1 + subpattern_2)) + (10 / (1 + subpattern_1)) + (1 / (1+ num_writes))"
+
+

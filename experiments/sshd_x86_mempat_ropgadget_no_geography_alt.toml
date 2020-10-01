@@ -3,20 +3,20 @@ job = "Roper"
 selection = "Tournament"
 mutation_rate = 0.03
 mutation_exponent = 2.0
-crossover_algorithm = "one_point"
+crossover_algorithm = "alternating"
 crossover_period = 2
 crossover_rate = 1.0
 max_init_len = 100
 min_init_len = 5
 pop_size = 0x500
 max_length = 500
-num_epochs = 100
+num_epochs = 300
 
 [tournament]
 num_offspring = 2
 num_parents = 2
 tournament_size = 4
-geographic_radius = 10
+geographic_radius = 0 # Maximum
 migration_rate = 0.1
 
 [observer]
@@ -48,5 +48,5 @@ target = 0
 eval_by_case = false
 dynamic = false
 function = "memory_pattern"
-weighting = "1" # blind search
-priority = "(10000 / (1 + subpattern_4)) + (1000 / (1 + subpattern_3)) + (100 / (1 + subpattern_2)) + (10 / (1 + subpattern_1)) + (1 / (1+ num_writes))"
+weighting = "(10000 / (1 + subpattern_4)) + (1000 / (1 + subpattern_3)) + (100 / (1 + subpattern_2)) + (10 / (1 + subpattern_1)) + (1 / (1+ num_writes))"
+

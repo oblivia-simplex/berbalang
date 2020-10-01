@@ -10,7 +10,7 @@ max_init_len = 100
 min_init_len = 5
 pop_size = 0x500
 max_length = 500
-num_epochs = 100
+num_epochs = 300
 
 [tournament]
 num_offspring = 2
