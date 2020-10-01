@@ -28,6 +28,7 @@ pub struct Genotype {
     // used for sorting in heap
     generation: usize,
     num_offspring: usize,
+    native_island: usize,
 }
 
 impl Hash for Genotype {
@@ -115,6 +116,10 @@ impl Genome for Genotype {
         self.num_offspring
     }
 
+    fn native_island(&self) -> usize {
+        self.native_island
+    }
+
     fn chromosome(&self) -> &[Self::Allele] {
         unimplemented!("rust makes treating strings as &[char] tricky")
     }
@@ -139,11 +144,12 @@ impl Genome for Genotype {
             fitness: None,
             tag: rng.gen::<u64>(),
             generation: 0,
+            native_island: config.island_id,
             num_offspring: 0,
         }
     }
 
-    fn crossover(mates: &[&Self], _config: &Config) -> Self {
+    fn crossover(mates: &[&Self], config: &Config) -> Self {
         let mut rng = hash_seed_rng(&mates[0]);
         let father = &mates[0];
         let mother = &mates[1];
@@ -158,6 +164,7 @@ impl Genome for Genotype {
             tag: rng.gen::<u64>(),
             generation,
             num_offspring: 0,
+            native_island: config.island_id,
         }
     }
 

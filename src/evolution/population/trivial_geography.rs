@@ -34,6 +34,10 @@ impl<P: Hash> TrivialGeography<P> {
         if self.len() == 0 {
             panic!("Generate the population before setting the radius");
         }
+        if radius == 0 {
+            log::info!("Passing a radius of 0 tells the geography to default to a maximum radius.");
+            return;
+        }
         self.radius = radius.min(self.len())
     }
 

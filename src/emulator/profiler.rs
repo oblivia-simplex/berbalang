@@ -19,13 +19,11 @@ use crate::emulator::loader::{try_to_get_static_memory_image, Seg};
 use crate::emulator::register_pattern::{Register, RegisterState};
 use crate::util::architecture::{write_integer, Endian};
 
-// TODO: why store the size at all, if you're just going to
-// throw it away?
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
 pub struct Block {
     pub entry: u64,
     pub size: usize,
-    //pub code: Vec<u8>,
+    pub code: Vec<u8>,
 }
 
 impl Block {

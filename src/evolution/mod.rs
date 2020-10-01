@@ -120,7 +120,7 @@ impl<
 
         let name = util::name::random(4, &chromosome);
         let len = chromosome.len();
-        let generation = father.generation.max(mother.generation);
+        let generation = father.generation.max(mother.generation) + 1;
         Self {
             chromosome,
             mutations: vec![None; len],
@@ -245,6 +245,8 @@ pub trait Genome: Hash {
     fn len(&self) -> usize {
         self.chromosome().len()
     }
+
+    fn native_island(&self) -> usize;
 
     fn random<H: Hash>(config: &Config, salt: H) -> Self
     where

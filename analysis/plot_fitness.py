@@ -1,12 +1,16 @@
 #! /usr/bin/env python3
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import os
+import pandas as pd
 import scipy.ndimage.filters as filters
+import sys
 from glob import glob
+
 
 def pop_dir():
     return os.path.basename(os.getcwd())
+
 
 # should be run from the population pop_directory
 def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linear"):
@@ -18,13 +22,29 @@ def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linea
         if x is None:
             plt.plot(y, label = f"island {i}")
         else:
-            plt.plot(data[i][x], y, label = f"island {i}")
+            plt.plot(data[i][x], y, label=f"island {i}")
         plt.yscale(scale)
     if x is not None:
         plt.xlabel(f"{x}")
     plt.ylabel(f"{feature}")
     pop_name = pop_dir()
-    plt.title(f"{pop_name} population {csv}: {feature} by island") 
+    plt.title(f"{pop_name} population {csv}: {feature} by island")
     plt.legend()
     return data
 
+
+if __name__ == "__main__":
+    pop = os.path.expanduser(sys.argv[1])
+    feature = sys.argv[2]
+    csv = sys.argv[3] if len(sys.argv) > 3 else "mean"
+    cur_dir = os.getcwd()
+    os.chdir(pop)
+    p_name = pop_dir()
+
+    plt.figure(figsize=(8, 5.5))
+    plot_feature_for_islands(feature, smooth=1, csv=csv)
+
+    # plt.show()
+    os.chdir(cur_dir)
+    filename = f"{p_name}__{feature}_{csv}.png"
+    plt.savefig(filename, format="png", bbox="tight")
