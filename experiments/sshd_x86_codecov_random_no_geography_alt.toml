@@ -15,9 +15,9 @@ num_epochs = 300
 [tournament]
 num_offspring = 2
 num_parents = 2
-tournament_size = 4
+tournament_size = 5
 geographic_radius = 0 # Maximum
-migration_rate = 0.1
+migration_rate = 0.01
 
 [observer]
 dump_population = false

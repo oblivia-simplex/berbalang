@@ -144,6 +144,7 @@ fn fetch_code_executed(path: &Vec<Block>, extra_segs: Option<&[Seg]>) -> Vec<u8>
             }
         }
     }
+    //crate::util::dump::zip(&code).expect("Failed to compress code executed")
     code
 }
 
@@ -162,6 +163,9 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         let mut code_paths_executed = Vec::new();
 
         let Profiler {
+            trace_log,
+            call_stack_depth,
+            write_log,
             cpu_error,
             emulation_time,
             registers_at_last_ret: registers,
@@ -170,7 +174,8 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             ret_count,
             committed_write_log,
             committed_trace_log,
-            ..
+            registers_to_read,
+            input,
         } = p;
         let path = Arc::try_unwrap(committed_trace_log)
             .ok()
@@ -202,6 +207,30 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         // memory_writes.push(segqueue_to_vec(write_log).into());
 
         ret_counts.push(ret_count.load(std::sync::atomic::Ordering::Relaxed));
+
+        if cfg!(debug_assertions) {
+            log::debug!(
+                "registers: {} strong, {} weak",
+                Arc::strong_count(&registers),
+                Arc::weak_count(&registers)
+            );
+            log::debug!(
+                "gadget_log: {} strong, {} weak",
+                Arc::strong_count(&gadget_log),
+                Arc::weak_count(&gadget_log)
+            );
+            log::debug!(
+                "trace_log: {} strong, {} weak",
+                Arc::strong_count(&trace_log),
+                Arc::weak_count(&trace_log),
+            );
+            log::debug!(
+                "call_stack_depth: {} strong, {} weak",
+                Arc::strong_count(&call_stack_depth),
+                Arc::weak_count(&call_stack_depth),
+            )
+        }
+
         Self {
             paths,
             code_executed: code_paths_executed,
