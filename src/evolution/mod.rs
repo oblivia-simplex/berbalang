@@ -83,7 +83,7 @@ impl<
                 _ => unimplemented!("bad algorithm name"),
             }
         } else {
-            parents[rng.gen::<usize>() & parents.len()].cloned_offspring()
+            parents[rng.gen::<usize>() % parents.len()].cloned_offspring()
         }
     }
 
