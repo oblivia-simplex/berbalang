@@ -4,7 +4,7 @@
 
 job = "Roper"
 selection = "Tournament" 
-timeout = "1 minute"
+timeout = "1 day"
 
 num_islands = 6
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.

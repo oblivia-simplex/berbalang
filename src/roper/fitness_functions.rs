@@ -260,7 +260,6 @@ where
 
         creature.set_fitness(fitness);
     }
-    // creature.set_profile(Profile::default()); // experimental. see if we can free some mem here.
 
     creature
 }
