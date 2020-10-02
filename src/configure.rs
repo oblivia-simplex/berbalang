@@ -56,7 +56,7 @@ pub struct Config {
     pub crossover_period: f64,
     #[serde(default = "default_crossover_algorithm")]
     pub crossover_algorithm: String,
-    pub crossover_rate: f32,
+    pub crossover_rate: f64,
     #[serde(default)]
     pub data: DataConfig,
     pub max_init_len: usize,

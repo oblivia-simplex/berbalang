@@ -1,7 +1,7 @@
 ## sshd_x86_regpat_ropgadget.toml
 job = "Roper"
 selection = "Tournament"
-mutation_rate = 0.03
+mutation_rate = 1.0
 mutation_exponent = 2.0
 crossover_algorithm = "one_point"
 crossover_period = 2
