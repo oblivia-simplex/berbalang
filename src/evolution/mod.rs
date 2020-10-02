@@ -71,15 +71,29 @@ impl<
     pub fn crossover(parents: &[&Self], config: &Config) -> Self {
         let min_mate_len = parents.iter().map(|p| p.len()).min().unwrap();
         let lambda = min_mate_len as f64 / config.crossover_period;
-        match config.crossover_algorithm.as_ref() {
-            "one_point" => Self::one_point_crossover(&parents, config),
-            "alternating" => {
-                let distribution =
-                    rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
-                Self::alternating_crossover(&distribution, parents, config)
+        let mut rng = thread_rng();
+        if rng.gen_bool(config.crossover_rate) {
+            match config.crossover_algorithm.as_ref() {
+                "one_point" => Self::one_point_crossover(&parents, config),
+                "alternating" => {
+                    let distribution =
+                        rand_distr::Exp::new(lambda).expect("Failed to create random distribution");
+                    Self::alternating_crossover(&distribution, parents, config)
+                }
+                _ => unimplemented!("bad algorithm name"),
             }
-            _ => unimplemented!("bad algorithm name"),
+        } else {
+            parents[rng.gen::<usize>() & parents.len()].cloned_offspring()
         }
+    }
+
+    pub fn cloned_offspring(&self) -> Self {
+        let mut offspring = self.clone();
+        offspring.generation += 1;
+        offspring.parentage = vec![0; offspring.chromosome.len()];
+        offspring.parent_names = vec![self.name.clone()];
+        offspring.name = util::name::random(4, &self);
+        offspring
     }
 
     fn one_point_crossover(parents: &[&Self], config: &Config) -> Self {
