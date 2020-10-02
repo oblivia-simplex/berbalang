@@ -14,7 +14,6 @@ def load_specimen(path):
         print(f"Failed to read specimen from {path}: {e}")
         return None
 
+
 def get_code(specimen):
-    def path_code(p):
-        return bytes(ft.reduce(lambda a, b: a + b, [x["code"] for x in p]))
-    return [path_code(path) for path in specimen["profile"]["paths"]]
+    return [bytes(code) for code in specimen["profile"]["code_executed"]]

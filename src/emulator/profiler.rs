@@ -15,7 +15,7 @@ pub use unicorn::unicorn_const::Error as UCError;
 use unicorn::Cpu;
 
 use crate::emulator::loader;
-use crate::emulator::loader::{try_to_get_static_memory_image, Seg};
+use crate::emulator::loader::{get_static_memory_image, try_to_get_static_memory_image, Seg};
 use crate::emulator::register_pattern::{Register, RegisterState};
 use crate::util::architecture::{write_integer, Endian};
 
@@ -23,7 +23,7 @@ use crate::util::architecture::{write_integer, Endian};
 pub struct Block {
     pub entry: u64,
     pub size: usize,
-    pub code: Vec<u8>,
+    // pub code: Vec<u8>,
 }
 
 impl Block {
@@ -120,6 +120,7 @@ impl<C: Cpu<'static>> Profiler<C> {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Profile {
     pub paths: Vec<Vec<Block>>,
+    pub code_executed: Vec<Vec<u8>>,
     //PrefixSet<Block>,
     // TODO: cpu_errors should be a vector of Option<usize>
     pub cpu_errors: Vec<Option<UCError>>,
@@ -131,6 +132,19 @@ pub struct Profile {
     pub memory_writes: Vec<SparseData>,
     pub executable: bool,
     pub ret_counts: Vec<usize>,
+}
+
+fn fetch_code_executed(path: &Vec<Block>, extra_segs: Option<&[Seg]>) -> Vec<u8> {
+    let memory = get_static_memory_image();
+    let mut code = vec![];
+    for block in path.iter() {
+        if let Some(bytes) = memory.try_dereference(block.entry, extra_segs) {
+            for b in bytes[0..block.size].iter() {
+                code.push(*b);
+            }
+        }
+    }
+    code
 }
 
 // FIXME: refactor so that we don't have any code duplication between
@@ -145,6 +159,7 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         let mut gadgets_executed = Vec::new();
         let mut memory_writes = Vec::new();
         let mut ret_counts = Vec::new();
+        let mut code_paths_executed = Vec::new();
 
         let Profiler {
             cpu_error,
@@ -157,13 +172,15 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             committed_trace_log,
             ..
         } = p;
-        paths.push(
-            Arc::try_unwrap(committed_trace_log)
-                .ok()
-                .unwrap()
-                .into_inner()
-                .unwrap(),
-        );
+        let path = Arc::try_unwrap(committed_trace_log)
+            .ok()
+            .unwrap()
+            .into_inner()
+            .unwrap();
+        let code_executed = fetch_code_executed(&path, Some(&written_memory));
+        paths.push(path);
+        code_paths_executed.push(code_executed);
+
         let mut executed = HashMap::new();
         while let Ok(g) = gadget_log.pop() {
             (*executed.entry(g).or_insert(0)) += 1;
@@ -185,9 +202,9 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
         // memory_writes.push(segqueue_to_vec(write_log).into());
 
         ret_counts.push(ret_count.load(std::sync::atomic::Ordering::Relaxed));
-
         Self {
             paths,
+            code_executed: code_paths_executed,
             cpu_errors,
             emulation_times: computation_times,
             gadgets_executed,
@@ -214,6 +231,7 @@ impl Profile {
     pub fn absorb(&mut self, other: Self) {
         let Self {
             paths,
+            code_executed,
             cpu_errors,
             emulation_times,
             registers,
@@ -224,6 +242,7 @@ impl Profile {
         } = other;
 
         self.paths.extend(paths.into_iter());
+        self.code_executed.extend(code_executed.into_iter());
         self.cpu_errors.extend(cpu_errors.into_iter());
         self.emulation_times.extend(emulation_times.into_iter());
         self.registers.extend(registers.into_iter());

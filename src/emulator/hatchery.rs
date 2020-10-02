@@ -633,12 +633,12 @@ pub mod hooking {
 
         let bb_callback = move |engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
-            let code = engine
-                .mem_read_as_vec(entry, size as usize)
-                .unwrap_or_default();
+            // let code = engine
+            //     .mem_read_as_vec(entry, size as usize)
+            //     .unwrap_or_default();
             let memory = get_static_memory_image();
 
-            let block = Block { entry, size, code };
+            let block = Block { entry, size };
             block_log.push(block);
             if gadget_addrs.contains(&entry) {
                 gadget_log.push(entry);
