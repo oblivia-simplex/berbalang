@@ -300,7 +300,7 @@ impl<C: 'static + Cpu<'static> + Send> Hatchery<C> {
                         let _hook = hooking::install_disas_tracer_hook(&mut (*emu), disas.clone(), output_registers.clone()).expect("Failed to install tracer hook");
                     }
 
-                    let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
+                    // let _hook = hooking::install_syscall_hook(&mut (*emu), config.arch, config.mode);
                     if config.record_memory_writes {
                         let _hooks = hooking::install_mem_write_hook(&mut (*emu), &profiler, config.monitor_stack_writes).expect("Failed to install mem_write_hook");
                     }
@@ -421,7 +421,7 @@ pub mod hooking {
 
     use capstone::Insn;
     use hashbrown::HashSet;
-    use unicorn::{CodeHookType, InsnSysX86, MemHookType, MemType, Protection};
+    use unicorn::{CodeHookType, MemHookType, MemType, Protection};
 
     use crate::emulator::hatchery::tools::find_stack;
     use crate::emulator::loader::get_static_memory_image;
@@ -430,15 +430,24 @@ pub mod hooking {
 
     use super::*;
 
-    fn is_syscall(arch: unicorn::Arch, mode: unicorn::Mode, inst: &Insn<'_>) -> bool {
+    fn is_syscall(arch: unicorn::Arch, mode: unicorn::Mode, inst_bytes: &[u8]) -> bool {
         use unicorn::Arch::*;
         use unicorn::Mode::*;
 
-        match (arch, mode, inst.mnemonic()) {
-            (X86, MODE_64, Some("syscall")) | (X86, MODE_64, Some("sysenter")) => true,
-            (X86, _, Some("int")) if inst.op_str() == Some("0x80") => true,
-            (X86, _, _) => false,
-            _ => unimplemented!("TODO later"),
+        let memory = get_static_memory_image();
+        if let Some(inst) = memory.disassemble_bytes(inst_bytes) {
+            if let Some(inst) = inst.iter().next() {
+                match (arch, mode, inst.mnemonic()) {
+                    (X86, MODE_64, Some("syscall")) | (X86, MODE_64, Some("sysenter")) => true,
+                    (X86, _, Some("int")) if inst.op_str() == Some("0x80") => true,
+                    (X86, _, _) => false,
+                    _ => unimplemented!("TODO later"),
+                }
+            } else {
+                false
+            }
+        } else {
+            false
         }
     }
 
@@ -461,40 +470,40 @@ pub mod hooking {
 
     /// We want the emulator to halt on a syscall.
     /// NOTE: this only really works on x86 architectures. TODO: generalize somehow
-    pub fn install_syscall_hook<C: 'static + Cpu<'static>>(
-        emu: &mut C,
-        arch: unicorn::Arch,
-        mode: unicorn::Mode,
-    ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
-        let pc: i32 = emu.program_counter().into();
-
-        let int_callback = move |engine: &unicorn::Unicorn<'_>, a| {
-            // TODO log the errors
-            if let Ok(address) = engine.reg_read(pc) {
-                log::trace!("Interrupt at address 0x{:x}. a = {:?}", pc, a);
-                let memory = loader::get_static_memory_image();
-                if let Some(insts) = memory.disassemble(address, 64, Some(1)) {
-                    if let Some(inst) = insts.iter().next() {
-                        if is_syscall(arch, mode, &inst) {
-                            engine.emu_stop().expect("Failed to stop engine!");
-                        }
-                    }
-                }
-            }
-        };
-        // for that, we need a HOOK_INSN
-        let intr_hook = emu.add_intr_hook(int_callback)?;
-
-        let syscall_callback = move |engine: &unicorn::Unicorn<'_>| {
-            log::trace!("Syscall or Sysenter. Halting.");
-            engine.emu_stop().expect("Failed to stop engine!");
-        };
-        // VERIFY THAT BEGIN > END means range check always passes
-        let syscall_hook = emu.add_insn_sys_hook(InsnSysX86::SYSCALL, 1, 0, syscall_callback)?;
-        let sysenter_hook = emu.add_insn_sys_hook(InsnSysX86::SYSENTER, 1, 0, syscall_callback)?;
-
-        Ok(vec![intr_hook, syscall_hook, sysenter_hook])
-    }
+    // pub fn install_syscall_hook<C: 'static + Cpu<'static>>(
+    //     emu: &mut C,
+    //     arch: unicorn::Arch,
+    //     mode: unicorn::Mode,
+    // ) -> Result<Vec<unicorn::uc_hook>, unicorn::Error> {
+    //     let pc: i32 = emu.program_counter().into();
+    //
+    //     let int_callback = move |engine: &unicorn::Unicorn<'_>, a| {
+    //         // TODO log the errors
+    //         if let Ok(address) = engine.reg_read(pc) {
+    //             log::trace!("Interrupt at address 0x{:x}. a = {:?}", pc, a);
+    //             let memory = loader::get_static_memory_image();
+    //             if let Some(insts) = memory.disassemble(address, 64, Some(1)) {
+    //                 if let Some(inst) = insts.iter().next() {
+    //                     if is_syscall(arch, mode, &inst) {
+    //                         engine.emu_stop().expect("Failed to stop engine!");
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     };
+    //     // for that, we need a HOOK_INSN
+    //     let intr_hook = emu.add_intr_hook(int_callback)?;
+    //
+    //     let syscall_callback = move |engine: &unicorn::Unicorn<'_>| {
+    //         log::trace!("Syscall or Sysenter. Halting.");
+    //         engine.emu_stop().expect("Failed to stop engine!");
+    //     };
+    //     // VERIFY THAT BEGIN > END means range check always passes
+    //     let syscall_hook = emu.add_insn_sys_hook(InsnSysX86::SYSCALL, 1, 0, syscall_callback)?;
+    //     let sysenter_hook = emu.add_insn_sys_hook(InsnSysX86::SYSENTER, 1, 0, syscall_callback)?;
+    //
+    //     Ok(vec![intr_hook, syscall_hook, sysenter_hook])
+    // }
 
     pub fn install_disas_tracer_hook<C: 'static + Cpu<'static>>(
         emu: &mut C,
@@ -602,7 +611,26 @@ pub mod hooking {
         let committed_trace_log = profiler.committed_trace_log.clone();
         let write_log = profiler.write_log.clone();
         let sp: i32 = emu.stack_pointer().into();
-        //let ret_log = profiler.ret_log.clone();
+
+        macro_rules! commit_logs {
+            ($engine: expr, $registers_to_read: expr => $register_state: expr, $write_log: expr => $committed_write_log: expr, $trace_log: expr => $committed_trace_log: expr) => {
+                read_registers_in_hook::<C>(
+                    ($register_state).clone(),
+                    &($registers_to_read),
+                    &($engine),
+                );
+                ($committed_write_log)
+                    .lock()
+                    .unwrap()
+                    .absorb_segqueue(&($write_log));
+                if let Ok(mut log) = $committed_trace_log.lock() {
+                    while let Ok(b) = $trace_log.pop() {
+                        log.push(b)
+                    }
+                }
+            };
+        }
+
         let bb_callback = move |engine: &unicorn::Unicorn<'_>, entry: u64, size: u32| {
             let size = size as usize;
             let code = engine
@@ -627,18 +655,7 @@ pub mod hooking {
                     // is pointing to the payload region! Fuck, why didn't I think of this
                     // sooner.
                     let stack_pointer = engine.reg_read(sp).expect("Failed to read stack pointer");
-                    // if !(stack_begin <= stack_pointer && stack_pointer < stack_end) {
-                    //     if let Some(perm) = memory.perm_of_addr(stack_pointer) {
-                    //         if perm.intersects(Perms::WRITE)
-                    //             && committed_write_log
-                    //                 .lock()
-                    //                 .unwrap()
-                    //                 .any_writes(stack_pointer)
-                    //         {
-                    //             log::error!("Stack pointer is pointing to a non-stack writeable and written-to region of memory: 0x{:x}. Stack pivot!", stack_pointer);
-                    //         }
-                    //     }
-                    // }
+
                     if let Some(addr) = engine
                         .mem_read_as_vec(stack_pointer, word_size)
                         .ok()
@@ -656,7 +673,6 @@ pub mod hooking {
                                     .perm_of_addr(stack_pointer)
                                     .map(|p| p.intersects(Perms::WRITE)))
                         {
-                            //payload.contains(&addr) {
                             // should be okay if it points beyond the payload, on last gadget
                             // it's composable!
                             let registers_to_read = registers_to_read.clone();
@@ -666,21 +682,7 @@ pub mod hooking {
                                 call_stack_depth.fetch_sub(1, atomic::Ordering::Relaxed);
                             } else {
                                 ret_count.fetch_add(1, atomic::Ordering::Relaxed);
-
-                                read_registers_in_hook::<C>(
-                                    register_state.clone(),
-                                    &registers_to_read,
-                                    &engine,
-                                );
-                                committed_write_log
-                                    .lock()
-                                    .unwrap()
-                                    .absorb_segqueue(&write_log);
-                                if let Ok(mut log) = committed_trace_log.lock() {
-                                    while let Ok(b) = block_log.pop() {
-                                        log.push(b)
-                                    }
-                                }
+                                commit_logs!(engine, registers_to_read => register_state, write_log => committed_write_log, block_log => committed_trace_log);
                             }
                             // Quietly stop the emulator if there's an attempt to return to 0
                             if addr == 0 {
@@ -690,6 +692,9 @@ pub mod hooking {
                     }
                 // it would be cool if we could save the context at each ret, so that we can rewind
                 // bad gadgets.
+                } else if is_syscall(arch, mode, &inst) {
+                    commit_logs!(engine, registers_to_read => register_state, write_log => committed_write_log, block_log => committed_trace_log);
+                    engine.emu_stop().expect("Failed to stop emulator");
                 } else {
                     // if not a RETURN
                     // EXPERIMENTAL: halt execution at calls. see what happens.

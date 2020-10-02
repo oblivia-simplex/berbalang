@@ -60,6 +60,12 @@ impl MemoryImage {
             })
     }
 
+    pub fn disassemble_bytes(&self, bytes: &[u8]) -> Option<Instructions<'_>> {
+        self.disasm
+            .as_ref()
+            .and_then(|dis| dis.disas(bytes, 0, Some(1)).ok())
+    }
+
     pub fn size_of_writeable_memory(&self) -> usize {
         self.size_of_memory_by_perm(Perms::WRITE)
     }

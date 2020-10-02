@@ -15,6 +15,10 @@ TODO: For each, explain what the motivating idea is, what our hypotheses are.
 
 ## Variants
 
+### Blind (random) search
+
+It's a fairly simple matter to implement a more or less "blind" or random search by forcing the fitness function to return a constant value (1.0, for example), so that it becomes impossible to decide between n randomly-chosen tournament contestants on the basis of fitness. Sorting them in order of fitness, when fitness is always equal, will just preserve the random order in which their lots are drawn. 
+
 ### Initializing with harvested gadgets
 
 Is the selective pressure imposed by any particular fitness function sufficient to steer the population towards the discovery of composable "gadgets"? What might happen if, rather than seeding the population with the addresses of gadgets, harvested in advance by a tool such as ROPGadget, we seeded it with randomly chosen addresses, without paying any attention to whether or not those addresses carve the executable at its return-oriented joints?
@@ -30,12 +34,16 @@ A common pitfall in all forms of evolutionary search is the premature convergenc
 One particular place where our evolutionary processes appeared to get stuck was in cases where the problem was *almost entirely* solved by a single function call (possibly involving several nested calls). Such partial solutions could be prematurely discovered, and genetic strains containing them could swiftly dominate the gene pool, pushing the evolutionary process towards convergence before a good stock of generally useful materials could be produced. Even a "perfect" solution obtained by such means is of limited interest to us. Problems that can be solved in such a way rarely warrant the approach of return-oriented programming -- a simple return-to-libc attack is then sufficient. And since such solutions can only be discovered in a single, lucky stroke, their availability effectively interfered with the very phenomenon we wished to study: the discovery of composable "instructions" in a weird machine's instruction set, and the gradual composition of those instructions into programmatic solutions. 
 
 
-### Blind (random) search
-
 ### One-point vs. alternating crossover
+
+The crossover algorithm we begin with had the feature of strongly limiting variation in chromosome length -- a child would, with rare exceptions, have a length equal to that of one of its two parents'. This does a good job of controlling code bloat, but required us to predict the best average length for payloads in advance, or to discover it through painstaking trial and error. 
+
+We recently implemented a second, somewhat simpler crossover algorithm ("one-point crossover") which allows for a freer variation of chromosome lengths.
+
 
 ### Trivial Geography
 
+Another technique we implemented, in an effort to modulate the spread of successful genes through the population and inhibit premature convergence, was to outfit the population structures with one-dimensional, or "trivial", geographic constraints. [cite Spector et al] The way this works
 
 ## Register Pattern Matching (Argument Preparation for System Calls)
 
