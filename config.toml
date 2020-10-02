@@ -6,21 +6,21 @@ job = "Roper"
 selection = "Tournament" 
 timeout = "1 day"
 
-num_islands = 6
+num_islands = 4
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
 mutation_rate = 0.03
 mutation_exponent = 2.0
 crossover_algorithm = "one_point"
 crossover_period = 2
 crossover_rate = 1.0 # versus clone
-max_init_len = 50
-min_init_len = 10
+max_init_len = 600
+min_init_len = 500
 # bigger populations seem like the way to go. 
 # TODO: experiment with shrinking populations:
 # large initial populations, with permadeath
 # and a minimal limit set.
-pop_size = 0x600
-max_length = 500
+pop_size = 0x500
+max_length = 900
 num_epochs = 1000
 
 [fitness]
@@ -65,12 +65,12 @@ priority = "register_error"
 [tournament]
 num_offspring = 2
 num_parents = 2
-tournament_size = 4
+tournament_size = 5
 # todo: plot diversity and fitness wrt radius changes.
 # maybe experiment with dynamic radius adjustments
 # as a response to loss of diversity
 geographic_radius = 10
-migration_rate = 0.1
+migration_rate = 0.01
 
 
 [roulette]
@@ -100,7 +100,7 @@ binary_path = "./binaries/X86/MODE_32/sshd"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 
 #num_emulators = 60
-max_emu_steps = 0x2000
+max_emu_steps = 0x1000
 millisecond_timeout = 4
 emulator_stack_size = 0x1000
 record_basic_blocks = true

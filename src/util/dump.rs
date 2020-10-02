@@ -9,6 +9,12 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::error::Error;
 
+pub fn zip(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut gz = GzEncoder::new(Vec::new(), Compression::Default);
+    gz.write_all(bytes)?;
+    gz.finish().map_err(Error::from)
+}
+
 pub fn dump<T: Serialize, P: AsRef<Path> + Debug>(thing: T, path: P) -> Result<(), Error> {
     let mut file = fs::File::create(&path)?;
     let mut dumper = || -> Result<(), Error> {
