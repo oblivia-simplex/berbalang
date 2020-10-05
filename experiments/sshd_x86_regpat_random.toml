@@ -1,4 +1,5 @@
 ## sshd_x86_regpat_random.toml
+num_islands = 8
 job = "Roper"
 selection = "Tournament"
 mutation_rate = 0.03

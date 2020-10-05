@@ -1,4 +1,5 @@
 ## sshd_x86_mempat_ropgadget.toml
+num_islands = 8
 job = "Roper"
 selection = "Tournament"
 mutation_rate = 1.0

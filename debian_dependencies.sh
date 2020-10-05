@@ -34,7 +34,8 @@ cd capstone-4.0.2
 make && make install 
 
 #python deps
-apt install python3
+apt install python3 python3-pip
+pip3 install pytz toml
 EOF
 
 echo "[+] Installing other dependencies as root"
@@ -43,7 +44,6 @@ sudo sh $tmp
 
 rm $tmp
 
-pip3 install --user pytz toml
 
 echo "[+] Run source ~/.cargo/env before compiling"
 
