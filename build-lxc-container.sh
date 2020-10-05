@@ -51,8 +51,9 @@ if [ "${container_exists}" != "" ]; then
     echo "Removing ${container_name}"
     lxc stop "${container_name}" || true
     lxc delete "${container_name}"
+    lxc image delete "${container_name}" || true
   else
-    echo "You'll have to remove it manually or choose another name"
+    echo "You'll have to remove the container and image manually or choose another name"
     exit 1
   fi
 fi
