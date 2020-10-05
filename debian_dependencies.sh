@@ -32,6 +32,9 @@ cd /usr/src
 wget https://github.com/aquynh/capstone/archive/4.0.2.tar.gz -O- | tar xvz 
 cd capstone-4.0.2
 make && make install 
+
+#python deps
+apt install python3
 EOF
 
 echo "[+] Installing other dependencies as root"
@@ -40,4 +43,8 @@ sudo sh $tmp
 
 rm $tmp
 
+pip3 install --user pytz toml
+
 echo "[+] Run source ~/.cargo/env before compiling"
+
+
