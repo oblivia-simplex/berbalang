@@ -17,6 +17,3 @@ wget https://github.com/aquynh/capstone/archive/4.0.2.tar.gz -O- | tar xvz
 cd capstone-4.0.2
 make && make install 
 
-# Then, build berbalang
-cd $working_dir
-cargo build --release

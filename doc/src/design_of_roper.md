@@ -60,7 +60,13 @@ In "A Mixability Theory for the Role of Sex in Evolution," Adi Livnat et al. ask
 > sex involves selection not for the best combinations of genes, as would be registered
 > by [fitness], but for genes that are favourable in many different combinations, as is 
 > registered by [mixability], then the breaking down of highly favourable combinations 
-> does not necessarily pose a problem.
+> does not necessarily pose a problem. 
+
+We expect that the domain of ROP chain evolution might prove to be an interesting case by which to test Livnat's theory, particularly given that the evolution of ROP chains from a soup of random addresses places the problem of composability and mixability front and centre. In traditional genetic programming environments, the composability of instructions is more or less assured *a priori*. Here, by contrast, maintaining control over the flow of execution is an achievement to be won. [[flesh out a bit more.f uck i'm tired today]]
+
+A simple, somewhat crude measure of how composable the alleles circulating in a population are can be found in the number of return instructions each specimen executes on average, since these mark the points at which various strings of alleles can be composed. (This measure can be deceived by specimens which create return-loops for themselves, whereby a gadget pushes its own address onto the stack before executing `ret`. But there is no prima facie reason to expect looping behaviour to be more common in sexual populations than asexual ones.)
+
+TODO: we should also perform post-mortem analyses of mixability, using the metric explained in the paper. get the average fitness of every specimen containing an *executed* copy of the allele. BUT consider this: an allele that solves the problem in one stroke is highly mixable by this definition. This isn't a bug with the definition, really, but it should affect how we think of it as "playing well with others". If we didn't make the changes we made to the way execution traces are committed, then this property would describe many of our crashing local optima traps. 
 
 
 ## Register Pattern Matching (Argument Preparation for System Calls)
