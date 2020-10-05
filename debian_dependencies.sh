@@ -1,7 +1,23 @@
 #! /usr/bin/env bash
 
-working_dir=`pwd`
+set -e
 
+USER_ID=`id -u`
+
+# Installing rust as user
+echo "[+] Installing rust as `whoami`..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+
+#if (( $USER_ID != 0 )); then
+#  echo "Must be run as root."
+#  exit 1
+#fi
+
+tmp=`mktemp`
+
+cat>$tmp<<EOF
+set -e 
 # First, install some build dependencies 
 apt-get update && apt-get install -y build-essential clang llvm-dev python unzip wget
 
@@ -17,6 +33,18 @@ wget https://github.com/aquynh/capstone/archive/4.0.2.tar.gz -O- | tar xvz
 cd capstone-4.0.2
 make && make install 
 
-# Then, build berbalang
-cd $working_dir
-cargo build --release
+#python deps
+apt install python3 python3-pip
+pip3 install pytz toml
+EOF
+
+echo "[+] Installing other dependencies as root"
+
+sudo sh $tmp
+
+rm $tmp
+
+
+echo "[+] Run source ~/.cargo/env before compiling"
+
+

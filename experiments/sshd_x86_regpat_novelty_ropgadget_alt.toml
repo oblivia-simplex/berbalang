@@ -1,4 +1,5 @@
 ## sshd_x86_regpat_novelty_ropgadget.toml
+num_islands = 8
 job = "Roper"
 selection = "Tournament"
 mutation_rate = 0.03
@@ -20,7 +21,7 @@ geographic_radius = 10
 migration_rate = 0.01
 
 [observer]
-dump_population = false
+dump_population = true
 dump_soup = true
 data_directory = "~/logs"
 window_size = 1000
