@@ -45,6 +45,24 @@ We recently implemented a second, somewhat simpler crossover algorithm ("one-poi
 
 Another technique we implemented, in an effort to modulate the spread of successful genes through the population and inhibit premature convergence, was to outfit the population structures with one-dimensional, or "trivial", geographic constraints. [cite Spector et al] The way this works
 
+
+### Asexual reproduction (cloning + mutation) vs. Crossover
+
+In "A Mixability Theory for the Role of Sex in Evolution," Adi Livnat et al. ask what selective pressures might account for the ubiquity of sexual reproduction in nature:
+
+> We develop a measure, [mixability], which represents the genome-wide ability of alleles
+> to perform well across different combinations. Using numerical iterations within a
+> classical population-genetic framework, we find that sex favors the increase in 
+> [mixability] in a highly robust manner. Furthermore, we expose the mechanism underlying
+> this effect and find that it operates during the evolutionary transient, which has been
+> studied relatively little. We also find that the breaking down of highly favourable
+> gene combinations is an integral part of this mechanism. Therefore, if the roles of
+> sex involves selection not for the best combinations of genes, as would be registered
+> by [fitness], but for genes that are favourable in many different combinations, as is 
+> registered by [mixability], then the breaking down of highly favourable combinations 
+> does not necessarily pose a problem.
+
+
 ## Register Pattern Matching (Argument Preparation for System Calls)
 
 The object of this task is to set a subset of registers to certain immediate or referenced values, such as we might wish to do if we were preparing to execute a particular system call. If our goal is to dispatch a call to `execve("/bin/sh", NULL, NULL)`, on the x86, for instance, we would want to have `EAX` set to `11`, the code for the `execve` system call, `EBX` set to some pointer to the string `"/bin/sh"`, `ECX` set to some pointer to `0`, and `EDX` set to `0`. One way of expressing this target is to treat it as a 4-dimensional surface in an n-dimensional space, where n is the total number of registers under observation. At a first approximation, we can express proximity to this register pattern as the *distance* between any point in that space and that surface.
