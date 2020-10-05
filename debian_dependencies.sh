@@ -18,7 +18,6 @@ tmp=`mktemp`
 
 cat>$tmp<<EOF
 set -e 
-echo "[+] running as \`whoami\`"
 # First, install some build dependencies 
 apt-get update && apt-get install -y build-essential clang llvm-dev python unzip wget
 
@@ -36,7 +35,9 @@ make && make install
 EOF
 
 echo "[+] Installing other dependencies as root"
+
 sudo sh $tmp
 
 rm $tmp
 
+echo "[+] Run source ~/.cargo/env before compiling"
