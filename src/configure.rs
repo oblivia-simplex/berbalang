@@ -233,7 +233,10 @@ impl Config {
         for sub in ["", "soup", "population", "champions"].iter() {
             let d = format!("{}/{}", path, sub);
             std::fs::create_dir_all(&d)
-                .map_err(|e| log::error!("Error creating {}: {:?}", path, e))
+                .map_err(|e| {
+                    log::error!("Error creating {}: {:?}", path, e);
+                    e
+                })
                 .expect("Failed to create data directory");
         }
 
