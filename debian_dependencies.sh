@@ -1,6 +1,12 @@
 #! /usr/bin/env bash
 
-working_dir=`pwd`
+
+USER_ID=`id -u`
+
+if (( $USER_ID != 0 )); then
+  echo "Must be run as root."
+  exit 1
+fi
 
 # First, install some build dependencies 
 apt-get update && apt-get install -y build-essential clang llvm-dev python unzip wget
