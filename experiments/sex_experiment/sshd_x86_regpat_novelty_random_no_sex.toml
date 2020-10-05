@@ -1,1 +1,50 @@
-../sshd_x86_regpat_novelty_random_no_sex.toml
+## sshd_x86_regpat_novelty_random.toml
+num_islands = 8
+job = "Roper"
+selection = "Tournament"
+mutation_rate = 1.0
+mutation_exponent = 2.0
+crossover_algorithm = "one_point"
+crossover_period = 2
+crossover_rate = 0.0
+max_init_len = 500
+min_init_len = 450
+pop_size = 0x500
+max_length = 500
+num_epochs = 1000
+
+[tournament]
+num_offspring = 2
+num_parents = 2
+tournament_size = 5
+geographic_radius = 10
+migration_rate = 0.01
+
+[observer]
+dump_population = true
+dump_soup = true
+data_directory = "~/logs"
+window_size = 1000
+report_every = 1000
+dump_every = 1000
+
+[roper]
+soup_size = 0x40000
+binary_path = "./binaries/X86/MODE_32/sshd"
+max_emu_steps = 0x2000
+millisecond_timeout = 3
+emulator_stack_size = 0x1000
+record_basic_blocks = true
+output_registers = ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
+randomize_registers = true
+register_pattern_file = "./experiments/register_pattern.txt"
+break_on_calls = true
+record_memory_writes = true
+monitor_stack_writes = true
+
+[fitness]
+target = 0
+eval_by_case = false
+dynamic = false
+function = "register_pattern"
+weighting = "register_error + (10 * register_freq)"
