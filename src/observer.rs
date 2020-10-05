@@ -179,6 +179,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             self.dump_population();
         }
         if self.counter % self.report_every == 0 {
+            log::debug!("Calling report function...");
             self.report();
         }
 

@@ -227,7 +227,7 @@ fn log_abs_diff(x: u64, y: u64) -> f64 {
     if res == 0 {
         res as f64
     } else {
-        (res as f64).log2()
+        (1.0 + res as f64).log2()
     }
 }
 
