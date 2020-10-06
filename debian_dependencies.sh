@@ -19,12 +19,12 @@ tmp=`mktemp`
 cat>$tmp<<EOF
 set -e 
 # First, install some build dependencies 
-apt-get update && apt-get install -y build-essential clang llvm-dev python unzip wget
+apt-get update && apt-get install -y build-essential clang llvm-dev python wget
 
 # Install the unicorn emulator library 
 mkdir -p /usr/src && cd /usr/src
-wget https://github.com/unicorn-engine/unicorn/archive/1.0.1.zip -O unicorn_src.zip && unzip unicorn_src.zip
-cd unicorn-1.0.1
+git clone https://github.com/oblivia-simplex/unicorn
+cd unicorn
 make && make install
 
 # Install the capstone disassembly library
