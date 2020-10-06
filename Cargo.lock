@@ -807,7 +807,7 @@ dependencies = [
 [[package]]
 name = "libunicorn-sys"
 version = "0.9.0"
-source = "git+https://github.com/oblivia-simplex/unicorn-rs?branch=development#47e74b642292d6b40d56ab88d965e10535827acf"
+source = "git+https://github.com/oblivia-simplex/unicorn-rs?branch=development#da351594335654fa23a783d91ba7fbd6ab25f72a"
 dependencies = [
  "bitflags",
  "build-helper",
@@ -1630,7 +1630,7 @@ checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 [[package]]
 name = "unicorn"
 version = "0.9.0"
-source = "git+https://github.com/oblivia-simplex/unicorn-rs?branch=development#47e74b642292d6b40d56ab88d965e10535827acf"
+source = "git+https://github.com/oblivia-simplex/unicorn-rs?branch=development#da351594335654fa23a783d91ba7fbd6ab25f72a"
 dependencies = [
  "bitflags",
  "enum-utils",
