@@ -28,8 +28,9 @@ disassemble_trace = []
 [profile.release]
 debug = true
 #panic = "abort" 
-#lto = "fat"
-#codegen-units = 1
+lto = "fat"
+codegen-units = 1
+opt-level = 3
 
 [dependencies]
 ansi-colors = "0.3"
