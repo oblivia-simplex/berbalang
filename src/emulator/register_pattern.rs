@@ -222,19 +222,40 @@ fn abs_difference<T: Sub<Output = T> + Ord>(x: T, y: T) -> T {
     }
 }
 
-fn log_abs_diff(x: u64, y: u64) -> f64 {
-    let res = abs_difference(x, y);
-    if res == 0 {
-        res as f64
-    } else {
-        (1.0 + res as f64).log2()
+fn weighted_ham(x: u64, y: u64) -> f64 {
+    // weighted hamming distance: the more significant bits
+    // cost more
+    fn weight(i: usize) -> f64 {
+        i as f64 + 1.0
     }
+    let mut z = x ^ y;
+    let mut score = 0.0;
+    for i in 0..64 {
+        if z & 1 == 1 {
+            score += weight(i);
+        }
+        z >>= 1
+    }
+    score
+}
+
+#[test]
+fn test_weighted_ham() {
+    let res = weighted_ham(0, 0);
+    assert_eq!(res, 0.0);
+    let res = weighted_ham(1, 0);
+    assert_eq!(res, 1.0);
+
+    let a = weighted_ham(0x8000, 0);
+    let b = weighted_ham(1, 0);
+    println!("a = {}, b = {}", a, b);
+    assert!(a > b);
 }
 
 fn least_word_distance(w1: u64, w2s: &[u64]) -> f64 {
     assert!(w2s.len() > 0, "w2s must contain at least one word");
     w2s.iter()
-        .map(|w2| log_abs_diff(w1, *w2))
+        .map(|w2| weighted_ham(w1, *w2))
         .fold1(|a, b| a.min(b))
         .unwrap() as f64
 }
@@ -562,22 +583,28 @@ mod test {
             (
                 "0xdeadbeef",
                 RegisterValue {
-                    vals: 0xdead_beef,
+                    vals: vec![0xdead_beef],
                     deref: 0,
                 },
             ),
             (
                 "&0xbeef",
                 RegisterValue {
-                    vals: 0xbeef,
+                    vals: vec![0xbeef],
                     deref: 1,
                 },
             ),
-            ("&&0", RegisterValue { vals: 0, deref: 2 }),
+            (
+                "&&0",
+                RegisterValue {
+                    vals: vec![0],
+                    deref: 2,
+                },
+            ),
             (
                 "& & & & 1234",
                 RegisterValue {
-                    vals: 1234,
+                    vals: vec![1234],
                     deref: 4,
                 },
             ),
@@ -600,12 +627,12 @@ mod test {
 
         let register_pattern = RegisterPattern(hashmap! {
             "RAX".to_string() => RegisterValue {
-                val: 0xbeef,
+                vals: vec![0xbeef],
                 deref: 1,
             },
 
             "RBX".to_string() => RegisterValue {
-                val: 3,
+                vals: vec![3],
                 deref: 2,
             },
         });
@@ -620,12 +647,12 @@ mod test {
         initialize_mem_image();
         let register_pattern = RegisterPattern(hashmap! {
             "RAX".to_string() => RegisterValue {
-                val: 0xbeef,
+                vals: vec![0xbeef],
                 deref: 1,
             },
 
             "RBX".to_string() => RegisterValue {
-                val: 3,
+                vals: vec![3],
                 deref: 2,
             },
         });
@@ -669,7 +696,7 @@ mod test {
             .distance_from_register_val(
                 "RAX",
                 &RegisterValue {
-                    vals: 0xbeef,
+                    vals: vec![0xbeef],
                     deref: 1,
                 },
             )
@@ -677,7 +704,13 @@ mod test {
         assert!(res < std::f64::EPSILON, "Match failed");
 
         let res = register_state
-            .distance_from_register_val("RBX", &RegisterValue { vals: 3, deref: 2 })
+            .distance_from_register_val(
+                "RBX",
+                &RegisterValue {
+                    vals: vec![3],
+                    deref: 2,
+                },
+            )
             .unwrap();
         assert!(res < std::f64::EPSILON, "Match failed");
 
@@ -685,7 +718,7 @@ mod test {
             .distance_from_register_val(
                 "RAX",
                 &RegisterValue {
-                    vals: 0x1000_beef,
+                    vals: vec![0x1000_beef],
                     deref: 1,
                 },
             )
@@ -696,7 +729,7 @@ mod test {
             .distance_from_register_val(
                 "RAX",
                 &RegisterValue {
-                    vals: 0x1000_beef,
+                    vals: vec![0x1000_beef],
                     deref: 0,
                 },
             )
@@ -709,7 +742,13 @@ mod test {
             "RAX".to_string() => vec![1, 7],
         });
         let res = register_state
-            .distance_from_register_val("RAX", &RegisterValue { vals: 9, deref: 3 })
+            .distance_from_register_val(
+                "RAX",
+                &RegisterValue {
+                    vals: vec![9],
+                    deref: 3,
+                },
+            )
             .unwrap();
         println!("res = {}", res);
         assert!(res - (1.0 + 3.0) < std::f64::EPSILON);
