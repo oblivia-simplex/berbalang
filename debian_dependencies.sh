@@ -4,6 +4,8 @@ set -e
 
 USER_ID=`id -u`
 
+[ -f "$HOME/.cargo/env" ] && source $HOME/.cargo/env
+
 # Installing rust as user
 CARGO_VERSION=$(cargo version || true)
 if [ -z "$CARGO_VERSION" ]; then
