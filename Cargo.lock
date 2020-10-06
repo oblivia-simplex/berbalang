@@ -100,6 +100,7 @@ dependencies = [
  "cached",
  "capstone",
  "chrono",
+ "coredump",
  "crossbeam",
  "crossbeam-deque",
  "csv",
@@ -348,6 +349,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "coredump"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4079960e8d47c5f7f6b36b61b2a462ad85eafaf2b1748bab2f71ddd6df6a7b0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
