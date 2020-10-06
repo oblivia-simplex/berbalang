@@ -230,11 +230,13 @@ fn weighted_ham(x: u64, y: u64) -> f64 {
     }
     let mut z = x ^ y;
     let mut score = 0.0;
-    for i in 0..64 {
+    let mut i = 0;
+    while z != 0 {
         if z & 1 == 1 {
             score += weight(i);
         }
-        z >>= 1
+        z >>= 1;
+        i += 1;
     }
     score
 }
