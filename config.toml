@@ -89,6 +89,7 @@ dump_population = true
 dump_soup = true 
 data_directory = "~/logs"
 window_size  = 10000
+report_every = 100
 
 [roper]
 use_push = false
@@ -96,7 +97,7 @@ use_push = false
 #mode = "MODE_64"
 #gadget_file = "./gadgets/sshd_ropgadget.json"
 soup_size = 0x40000
-binary_path = "./binaries/X86/MODE_32/sshd"
+binary_path = "./binaries/X86/MODE_32/tshark"
 #binary_path = "/tmp/ldconfig"
 #num_workers = 70 # will take num_cpus::get 
 #num_emulators = 60

@@ -42,7 +42,7 @@ if __name__ == "__main__":
     p_name = pop_dir()
 
     plt.figure(figsize=(8, 5.5))
-    plot_feature_for_islands(feature, smooth=1, csv=csv)
+    plot_feature_for_islands(feature, x="epoch", smooth=1, csv=csv)
 
     # plt.show()
     os.chdir(cur_dir)

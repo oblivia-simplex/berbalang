@@ -212,7 +212,6 @@ where
     C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
     let epoch = get_epoch_counter();
-
     let record = StatRecord::mean_from_window(window, counter);
     log::debug!(
         "Island #{island} {record:#?}",
