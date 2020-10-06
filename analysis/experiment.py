@@ -2,6 +2,7 @@
 
 import glob
 import os
+import socket
 import pytz
 import sys
 import toml
@@ -23,12 +24,17 @@ def figure_out_data_dir(iteration, data_root, population_name, date=None):
     dir = ""
     base_name = population_name
     iteration -= 1
+    hostname = socket.gethostname()
+    basic_population_name, basic_dir = "", ""
     while dir == "" or os.path.exists(dir):
         print(f"{dir} already exists. Trying {dir}...")
         iteration += 1
-        population_name = f"{base_name}-{iteration}"
+        population_name = f"{hostname}-{base_name}-{iteration}"
+        basic_population_name = f"{base_name}-{iteration}"
         dir = f"{data_root}/berbalang/Roper/Tournament/{date}/{population_name}"
-    return population_name, dir
+        basic_dir = f"{data_root}/berbalang/Roper/Tournament/{date}/{population_name}"
+    # bit of a hack because roper will prepend the hostname too
+    return basic_population_name, basic_dir
 
 
 def base(path):
