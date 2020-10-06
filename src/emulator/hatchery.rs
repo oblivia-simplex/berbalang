@@ -693,7 +693,8 @@ pub mod hooking {
                 // it would be cool if we could save the context at each ret, so that we can rewind
                 // bad gadgets.
                 } else if is_syscall(arch, mode, &inst) {
-                    commit_logs!(engine, registers_to_read => register_state, write_log => committed_write_log, block_log => committed_trace_log);
+                    // Committing the logs at a syscall is one way to get trapped in a non-composable local optima.
+                    // commit_logs!(engine, registers_to_read => register_state, write_log => committed_write_log, block_log => committed_trace_log);
                     engine.emu_stop().expect("Failed to stop emulator");
                 } else {
                     // if not a RETURN

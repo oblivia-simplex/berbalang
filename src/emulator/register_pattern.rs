@@ -226,6 +226,12 @@ fn weighted_ham(x: u64, y: u64) -> f64 {
     // weighted hamming distance: the more significant bits
     // cost more
     fn weight(i: usize) -> f64 {
+        // alternately:
+        // TODO
+        // to make least significant bits worth more
+        // let d = i as f64 + 1.0;
+        // 8.0 / d
+
         i as f64 + 1.0
     }
     let mut z = x ^ y;
