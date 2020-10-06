@@ -5,9 +5,11 @@ set -e
 USER_ID=`id -u`
 
 # Installing rust as user
-echo "[+] Installing rust as `whoami`..."
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
+CARGO_VERSION=$(cargo version || true)
+if [ -z "$CARGO_VERSION" ]; then
+  echo "[+] Installing rust as `whoami`..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+fi
 
 #if (( $USER_ID != 0 )); then
 #  echo "Must be run as root."
