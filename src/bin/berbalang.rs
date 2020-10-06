@@ -2,7 +2,9 @@ use berbalib::configure::{Config, Job};
 use berbalib::examples::{hello_world, linear_gp};
 use berbalib::{limit_threads, logger, roper, set_starting_timestamp, set_timeout};
 
+
 fn main() {
+    coredump::register_panic_handler().expect("Failed to register panic handler.");
     // TODO add standard cli
     let config_file = std::env::args()
         .nth(1)
