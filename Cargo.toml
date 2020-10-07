@@ -28,8 +28,9 @@ disassemble_trace = []
 [profile.release]
 debug = true
 #panic = "abort" 
-#lto = "fat"
-#codegen-units = 1
+lto = "fat"
+codegen-units = 1
+opt-level = 3
 
 [dependencies]
 ansi-colors = "0.3"
@@ -85,7 +86,7 @@ plotlib = "0.5"
 prefix-tree = { git = "https://github.com/oblivia-simplex/prefix-tree", branch = "master" }
 procinfo = "0.4"
 toml = "0.5"
-unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "development" }
+unicorn = { git = "https://github.com/oblivia-simplex/unicorn-rs", branch = "master" }
 
 #[patch."https://github.com/oblivia-simplex/unicorn-rs".unicorn]
 #path = "../unicorn-rs/"
