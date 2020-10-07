@@ -6,7 +6,7 @@ import pandas as pd
 import scipy.ndimage.filters as filters
 import sys
 from glob import glob
-
+import seaborn
 
 def pop_dir():
     return os.path.basename(os.getcwd())
@@ -23,6 +23,10 @@ def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linea
             plt.plot(y, label = f"island {i}")
         else:
             plt.plot(data[i][x], y, label=f"island {i}")
+            if f"stdev_{feature}" in data[i].columns:
+                fill_between(data[i][x], 
+                             y-2*data[i][f"stdev_{feature}"], 
+                             y+2*data[i][f"stdev_{feature}"], alpha=0.5)
         plt.yscale(scale)
     if x is not None:
         plt.xlabel(f"{x}")
