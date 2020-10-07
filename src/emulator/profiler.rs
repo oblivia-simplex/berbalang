@@ -152,6 +152,7 @@ fn fetch_code_executed(path: &Vec<Block>, extra_segs: Option<&[Seg]>) -> Vec<u8>
 // this method and collate. Or just get rid of collate entirely, I guess.
 
 impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
+    #[allow(unused_variables)]
     fn from(p: Profiler<C>) -> Self {
         let mut paths = Vec::new(); // PrefixSet::new();
         let mut cpu_errors = Vec::new();
@@ -204,7 +205,6 @@ impl<C: 'static + Cpu<'static>> From<Profiler<C>> for Profile {
             .into_inner()
             .unwrap();
         memory_writes.push(log.into());
-        // memory_writes.push(segqueue_to_vec(write_log).into());
 
         ret_counts.push(ret_count.load(std::sync::atomic::Ordering::Relaxed));
 
@@ -555,18 +555,6 @@ mod test {
     use unicorn::CpuX86;
 
     use super::*;
-
-    macro_rules! segqueue {
-        ($($x:expr,)*) => {
-            {
-                let q = SegQueue::new();
-                $(
-                   q.push($x);
-                )*
-                q
-            }
-        }
-    }
 
     #[test]
     fn test_sparse_data() {
