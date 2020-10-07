@@ -24,7 +24,8 @@ def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linea
         else:
             plt.plot(data[i][x], y, label=f"island {i}")
             if f"stdev_{feature}" in data[i].columns:
-                fill_between(data[i][x], 
+                plt.fill_between(data[i][x], 
+
                              y-2*data[i][f"stdev_{feature}"], 
                              y+2*data[i][f"stdev_{feature}"], alpha=0.5)
         plt.yscale(scale)

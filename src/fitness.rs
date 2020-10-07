@@ -416,7 +416,7 @@ pub fn average_weighted(ws: &[Weighted<'static>]) -> Weighted<'static> {
     first
 }
 
-pub fn stddev_weighted(ws: &[Weighted<'static>], mean: &Weighted<'static>) -> Weighted<'static> {
+pub fn stdev_weighted(ws: &[Weighted<'static>], mean: &Weighted<'static>) -> Weighted<'static> {
     let mut neg_mean = mean.clone();
     neg_mean.scale_by(-1.0);
     let mut res = Weighted::new(&neg_mean.weighting);
@@ -427,6 +427,7 @@ pub fn stddev_weighted(ws: &[Weighted<'static>], mean: &Weighted<'static>) -> We
     {
         res = add_weighted(&res, &w);
     }
+    res.scale_by(ws.len() as f64 - 1.0);
     res.powf(0.5) // square root
 }
 
@@ -526,20 +527,23 @@ mod test {
         let mut w2 = Weighted::new("foo + bar");
         w2.insert("foo", 2.0);
         w2.insert("bar", 1.0);
-        let ws = &[w1, w2];
+        let mut w3 = Weighted::new("foo + bar");
+        w3.insert("foo", 4.0);
+        w3.insert("bar", 0.5);
+        let ws = &[w1, w2, w3];
         let w_mean = average_weighted(ws);
         println!("w_mean = {:?}", w_mean);
         let w_mean_foo = w_mean.get("foo").cloned().unwrap();
         let w_mean_bar = w_mean.get("bar").cloned().unwrap();
-        assert_eq!(w_mean_foo, 1.5);
-        assert_eq!(w_mean_bar, 1.5);
+        assert_eq!(w_mean_foo, 2.3333333333333335); // 2.3333... repeating
+        assert_eq!(w_mean_bar, 1.1666666666666667);
 
-        let std_dev = stddev_weighted(ws, &w_mean);
+        let std_dev = stdev_weighted(ws, &w_mean);
         println!("std_dev = {:?}", std_dev);
         let s_foo = std_dev.get("foo").cloned().unwrap();
         let s_bar = std_dev.get("bar").cloned().unwrap();
-        assert_eq!(s_foo, 0.7071067811865476);
-        assert_eq!(s_bar, 0.7071067811865476);
+        assert_eq!(s_foo, 1.5275252316519465);
+        assert_eq!(s_bar, 0.7637626158259733);
     }
     // #[test]
     // fn test_find_minima() {

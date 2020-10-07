@@ -93,21 +93,6 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
 
         let mut survivors = combatants;
 
-        // A generation should be considered to have elapsed once
-        // `pop_size` offspring have been spawned.
-        // For now, only Island 0 can increment the epoch. We can weigh the
-        // pros and cons of letting each island have its own epoch, later.
-        if config.island_id == 0
-            && iteration > 0
-            && iteration % (config.pop_size / config.tournament.num_offspring) == 0
-        {
-            crate::increment_epoch_counter();
-            log::info!(
-                "New global epoch. Island #{} epoch is {}",
-                config.island_id,
-                Self::island_epoch(iteration, &config)
-            );
-        }
         // NOTE: migration relies on tournaments being at least 1 larger than
         // the number of parents plus the number of children
         if survivors.len() > config.tournament.num_parents {
@@ -166,9 +151,5 @@ impl<E: Develop<P>, P: Phenome + Genome + 'static> Tournament<E, P> {
             evaluator,
             pier,
         }
-    }
-
-    fn island_epoch(iteration: usize, config: &Config) -> usize {
-        iteration / (config.pop_size / config.tournament.num_offspring)
     }
 }
