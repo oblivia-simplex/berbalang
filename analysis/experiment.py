@@ -42,11 +42,12 @@ def base(path):
     return os.path.basename(f)
 
 
-def sequential_runs(config_paths, num_trials, data_root):
+def sequential_runs(config_paths, num_trials):
     for config in config_paths:
         if not config.endswith(".toml"):
             continue
         parsed = toml.load(config)
+        data_root = os.path.expanduser(parsed["observer"]["data_directory"])
         name = parsed['population_name'] if 'population_name' in parsed else \
             base(config)
         for i in range(0, num_trials):
@@ -58,23 +59,21 @@ def sequential_runs(config_paths, num_trials, data_root):
                 sys.exit(err)
 
 
-def runs_for_config_dir(dir, trials, log_to):
+def runs_for_config_dir(dir, trials):
     configs = glob.glob(f"{dir}/*.toml")
     print(f"Found configuration files: {configs}")
     sequential_runs(
         config_paths=configs,
         num_trials=trials,
-        data_root=log_to,
     )
 
 
 #fire.Fire(runs_for_config_dir)
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print(f"Usage: {sys.argv[0]} <experiment directory> <number of trials> <logging directory>")
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <experiment directory> <number of trials>")
         sys.exit(1)
     experiment_directory = sys.argv[1]
     number_of_trials = int(sys.argv[2])
-    logging_directory = sys.argv[3]
-    print(f"Experiment directory: {experiment_directory}\nNumber of trials: {number_of_trials}\nLogging directory: {logging_directory}")
-    runs_for_config_dir(experiment_directory, number_of_trials, logging_directory)
+    print(f"Experiment directory: {experiment_directory}\nNumber of trials: {number_of_trials}")
+    runs_for_config_dir(experiment_directory, number_of_trials)
