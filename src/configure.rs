@@ -157,7 +157,7 @@ fn random_population_name() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ObserverConfig {
-    pub dump_population: bool,
+    pub dump_population: f64,
     pub dump_soup: bool,
     #[serde(default)]
     pub full_data_directory: String,

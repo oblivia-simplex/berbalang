@@ -123,6 +123,10 @@ Two obvious options present themselves:
 
 2. we could treat a register state as a vector of bits, and then take the *hamming distance* between the current state and our target.
 
+Neither conception of distance maps very neatly onto the program space our populations are actually traversing, but this gives us a place to start. 
+
+One complication presents itself when we come to consider *indirect* values. If `EBX` needs to point to the value 0x44434241 (a little-endian representation of "ABCD" in ASCII), for example, how should we handle this? We could treat indirect or referenced variables as additional dimensions, if we add a special value to denote invalid references, or we could replace indirect target values with sets of pointers to that value which already reside in memory.  Mutability raises a further complication. Should we count a pointer to, say, 0x44434200 to be "close" to the target, if the value resides in a writeable segment of memory?
+
 
 
 

@@ -455,6 +455,45 @@ impl RegisterState {
         map
     }
 
+    // // highly experimental and not yet optimized in any way
+    // fn as_vector(&self, reference_depth: usize) -> Vec<f64> {
+    //     let mut vector = vec![];
+    //     for v in self
+    //         .0
+    //         .iter()
+    //         .sorted_by_key(|(k, _)| k)
+    //         .map(|(_, v)| v)
+    //     {
+    //         for i in 0..reference_depth {
+    //             if i < v.len() {
+    //                 vector.push(v as f64)
+    //             } else {
+    //                 vector.push(f64::INFINITY)
+    //             }
+    //         }
+    //     }
+    //     vector
+    // }
+    //
+    // fn pattern_as_vectors(&self, pattern: &RegisterPattern, reference_depth: usize) -> Vec<Vec<f64>> {
+    //     let mut vector = vec![];
+    //     for reg in self.0.keys().sorted() {
+    //         if let Some(rv) = pattern.0.get(reg) {
+    //             for i in 0..reference_depth {
+    //                 if i == rv.deref {
+    //
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     vector
+    //
+    // }
+    //
+    // fn euclidean_distance_from_register_pattern(&self, pattern: &RegisterPattern) -> f64 {
+    //
+    // }
+
     fn distance_from_register_val(&self, reg: &str, r_val: &RegisterValue) -> Result<f64, Error> {
         fn pos_distance(pos: usize, target: usize) -> f64 {
             let pos_dist_scale: f64 = 4.0 * get_static_memory_image().word_size as f64;

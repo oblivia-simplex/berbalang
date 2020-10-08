@@ -11,6 +11,7 @@ import textwrap
 import matplotlib
 
 
+
 def pop_dir():
     return os.path.basename(os.getcwd())
 
@@ -42,6 +43,9 @@ def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linea
             plt.yscale(scale)
         if x is not None:
             plt.xlabel(f"{x}")
+        ylim = os.getenv("PLOT_YLIM")
+        if ylim:
+            plt.ylim(0, float(ylim))
         plt.ylabel(f"{feature}")
         pop_name = pop_dir().capitalize()
         plt.title(f"{csv} {feature} in the\n{pop_name} population".capitalize())
@@ -87,5 +91,5 @@ if __name__ == "__main__":
 
         # plt.show()
         os.chdir(cur_dir)
-        filename = f"{p_name}__{feature}_{csv}.png"
-        plt.savefig(filename, format="png", bbox="tight")
+        filename = f"{p_name}__{feature}_{csv}.svg"
+        plt.savefig(filename, format="svg", bbox="tight")
