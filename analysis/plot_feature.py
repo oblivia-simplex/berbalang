@@ -38,7 +38,7 @@ def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linea
                 if f"stdev_{feature}" in data[i].columns:
                     plt.fill_between(data[i][x], 
                                  y-2*data[i][f"stdev_{feature}"], 
-                                 y+2*data[i][f"stdev_{feature}"], alpha=0.5)
+                                 y+2*data[i][f"stdev_{feature}"], alpha=0.2)
             plt.yscale(scale)
         if x is not None:
             plt.xlabel(f"{x}")
@@ -56,7 +56,7 @@ def plot_all_features(path_to_population_dir, smooth=1):
     # get the headers to see what features we want
     for csv in ["mean", "champion"]:
         with open(f"island_0/{csv}_statistics.csv", "r") as f:
-            features = f.readline().strip().split(",")[1:]
+            features = [x for x in f.readline().strip().split(",")[1:] if not x.startswith("stdev_")]
         for feature in features:
             print(f"Plotting {csv} {feature} for {pop_name}...")
             plt.figure(figsize=(8, 5.5))
