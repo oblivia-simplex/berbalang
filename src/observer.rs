@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use rand::{thread_rng, seq::IteratorRandom};
 use std::thread::{spawn, JoinHandle};
 
 use hashbrown::HashMap;
@@ -321,7 +322,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
     }
 
     pub fn dump_population(&self) {
-        if !self.config.observer.dump_population {
+        if self.config.observer.dump_population <= 0.0 {
             log::debug!("Not dumping population");
             return;
         }
@@ -330,7 +331,14 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             self.config.data_directory(),
             self.get_local_epoch(),
         );
-        dump(&self.frame, &path).expect("Failed to dump population");
+        if self.config.observer.dump_population == 1.0 {
+            dump(&self.frame, &path).expect("Failed to dump population");
+        } else {
+            let mut rng = thread_rng();
+            let n = (self.frame.len() as f64 * self.config.observer.dump_population).ceil() as usize; 
+            let sample = self.frame.iter().choose_multiple(&mut rng, n);
+            dump(&sample, &path).expect("Failed to dump population");
+        }
     }
 
     pub fn soup(&self) -> HashMap<<O as Genome>::Allele, usize> {

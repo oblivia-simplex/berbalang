@@ -21,7 +21,7 @@ geographic_radius = 10
 migration_rate = 0.01
 
 [observer]
-dump_population = false
+dump_population = 0.0
 dump_soup = true
 data_directory = "~/logs"
 
