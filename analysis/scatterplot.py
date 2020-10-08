@@ -47,6 +47,7 @@ def plot(data):
                 y="code_coverage",
                 size="num_offspring",
                 sizes=(15,200),
+                alpha=0.2,
                 data=data)
         ax.set(ylim=(0,0.0005))
         ax.set(xlim=(0,250))
@@ -70,9 +71,9 @@ def plot_population(pop_dir):
     plt.figure(figsize=(8, 5.5))
     plot(data)
     plt.title(f"{pop_basename}")
-    filename = f"{pop_basename}_scatterplot.svg"
+    filename = f"{pop_basename}_scatterplot.png"
     plt.tight_layout(h_pad=2.0)
-    plt.savefig(filename, format="svg", bbox="tight")
+    plt.savefig(filename, format="png", bbox="tight")
     plt.close()
     return
 
