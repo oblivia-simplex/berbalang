@@ -7,6 +7,18 @@ Things to discuss:
 - Describe the experiments, and sketch out the discussions, pending results. -- Code coverage -- Memory patterns -- Register patterns
 - crossover
 
+# On the Development of Berbalang (ROPER II)
+
+## A General Framework for Genetic Programming Experimentation
+
+## Modifications to the Unicorn Emulation Library and its Rust Bindings
+
+When we finally scaled our experiments to more powerful AWS servers, and began performing longer runs, we started seeing occasional (though infrequent) segmentation faults. We dumped the core, and saw that these faults were only being triggered when Unicorn's timeout watchdog called the `uc_emu_stop()` function. 
+
+
+![pwndbg session](./img/unicorn_segfault.png)
+
+
 # Experiments
 
 In this stage of our investigation, we set up three distinct fitness functions, to gauge the different ways in which ROPER's evolving payloads might exercise control over a target process.
