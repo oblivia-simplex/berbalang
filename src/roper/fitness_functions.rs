@@ -92,12 +92,12 @@ where
         }
         fitness.scale_by(number_of_cases as f64);
         // Now add a constancy penalty if appropriate
-        let mut regs = profile.registers.clone();
-        regs.dedup();
-        fitness.insert(
-            "constancy_penalty",
-            (profile.registers.len() - regs.len()) as f64,
-        );
+        // let mut regs = profile.registers.clone();
+        // regs.dedup();
+        // fitness.insert(
+        //     "constancy_penalty",
+        //     (profile.registers.len() - regs.len()) as f64,
+        // );
         log::debug!("Setting creature fitness to {:#?}", fitness);
         creature.set_fitness(fitness);
     }

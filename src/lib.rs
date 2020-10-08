@@ -102,8 +102,8 @@ pub fn get_epoch_counter() -> usize {
     EPOCH_COUNTER.load(atomic::Ordering::Relaxed)
 }
 
-pub fn increment_epoch_counter() {
-    EPOCH_COUNTER.fetch_add(1, atomic::Ordering::Relaxed);
+pub fn increment_epoch_counter() -> usize {
+    EPOCH_COUNTER.fetch_add(1, atomic::Ordering::Relaxed) + 1
 }
 
 pub fn limit_threads(threads: usize, config: &mut Config) {

@@ -6,8 +6,7 @@ use crate::configure::Config;
 use crate::emulator::loader::get_static_memory_image;
 use crate::emulator::profiler::{HasProfile, Profile};
 use crate::evolution::{Genome, Phenome};
-use crate::fitness::{average_weighted, stddev_weighted, Weighted};
-use crate::get_epoch_counter;
+use crate::fitness::{average_weighted, stdev_weighted, Weighted};
 use crate::observer::{LogRecord, Window};
 
 #[derive(Serialize, Clone, Debug)]
@@ -166,7 +165,7 @@ impl StatRecord {
             .cloned()
             .collect::<Vec<_>>();
         let mean_fitness = average_weighted(&fitnesses);
-        let stdev_fitness = stddev_weighted(&fitnesses, &mean_fitness);
+        let stdev_fitness = stdev_weighted(&fitnesses, &mean_fitness);
 
         let emulation_time = frame
             .iter()
@@ -193,7 +192,7 @@ impl StatRecord {
 
         StatRecord {
             counter,
-            epoch: get_epoch_counter(),
+            epoch: window.get_local_epoch(),
             ratio_visited,
             soup_len,
             generation,
@@ -211,7 +210,7 @@ pub fn report_fn<C>(window: &Window<C>, counter: usize, config: &Config)
 where
     C: HasProfile + Genome + Phenome<Fitness = Weighted<'static>> + Sized,
 {
-    let epoch = get_epoch_counter();
+    let epoch = window.get_local_epoch();
     let record = StatRecord::mean_from_window(window, counter);
     log::debug!(
         "Island #{island} {record:#?}",

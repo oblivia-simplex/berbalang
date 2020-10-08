@@ -159,9 +159,6 @@ fn random_population_name() -> String {
 pub struct ObserverConfig {
     pub dump_population: bool,
     pub dump_soup: bool,
-    pub window_size: usize,
-    pub report_every: Option<usize>,
-    pub dump_every: Option<usize>,
     #[serde(default)]
     pub full_data_directory: String,
     data_directory: String,

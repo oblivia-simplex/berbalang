@@ -4,10 +4,14 @@ set -e
 
 USER_ID=`id -u`
 
-# Installing rust as user
-echo "[+] Installing rust as `whoami`..."
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+[ -f "$HOME/.cargo/env" ] && source $HOME/.cargo/env
 
+# Installing rust as user
+CARGO_VERSION=$(cargo version || true)
+if [ -z "$CARGO_VERSION" ]; then
+  echo "[+] Installing rust as `whoami`..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+fi
 
 #if (( $USER_ID != 0 )); then
 #  echo "Must be run as root."
@@ -19,12 +23,12 @@ tmp=`mktemp`
 cat>$tmp<<EOF
 set -e 
 # First, install some build dependencies 
-apt-get update && apt-get install -y build-essential clang llvm-dev python unzip wget
+apt-get update && apt-get install -y build-essential clang llvm-dev python wget
 
 # Install the unicorn emulator library 
 mkdir -p /usr/src && cd /usr/src
-wget https://github.com/unicorn-engine/unicorn/archive/1.0.1.zip -O unicorn_src.zip && unzip unicorn_src.zip
-cd unicorn-1.0.1
+git clone https://github.com/oblivia-simplex/unicorn
+cd unicorn
 make && make install
 
 # Install the capstone disassembly library

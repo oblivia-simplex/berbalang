@@ -6,7 +6,7 @@ job = "Roper"
 selection = "Tournament" 
 timeout = "1 day"
 
-num_islands = 4
+num_islands = 8
 # The mutation_exponent is the lambda for a Levy Flight mutation pattern.
 mutation_rate = 0.03
 mutation_exponent = 2.0
@@ -102,7 +102,7 @@ binary_path = "./binaries/X86/MODE_32/tshark"
 #num_workers = 70 # will take num_cpus::get 
 #num_emulators = 60
 max_emu_steps = 0x1000
-millisecond_timeout = 4
+millisecond_timeout = 0
 emulator_stack_size = 0x1000
 record_basic_blocks = true
 output_registers= ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
