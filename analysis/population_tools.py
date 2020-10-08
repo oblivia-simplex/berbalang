@@ -39,6 +39,9 @@ def mem_ratio_written_of_creature(creature):
 def code_coverage_of_creature(creature):
     return creature['fitness']['scores']['code_coverage']
 
+def ret_count_of_creature(creature):
+    return creature['fitness']['scores']['ret_count']
+
 def fitness_scores_of_population(population):
     """Assumes Weighted fitness scores, which have already been evaluated and which
     have cached their scalar values."""
@@ -155,7 +158,7 @@ def unknown_pleasures_fitness_by_generation(pop_name, island=None):
                               xlabels=False,
                               linewidth=1,
                               legend=False,
-                              title="Fitness density by generation, for entry-slang population",
+                              title=f"Fitness density by generation, for {pop_name} population",
                               bins=40,
                               ylabels=False,
                               overlap=0.9,

@@ -7,6 +7,38 @@ Things to discuss:
 - Describe the experiments, and sketch out the discussions, pending results. -- Code coverage -- Memory patterns -- Register patterns
 - crossover
 
+# On the Development of Berbalang (ROPER II)
+
+## A General Framework for Genetic Programming Experimentation
+
+## Basic Design
+
+## ROPER on the Push VM
+
+## Modifications to the Unicorn Emulation Library and its Rust Bindings
+
+### Making Unicorn's Rust API More Conducive to Concurrent and Generic Programming
+
+
+
+### A Race Condition Bug in Unicorn
+
+When we finally scaled our experiments to more powerful AWS servers, and began performing longer runs, we started seeing occasional (though infrequent) segmentation faults. An inspection of the coredump showed that this was due to an attempt to write to a field of a null `cpu` struct. 
+
+![pwndbg session](./img/unicorn_segfault.png)
+
+It appeared that these faults were only being triggered when Unicorn's timeout watchdog called the `uc_emu_stop()` function -- which led us to suspect a race condition in the `uc_emu_stop()` function. This function would check to ensure that `uc->current_cpu` was not null, and then call `cpu_exit(uc->current_cpu)`, but since this was happening on the watchdog thread, and not on the emulation thread, it was always possible that the latter would terminate the emulation after this check, but before `cpu_exit()` is called. The solution, of course, was just to wrap this critical section in a mutex lock:
+
+```
+pthread_mutex_lock(&EMU_STOP_MUTEX);
+if (uc->current_cpu) {
+  // exit the current TB
+  cpu_exit(uc->current_cpu);
+}
+pthread_mutex_unlock(&EMU_STOP_MUTEX);
+```
+
+
 # Experiments
 
 In this stage of our investigation, we set up three distinct fitness functions, to gauge the different ways in which ROPER's evolving payloads might exercise control over a target process.
@@ -74,6 +106,24 @@ TODO: we should also perform post-mortem analyses of mixability, using the metri
 The object of this task is to set a subset of registers to certain immediate or referenced values, such as we might wish to do if we were preparing to execute a particular system call. If our goal is to dispatch a call to `execve("/bin/sh", NULL, NULL)`, on the x86, for instance, we would want to have `EAX` set to `11`, the code for the `execve` system call, `EBX` set to some pointer to the string `"/bin/sh"`, `ECX` set to some pointer to `0`, and `EDX` set to `0`. One way of expressing this target is to treat it as a 4-dimensional surface in an n-dimensional space, where n is the total number of registers under observation. At a first approximation, we can express proximity to this register pattern as the *distance* between any point in that space and that surface.
 
 This approach stumbles over several complicating factors, however, which account for the observed difficulty of the problem. [[Look at some of the literature on fitness landscapes here.]]
+
+### Defining a Reasonable Distance Metric
+
+One of the key challenges we faced, here, lay in formulating what it might mean to say that a given CPU state is "near" or "far from" our target. 
+
+An ideal solution to this problem might be the following: let *G* be a graph whose vertices are CPU states and whose edges are the state transitions that can be effected by "gadgets" (composable sequences of instructions) in the target binary. Let each edge be weighted, perhaps, according to the frequency or genetic accessibility of those gadgets. Then let the distance between a given vertex *n* and the target state *t* be the shortest path between *n* and *t* in *G*. 
+
+This is unfeasible for a number of reasons. To begin with, the number of vertices, alone, of *G* is astronomically large. Even if we just count the register states on a 32-bit architecture, and restrict ourselves to, say, 4 registers, we're left with 2^34 vertices! The number of possible transitions between these vertices is at least as large, and enumerating *those* would require, in addition, a complete semantic analysis of the binary in question. Storing such a monstrous graph, let alone computing its shortest paths (O(|edges| + |vertices| log |vertices|) in the worst case, if we use Dijkstra's algorithm), is simply beyond our meagre computational resources.
+
+Once we accept that we cannot get what we want, in this case, we might still ask if we can get what we need: can a more or less reasonable, more or less informative, and, importantly, cheap distance metric be defined?
+
+Two obvious options present themselves: 
+
+1. if we restrict our attention to register states, we could treat a state as a vector of integers, and interpret that as the coordinates of a point in Euclidean space. We could then treat the distance between the current state and our target as Euclidean distance.
+
+2. we could treat a register state as a vector of bits, and then take the *hamming distance* between the current state and our target.
+
+
 
 
 ## Memory Writes

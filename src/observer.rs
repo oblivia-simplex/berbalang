@@ -7,6 +7,7 @@ use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{self, AtomicUsize};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
@@ -79,58 +80,41 @@ pub fn default_report_fn<P: Phenome + Genome>(window: &Window<P>, counter: usize
     log::info!("[{}] Reigning champion: {:#?}", counter, window.best);
 }
 
+fn epoch_length(config: &Config) -> usize {
+    // TODO: have this switch on selection type, if you go back to
+    // experimenting with Roulette, etc. Right now, a Tournament is assumed
+    config.pop_size / config.tournament.num_offspring
+}
+
 pub struct Window<O: Phenome + 'static> {
     pub frame: Vec<O>,
+    window_size: usize,
     pub config: Arc<Config>,
     counter: usize,
-    report_every: usize,
-    dump_every: usize,
     i: usize,
-    window_size: usize,
     report_fn: ReportFn<O>,
     pub best: Option<O>,
     pub champion: Option<O>,
     // priority fitness best
     pub archive: Vec<O>,
+    pub local_epoch: AtomicUsize,
     // stat_writers: HashMap<&'static str, Arc<Mutex<csv::Writer<fs::File>>>>,
 }
 
 impl<O: Genome + Phenome + 'static> Window<O> {
     fn new(report_fn: ReportFn<O>, config: Arc<Config>) -> Self {
-        let window_size = config.observer.window_size;
-        let report_every = if let Some(n) = config.observer.report_every {
-            n
-        } else {
-            config.pop_size
-        };
-        let dump_every = if let Some(n) = config.observer.dump_every {
-            n
-        } else {
-            config.pop_size
-        };
-        assert!(window_size > 0, "window_size must be > 0");
-        assert!(report_every > 0, "report_every must be > 0");
-        // let mean_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "mean")));
-        // let best_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "best")));
-        // let champion_stat_writer = Arc::new(Mutex::new(stat_writer(&config, "champion")));
-        // let stat_writers = hashmap! {
-        //     "mean" => mean_stat_writer,
-        //     "best" => best_stat_writer,
-        //     "champion" => champion_stat_writer
-        // };
+        let window_size = epoch_length(&config);
         Self {
             frame: Vec::with_capacity(window_size),
+            window_size,
             config,
             counter: 0,
             i: 0,
-            window_size,
-            report_every,
-            dump_every,
             report_fn,
             best: None,
             champion: None,
             archive: vec![],
-            // stat_writers,
+            local_epoch: AtomicUsize::new(0),
         }
     }
 
@@ -146,6 +130,8 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         if epoch_limit_reached {
             log::debug!("epoch limit reached");
             self.report();
+            self.dump_soup();
+            self.dump_population();
             crate::stop_everything(self.config.island_id, false);
         }
 
@@ -157,6 +143,34 @@ impl<O: Genome + Phenome + 'static> Window<O> {
                 self.report();
                 crate::stop_everything(self.config.island_id, true);
             }
+        }
+    }
+
+    pub fn get_local_epoch(&self) -> usize {
+        self.local_epoch.load(atomic::Ordering::Relaxed)
+    }
+
+    fn maybe_increment_epoch(&self) -> bool {
+        // A generation should be considered to have elapsed once
+        // `pop_size` offspring have been spawned.
+        // For now, only Island 0 can increment the epoch. We can weigh the
+        // pros and cons of letting each island have its own epoch, later.
+        if self.counter > 0 && self.counter % self.window_size == 0 {
+            let epoch = self.local_epoch.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+            log::info!(
+                "Epoch {} on island {} ({} specimens seen)",
+                epoch,
+                self.config.island_id,
+                self.counter
+            );
+
+            if self.config.island_id == 0 {
+                let global_epoch = crate::increment_epoch_counter();
+                log::info!("New global epoch: {}", global_epoch);
+            }
+            true
+        } else {
+            false
         }
     }
 
@@ -174,12 +188,12 @@ impl<O: Genome + Phenome + 'static> Window<O> {
 
         // Perform various periodic tasks
         self.counter += 1;
-        if self.counter % self.dump_every == 0 {
+
+        let epoch_has_incremented = self.maybe_increment_epoch();
+
+        if epoch_has_incremented {
             self.dump_soup();
             self.dump_population();
-        }
-        if self.counter % self.report_every == 0 {
-            log::debug!("Calling report function...");
             self.report();
         }
 
@@ -314,7 +328,7 @@ impl<O: Genome + Phenome + 'static> Window<O> {
         let path = format!(
             "{}/population/population_{}.json.gz",
             self.config.data_directory(),
-            self.counter,
+            self.get_local_epoch(),
         );
         dump(&self.frame, &path).expect("Failed to dump population");
     }
@@ -344,9 +358,9 @@ impl<O: Genome + Phenome + 'static> Window<O> {
             soup.len()
         );
         let path = format!(
-            "{}/soup/soup_{}.json",
+            "{}/soup/soup_at_epoch_{}.json",
             self.config.data_directory(),
-            self.counter,
+            self.get_local_epoch(),
         );
         if let Ok(mut soup_file) =
             fs::File::create(&path).map_err(|e| log::error!("Failed to create soup file: {:?}", e))
