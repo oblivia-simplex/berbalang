@@ -1,0 +1,49 @@
+* Design of ROPER II (Berbalang)
+
+ROPER (Return Oriented Program Evolution with ROPER) is a system for the evolutionary exploration of a certain species of weird machine, a species which was first discovered and exploited by hackers through the technique known as "return-oriented programming". The first iteration of ROPER was developed by Special Circumstances researcher, Lucca Fraser, as part of her 2017 MCS dissertation at Dalhousie University [CITE]. There, Fraser showed that it was possible to evolve populations of ROP payloads on arbitrary executables, which could accomplish tasks varying from simple system call preparation to the accurate classication of small, linearly inseparable data sets, or even controlling an agent in a simple video game.
+
+The second and current iteration of ROPER builds on Fraser's earlier techniques, while extending it to cover other architectures -- chiefly the x86 and x86_64 chips most commonly encountered on servers and personal computers. A particular focus, this time around, has been given to /exploratory/ tasks, where the objective is less the achievement of a determinate goal than (partially) mapping the potential of a particular kind of emergent execution on a given target.
+
+** A General Framework for Genetic Programming
+
+We decided to design a more or less general framework for the study of genetic programming that we could use to house both ROPER II and various other experiments in the /evolutionary exploration of emergent execution/ (EEEE). We have called this framework /Berbalang/, and have made its source code available under GNU Public License, [[https://github.com/oblivia-simplex/berbalang][here]].  
+
+** Design Decisions
+
+*** Genotype and Phenotype Representations
+
+**** Genotype
+
+***** Bare Payloads
+
+***** Payload Builder Instructions
+
+**** Phenotype
+
+*** Tournament Selection
+
+After some early experimentation with forms of fitness-proportional selection (the "roulette" and "Pareto front" selection methods), and lexicase selection, which we found poorly-suited to our problem domain, we settled on the widely-used technique of /tournament selection/, with an optional geographical constaint (detailed below, under [[Linear Geographies]]). Each iteration, /n/ (typically 5, in our experiments) contestants are drawn from the population and evaluated. The /p/ (typically 2) best performers are selected for breeding. The /p/ offspring thereby produced (by applying the [[Genetic Operators]] to the winners) are then inserted into the population, displacing the /p/ worst performers. 
+
+This process is repeated until a termination condition is reached.
+
+*** Geographical Constraints
+
+**** Islands with Migration
+
+This tournament process churns along on several subpopulations, or "islands", in parallel. Occasionally (at a rate that can be set in the configuration file), an individual may emigrate from an island onto a structure called the "pier" (implemented as a non-locking, threadsafe queue), and occasionally an island may attempt to absorb immigrants from the pier into its population. This allows the island populations to evolve in concert, drawing the benefits of a single, large population, while making room for genetic diversity by slowing evolutionary convergence. [CITE A PAPER ON ISLAND SELECTION -- KOVA?]
+
+**** Linear Geographies
+
+On each island, the subpopulation is structured as a one-dimensional circular buffer, outfitted with a constraint called /radius/. The first contestant for each tournament is drawn with uniform probability from the subpopulation as a whole, but each subsequent contestant is drawn only from among the first contestant's neighbours -- those dwelling within /radius/ slots of the first. Clearly, setting /radius/ to the size of the entire subpopulation captures unrestricted tournament selection as a special case (and this can be enabled by setting the ~migration_radius~ setting in the configuration file to 0). [CITE SPECTOR's PAPER]
+
+*** Genetic Operators
+
+**** Memory-aware Mutation Functions
+
+If a genotype is selected for mutation, we choose /n/ alleles to mutate using a Levy-flight distribution [CITE THIS], and 
+
+
+**** Crossover (Alternating and Single-Point)
+
+
+
