@@ -116,52 +116,69 @@ TODO: we should also perform post-mortem analyses of mixability, using the metri
 - alternating vs one-point crossover
 
 
-** Experiment
+** Comparing Crossover and Asexual Reproduction with a Code-Coverage Fitness Function
 
-*** Method
+We conjecture that crossover, whether single-point or alternating, induces an implicit selection for highly composable genetic sequences, which is to say, genetic sequences that can be easily combined with others to achieve various complex phenotypic phenomena (execution behaviours). We believe that this should result, among other things, in a higher number of executed ~ret~ instructions in sexually-reproductive populations. This is because /returns/ are the simplest way to maintain control over the flow of execution, from one gadget to another. A pressure for the selection of composable units, which can potentially contribute to the fulfillment of the objective function no matter where they appear in an individual's genetic sequence, should therefore steer us towards ~ret~-terminated gadgets.
+
+*** Parameters
+
+The following settings were common to every trial in this experiment:
+
+| Setting                |                       Value |
+|------------------------+-----------------------------|
+| number of islands      |                           8 |
+| max initial length     |                         500 |
+| min initial length     |                         450 |
+| island population size |                        1024 |
+| tournament size        |                           5 |
+| number of parents      |                           2 |
+| number of offspring    |                           2 |
+| geographic radius      |                          10 |
+| migration rate         |                        0.01 |
+| initial soup size      |                     0x40000 |
+| binary                 | OpenSSH_6.8p1 sshd for i386 |
+| max emulator steps     |                      0x2000 |
+| max emulator time      |              5 milliseconds |
+| emulator stack size    |                      0x1000 |
+| allow function calls   |                          no |
+| fitness function       |               code coverage |
+| weighting              |        1.0 - code\_coverage |
+| number of epochs       |                         250 |
+ 
+In the asexual trials, we have the following settings:
+
+| Setting        | Value |
+|----------------+-------|
+| crossover rate |   0.0 |
+| mutation rate  |   1.0 |
+
+And in the alternating and single-point crossover trials, we have:
+
+| Setting        | Value |
+|----------------+-------|
+| crossover rate |   1.0 |
+| mutation rate  |  0.03 |
+
+As a secondary axis of variation, we seeded /half/ the populations with gadgets harvested by the popular tool, [[https://github.com/JonathanSalwan/ROPgadget][ROPgadget]], and seeded the other half with randomly generated addresses, with no prior check to ensure that those addresses resolved to composable gadgets.
+
+This gave us six different configurations, and we ran three trials for each, giving us a total of 18 trials total. In the discussion below, we will present plots from the first of each of these triplets of trials, which we judged to be representative of the patterns observed. The remaining plots can be found in our [[https://github.com/oblivia-simplex/berbalang/][github repository]].
+
+The build of berbalang used was compiled from commit ~4f59161~ of the ~master~ branch.
+
 
 *** Results
 
-**** Allele Circulation
-
-***** Asexual reproduction
-
-#+CAPTION: Allele circulation in an asexual population, seeded with random addresses
-#+NAME: fig:allele-circulation-asexual
-#+ATTR_ORG: :width 100
-[[../img/plots_for_code_coverage_sex_experiment/codecov_random_no_sex-0_island_0_soup.png]]
-
-#+CAPTION: Allele circulation in an asexual population, seeded with harvested addresses
-#+NAME: fig:allele-circulation-asexual-ropgadget
-#+ATTR_ORG: :width 100
-[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_no_sex-0_island_0_soup.png]]
-
-***** Alternating crossover
-
-#+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with random addresses
-#+NAME: fig:allele-circulation-alt
-#+ATTR_ORG: :width 100%
-[[../img/plots_for_code_coverage_sex_experiment/codecov_random_alt-0_island_0_soup.png]]
-
-#+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with harvested addresses
-#+NAME: fig:allele-circulation-alt-ropgadget
-#+ATTR_ORG: :width 100%
-[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_alt-0_island_0_soup.png]]
-
-***** Single-point crossover
-
-#+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with random addresses
-#+NAME: fig:allele-circulation-crossover
-#+ATTR_ORG: :width 100%
-[[../img/plots_for_code_coverage_sex_experiment/codecov_random_crossover-0_island_0_soup.png]]
-
-#+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with harvested addresses
-#+NAME: fig:allele-circulation-crossover-ropgadget
-#+ATTR_ORG: :width 100%
-[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_crossover-0_island_0_soup.png]]
-
-
 **** Return Count
+
+These experiments bore out our hypothesis on return counts, in part. The mean count of returns per individual execution in the asexual, randomly-seeded /and/ the ROPgadget-seeded populations, over the course of 250 epochs, rarely exceeded 2 or 3.
+
+For randomly-seeded populations equipped with single-point crossover, the mean return count was frequently double that, ranging between 4 and 7 across the three trials. The single-point crossover populations seeded with ROPgadget-harvested addresses showed mean return counts as high as 81, in one case, and between 12 and 15 in the other two. It's interesting to reflect that our asexual populations were unable to extract much benefit at all from these ROPgadget harvest initializations -- it seems likely that the high mutation rate in those populations had something to do with this. 
+
+It may be interesting to conduct another series of experiments in which crossover is replaced with some form of permutating, rather than point, mutation, which would rearrange (and perhaps even duplicate or delete) alleles, but which would not lead to a higher degree of allele damage than we already get in sexual populations.
+
+We were surprised by how weakly the populations equipped with alternating crossover performed. In most respects, they differed very little from the asexual populations: a maximum mean return count between 2 and 3, after 250 epochs, in the randomly-seeded populations, and between 4 and 5.5 in the ROPgadget-seeded populations.
+
+Plots illustrating mean return counts, along with standard deviations, for each of these six configurations are shown below, grouped by reproductive type. Additional plots can be found in our [[https://github.com/oblivia-simplex/berbalang][github repository]].
 
 ***** Asexual reproduction
 
@@ -173,7 +190,7 @@ TODO: we should also perform post-mortem analyses of mixability, using the metri
 #+NAME: fig:ret_count-asexual-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0__ret_count_mean.png]]  
 
-***** Alternating Crossover
+***** Alternating crossover
 
 #+CAPTION: Return count in a population reproducing by alternating crossover, seeded with random addresses
 #+NAME: fig:ret_count-alt
@@ -227,6 +244,45 @@ TODO: we should also perform post-mortem analyses of mixability, using the metri
 #+NAME: fig:codecov-crossover-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0__code_coverage_mean.png]]
 
+
+
+**** Allele Circulation
+
+***** Asexual reproduction
+
+#+CAPTION: Allele circulation in an asexual population, seeded with random addresses
+#+NAME: fig:allele-circulation-asexual
+#+ATTR_ORG: :width 100
+[[../img/plots_for_code_coverage_sex_experiment/codecov_random_no_sex-0_island_0_soup.png]]
+
+#+CAPTION: Allele circulation in an asexual population, seeded with harvested addresses
+#+NAME: fig:allele-circulation-asexual-ropgadget
+#+ATTR_ORG: :width 100
+[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_no_sex-0_island_0_soup.png]]
+
+***** Alternating crossover
+
+#+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with random addresses
+#+NAME: fig:allele-circulation-alt
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_random_alt-0_island_0_soup.png]]
+
+#+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with harvested addresses
+#+NAME: fig:allele-circulation-alt-ropgadget
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_alt-0_island_0_soup.png]]
+
+***** Single-point crossover
+
+#+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with random addresses
+#+NAME: fig:allele-circulation-crossover
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_random_crossover-0_island_0_soup.png]]
+
+#+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with harvested addresses
+#+NAME: fig:allele-circulation-crossover-ropgadget
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_crossover-0_island_0_soup.png]]
 
 
 **** Generational distribution
