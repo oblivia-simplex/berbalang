@@ -1,4 +1,5 @@
-#+TITLE: Hello
+#+TITLE: The Evolutionary Exploration of Emergent Execution: AIMEE Progress Report
+#+AUTHOR: Olivia Lucca Fraser
 
 * Design of ROPER II (Berbalang)
 
@@ -332,11 +333,11 @@ The difficulty is compounded by the difficulty inherent in defining a reasonable
 
 An /ideal/ solution to this problem might be the following: let /G/ be a graph whose vertices are CPU states and whose edges are the state transitions that can be effected by "gadgets" (composable sequences of instructions) in the target binary. Let each edge be weighted, perhaps, according to the frequency or genetic accessibility of those gadgets. Then let the distance between a given vertex /n/ and the target state /t/ be the shortest path between /n/ and /t/ in /G/. 
 
-This is unfeasible for a number of reasons. To begin with, the number of vertices, alone, of /G/ is astronomically large. Even if we just count the register states on a 32-bit architecture, and restrict ourselves to, say, 4 registers, we're left with 2^34 vertices! The number of possible transitions between these vertices is at least as large, and enumerating /those/ would require, in addition, a complete semantic analysis of the binary in question. Storing such a monstrous graph, let alone computing its shortest paths (O(|edges| + |vertices| log |vertices|) in the worst case, if we use Dijkstra's algorithm), is simply beyond our meagre computational resources.
+This is unfeasible for a number of reasons. To begin with, the number of vertices, alone, of /G/ is astronomically large. Even if we just count the register states on a 32-bit architecture, and restrict ourselves to, say, 4 registers, we're left with 2^34 vertices! The number of possible transitions between these vertices is at least as large, and enumerating /those/ would require, in addition, a complete semantic analysis of the binary in question. Storing such a monstrous graph, let alone computing its shortest paths ~(O(|edges| + |vertices| log |vertices|)~ in the worst case, if we use Dijkstra's algorithm), is simply beyond our meagre computational resources.
 
 Once we accept that we cannot get what we want, in this case, we might still ask if we can get what we need: can a more or less reasonable, more or less informative, and, importantly, cheap distance metric be defined?
 
-Two obvious options present themselves: 
+Two options present themselves: 
 
 1. if we restrict our attention to register states, we could treat a state as a vector of integers, and interpret that as the coordinates of a point in Euclidean space. We could then treat the distance between the current state and our target as Euclidean distance.
 
@@ -354,6 +355,33 @@ The sum of these measures gives us the "distance" between the target register an
 *** Parameters
 
 
+| Setting                |                                Value |
+|------------------------+--------------------------------------|
+| number of islands      |                                    8 |
+| max initial length     |                                  500 |
+| min initial length     |                                  450 |
+| island population size |                                 1024 |
+| tournament size        |                                    5 |
+| number of parents      |                                    2 |
+| number of offspring    |                                    2 |
+| geographic radius      |                                   10 |
+| migration rate         |                                 0.01 |
+| initial soup size      |                              0x40000 |
+| binary                 |          OpenSSH_6.8p1 sshd for i386 |
+| max emulator steps     |                               0x2000 |
+| max emulator time      |                       5 milliseconds |
+| emulator stack size    |                               0x1000 |
+| allow function calls   |                                   no |
+| fitness function       |                     register pattern |
+| weighting              | register\_error + 10 * register_freq |
+| number of epochs       |                                 1000 |
+|                        |                                      |
+ 
+*** Perfect solutions
+
+Full solutions to the register pattern problem have been somewhat rare. In our run of 10 trials, each for up to 1000 epochs, only 2 arrived at perfect solutions.
+
+**** First solution
 
 #+CAPTION: Champion of a system call preparation trial
 #+NAME: ex:champion-1
@@ -395,3 +423,74 @@ EDX: 0x0
 EIP: 0x8075dfa RX -> 0xe7402c2
 ESP: 0x8218150 RW (stack) -> 0x0
 #+END_EXAMPLE
+
+**** Second solution
+
+#+CAPTION: Another champion of the system call preparation task
+#+NAME: ex:champion-2
+#+BEGIN_EXAMPLE
+Name: corms-taxis-magma-wefts, from island 4
+Generation: 951
+
+Trace:
+----
+80badf1:	 83 fb ff                                        cmp ebx, -1
+80badf4:	 74 0f                                           je 0x80bae05
+80badf6:	 8d 4b 10                                        lea ecx, [ebx + 0x10]
+80badf9:	 31 d2                                           xor edx, edx
+80badfb:	 39 4c 24 5c                                     cmp dword ptr [esp + 0x5c], ecx
+80badff:	 0f 85 99 01 00 00                               jne 0x80baf9e
+80baf9e:	 83 c4 3c                                        add esp, 0x3c
+80bafa1:	 89 d0                                           mov eax, edx
+80bafa3:	 5b                                              pop ebx
+80bafa4:	 5e                                              pop esi
+80bafa5:	 5f                                              pop edi
+80bafa6:	 5d                                              pop ebp
+80bafa7:	 c3                                              ret 
+----
+80badf1:	 83 fb ff                                        cmp ebx, -1
+80badf4:	 74 0f                                           je 0x80bae05
+80badf6:	 8d 4b 10                                        lea ecx, [ebx + 0x10]
+80badf9:	 31 d2                                           xor edx, edx
+80badfb:	 39 4c 24 5c                                     cmp dword ptr [esp + 0x5c], ecx
+80badff:	 0f 85 99 01 00 00                               jne 0x80baf9e
+80baf9e:	 83 c4 3c                                        add esp, 0x3c
+80bafa1:	 89 d0                                           mov eax, edx
+80bafa3:	 5b                                              pop ebx
+80bafa4:	 5e                                              pop esi
+80bafa5:	 5f                                              pop edi
+80bafa6:	 5d                                              pop ebp
+80bafa7:	 c3                                              ret 
+----
+80badf1:	 83 fb ff                                        cmp ebx, -1
+80badf4:	 74 0f                                           je 0x80bae05
+80badf6:	 8d 4b 10                                        lea ecx, [ebx + 0x10]
+80badf9:	 31 d2                                           xor edx, edx
+80badfb:	 39 4c 24 5c                                     cmp dword ptr [esp + 0x5c], ecx
+80badff:	 0f 85 99 01 00 00                               jne 0x80baf9e
+80baf9e:	 83 c4 3c                                        add esp, 0x3c
+80bafa1:	 89 d0                                           mov eax, edx
+80bafa3:	 5b                                              pop ebx
+80bafa4:	 5e                                              pop esi
+80bafa5:	 5f                                              pop edi
+80bafa6:	 5d                                              pop ebp
+80bafa7:	 c3                                              ret 
+----
+8088fa1:	 7d 94                                           jge 0x8088f37
+8088f37:	 ac                                              lodsb al, byte ptr [esi]
+8088f38:	 c3                                              ret 
+
+
+Spidered register state:
+EAX: 0xb
+EBP: 0x81e9182 RX -> 0xe00c0002
+EBX: 0x8189e76 RX -> 0x6e69622f "/bin"
+ECX: 0x80482dd RX -> 0x0
+EDX: 0x0
+EIP: 0x8088f38 RX -> 0xf13101c3
+ESP: 0x82181f4 RW (stack) -> 0x80ad3ae RX -> 0x8b097400
+
+#+END_EXAMPLE
+
+*** The failure of our PUSH VM implementation to make progress on the register pattern task
+
