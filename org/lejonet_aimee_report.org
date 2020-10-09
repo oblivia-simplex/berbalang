@@ -1,0 +1,70 @@
+* AWS setup
+The AWS setup consisted of 3 supporting servers:
+- Log server
+- Storage server
+- Jumphost
+
+The log server ran elasticsearch and kibana for gathering data from the compute host and visualising it in a dashboard. Metricbeat was used on the compute nodes to gather running data of the compute nodes load average, %cpu
+and memory usage amongs others.
+The storage server hosted a NFS server that was used to collect the logs from the compute nodes experiments in a central place. The jumphost was simply a point of entry to the subnet that hosted the rest of the servers and compute
+nodes.
+An AMI was created to make it easy to setup more compute nodes, it was pre-configured with lxd, automatic mount of the log NFS share and had both the berbalang and berbalang-test-runner repositories cloned. Three compute nodes were
+used, although the third compute node was added quite late, mainly to test a theory shortly. For benchmark purposes, the initial two nodes were one AMD c5a.16xlarge and one Intel c5n.18xlarge. They were chosen because they were
+the closest to eachother in core count and a main reason to do some testing on AWS was to see how berbalang scaled with more resources and to collect data on what type of resources berbalang used the most. 
+
+* Running of benchmark experiments
+Initially it was planned to run a 24h benchmark run, running the exact same tests on both the AMD and Intel compute node, to get a baseline to compare the performance of the nodes with. The test-runner was started with three
+simple tests, the experiment was sshd_x86_mempat_ropgadget_ignore_stack_all, with three different population sizes (0x250, 0x500 and 0x1000). However we ran into segfaults quite early, that put the test runs to a halt while Lucca
+investigated why they'd crash. It was decided to put the benchmark on hold while we manually ran some tests to gather data for analysis, while still gathering data with metricbeat.
+
+The thing that was showed by the metricbeat data was that the load from running berbalang is very choppy and uneven, and doesn't seem to easily be able to saturate a large amount of cores with pure computations as shown in [[
+fig:AMD-LOADAVG-ZOOMED]]:
+#+CAPTION: Zoomed in section of load average on the AMD compute node
+#+NAME: fig:AMD-LOADAVG-ZOOMED
+[[../img/amd-compute-0-loadavg-zoomed.png]]
+It can be shown in the graph for %cpu too [[fig:AMD-CPU-ZOOMED]], taken from the same time period, the red is %sys and the green is %user, showing that there is a fairly static amount of CPU time that %sys uses for the running of
+berbalang, while %user uses the rest of the cores, in the best case scenario. These small dips in the %cpu are more prominent when watching the graph that plots the entire lifetime of the AMD compute node [[fig:AMD-CPU]]. What these
+graphs show is that berbalang doesn't necessarily scale linearly with amount of cores, as we initially thought. Another interesting thing in the data is that the load average graph [[fig:AMD-LOADAVG]] doesn't entirely correlate with
+the %cpu graph which shows that the load was usually not from computation, but I/O and memory preassure ontop of the computational load. This is shown by the load average being well above the 64 threads (32c/64t) that the
+AMD compute node had.
+
+The Intel compute nodes showed what could be a hint to what resource that berbalang is actually constrained by, because whereas the AMD compute node was a single socket node, that had 64 threads, the Intel compute nodes consisted of
+a dual socket system that had 2x36 threads (2x18c/36t) for a total amount of 72 threads. The Intel compute nodes were a lot better at keeping the threads working as shown in [[fig:INTEL-0-CPU]] and [[fig::INTEL-1-CPU]]. However the load average
+graphs of the Intel compute nodes ([[fig:INTEL-0-LOADAVG]] and [[fig:INTEL-1-LOADAVG]]) also showed that it wasn't mainly heavy usage of computation that was causing load. Because the combination that the load average was constantly above
+the nominal load based on the %cpu utilization and that the load average was very choppy hints that its I/O and memory preassure that is the main bottlenecks for berbalang, with memory preassure being the larger of the two. 
+Because one of the probable reasons that the Intel compute nodes could saturate the threads better is the fact that the dual socket system had access to two memory controllers and NUMA zones, which means there are two memory controllers
+that can fetch/dump data into RAM and the computation that berbalang runs does a lot of memory operations. It doesn't seem to be constraint by memory bandwidth or amount of RAM either, because the memory usage is very modest, and
+increases in a slow, but fairly linear matter as shown in [[fig:INTEL-0-MEM]] and [[fig:AMD-0-MEM]]. Thus it would seem like memory latency is a larger issue for berbalang, to be able to keep the CPUs threads saturated. Another factor that
+could explain part of the fact that the Intel compute nodes could saturate the threads better was that the CPUs that they were equipped with had twice as large L2 caches (1024kB vs 512 kB on the AMD CPU) and ~50% larger L3 caches
+(24.75MB vs 16MB for the AMD CPU).
+
+This peculiarity is going to be investigated further, to see what type of compute node is best to run large scale berbalang tests. The initial hunch that one big box, with a lot of threads and RAM, would seem like being a rather
+bad idea, whereas a bunch of more modest nodes could do a better job.
+#+CAPTION: Zoomed in section of %cpu on the AMD compute node
+#+NAME: fig:AMD-CPU-ZOOMED
+[[../img/amd-compute-0-cpu-zoomed.png]]
+#+CAPTION: %cpu during the entire run of the AMD compute node
+#+NAME: fig:AMD-CPU
+[[../img/amd-compute-0-cpu.png]]
+#+CAPTION: Load average over the entire run of the AMD compute node
+#+NAME: fig:AMD-LOADAVG
+[[../img/amd-compute-0-loadavg.png]]
+#+CAPTION: %cpu during entire run of the Intel compute node 0
+#+NAME: fig:INTEL-0-CPU
+[[../img/intel-compute-0-cpu.png]]
+
+#+CAPTION: %cpu during entire run of the Intel compute node 1
+#+NAME: fig:INTEL-1-CPU
+[[../img/intel-compute-1-cpu.png]]
+#+CAPTION: Load average during entire run of the Intel compute node 0
+#+NAME: fig:INTEL-0-LOADAVG
+[[../img/intel-compute-0-loadavg.png]]
+#+CAPTION: Load average during entire run of the Intel compute node 1
+#+NAME: fig:INTEL-1-LOADAVG
+[[../img/intel-compute-1-loadavg.png]]
+#+CAPTION: Memory usage during the entire run of the Intel compute node 0 (red is memory in use, blue is memory used as cache and green is free memory)
+#+NAME: fig:INTEL-0-MEM
+[[../img/intel-compute-0-mem.png]]
+#+CAPTION: Memory usage during the entire run of the AMD compute node 0 (red is memory in use, blue is memory used as cache and green is free memory)
+#+NAME: fig:AMD-0-MEM
+[[../img/amd-compute-0-mem.png]]
