@@ -1,0 +1,263 @@
+* Design of ROPER II (Berbalang)
+
+ROPER (Return Oriented Program Evolution with ROPER) is a system for the evolutionary exploration of a certain species of weird machine, a species which was first discovered and exploited by hackers through the technique known as "return-oriented programming". The first iteration of ROPER was developed by Special Circumstances researcher, Lucca Fraser, as part of her 2017 MCS dissertation at Dalhousie University [CITE]. There, Fraser showed that it was possible to evolve populations of ROP payloads on arbitrary executables, which could accomplish tasks varying from simple system call preparation to the accurate classication of small, linearly inseparable data sets, or even controlling an agent in a simple video game.
+
+The second and current iteration of ROPER builds on Fraser's earlier techniques, while extending it to cover other architectures -- chiefly the x86 and x86_64 chips most commonly encountered on servers and personal computers. A particular focus, this time around, has been given to /exploratory/ tasks, where the objective is less the achievement of a determinate goal than (partially) mapping the potential of a particular kind of emergent execution on a given target.
+
+** A General Framework for Genetic Programming
+
+We decided to design a more or less general framework for the study of genetic programming that we could use to house both ROPER II and various other experiments in the /evolutionary exploration of emergent execution/ (EEEE). We have called this framework /Berbalang/, and have made its source code available under GNU Public License, [[https://github.com/oblivia-simplex/berbalang][here]].  
+
+** Design Decisions
+
+*** Genotype and Phenotype Representations
+
+**** Genotype
+
+***** Bare Payloads
+
+
+
+***** Payload Builder Instructions
+
+Following a suggestion that Lee Spector made to Lucca Fraser at the 2017 GECCO conference, where she presented her initial findings with ROPER, we decided to see what might happen if, instead of evolving bare ROP payloads (treated as mere vectors of integers), we evolve a population of programs that, when given access to the target memory image, along with a basic semantic analysis of that image (provided by the [[https://github.com/falconre/falcon][falcon]] binary analysis library), /build/ ROP payloads. 
+
+We designed a stack-based virtual machine to execute these builder programs, closely following Lee Spector's designs for what he calls the PUSH VM.
+
+**** Phenotype
+
+Genetic programming turns on a distinction between an individual's genotype -- the object of its [[Genetic Operators][genetic operators]] -- and its phenotype -- the object of [[Tournament Selection][selection]]. In ROPER's case, what we are calling the "phenotype" is the observed behaviour of an emulated CPU when that payload is executed. (In the case of our [[Payload Builder Instructions][PUSH VM]] genomes, there is an intermediary step, whereby a genotype consisting of PUSH instructions is first mapped to a ROP payload, which is then sent to the CPU emulator.) The resulting observations, or "execution profile", furnish the domain for one of a variety of /fitnes functions/, which map execution profiles to a table of scalar attributes. ROPER then applies an easily-configurable /weighting formula/ to the resulting table of attributes, mapping the attribute table to a single floating point number, which we call the individual's /scalar fitness value/. This value is used to rank the contestants in a [[Tournament Selection][tournament]] and select parents for the next generation of genotypes.
+
+***** "Commitment points" and composability
+
+Something that arguably distinguishes ROPER from most other genetic programming environments is that the /composability/ of the instructions that comprise its genetic material is a feat to achieve and not a given. Not every "instruction" in an arbitrary genome is necessarily capable of passing execution on to a successor instruction, and so swapping subsequences of genetic material between individuals will only /occasionally/ have phenotypic consequences. The expectation in a purely random population is that most genetic material, particularly as we move past the /head/ of the genome, which is always (if executable) executed, will remain phenotypically inactive -- will have no impact on execution behaviour.
+
+The programmatic exploration of return-oriented machine space depends, therefore, on the discovery of /composable/ instructions or genes: elements whose phenotypic effects depend on, and condition, those which come before or after in the sequence, and whose effects combine into new effects that are not achieved separately.
+
+We made a significant change to the system, in this iteration, in order to better foster the evolutionary discovery of composable components -- changes which, we learned, would also help to avoid various dead-ends and sticky local optima. Whereas, previously, we recorded the execution behaviour of each specimen on an instruction-by-instruction basis, from the beginning of the chain's execution up until its termination (whether by crash, interrupt, or arrival at the address 0), we now maintain a temporary execution log that is commited to the specimen's execution profile /only/ when a return instruction is reached -- which is to say, when another address is about to be popped from the attacker-controlled stack into the instruction pointer. We further restrict this "commitment points" to return instructions that are executed when the call stack is empty, and, in some runs, explore the option of halting execution when /any/ function call is dispatched, so that every return is a return to a potentially (perhaps indirectly) attacker-controlled address. (This method could be generalized to treat jumps to addresses in stack-controlled registers as commitment points, too, with a bit of tinkering.)
+
+Any instructions that are executed without eventually reaching such a "commitment point", for all intents and purposes, leave no trace. This is crucial. A sequence of instructions that partially, or even fully, satisfies one of our objectives, but which then crashes, or times out in an endless loop, is of no use to the population, because it cannot be /composed/ with other sequences.
+
+*** Tournament Selection
+
+After some early experimentation with forms of fitness-proportional selection (the "roulette" and "Pareto front" selection methods), and lexicase selection, which we found poorly-suited to our problem domain, we settled on the widely-used technique of /tournament selection/, with an optional geographical constaint (detailed below, under [[Linear Geographies]]). Each iteration, /n/ (typically 5, in our experiments) contestants are drawn from the population and evaluated. The /p/ (typically 2) best performers are selected for breeding. The /p/ offspring thereby produced (by applying the [[Genetic Operators]] to the winners) are then inserted into the population, displacing the /p/ worst performers. 
+
+This process is repeated until a termination condition is reached.
+
+*** Geographical Constraints
+
+**** Islands with Migration
+
+This tournament process churns along on several subpopulations, or "islands", in parallel. Occasionally (at a rate that can be set in the configuration file), an individual may emigrate from an island onto a structure called the "pier" (implemented as a non-locking, threadsafe queue), and occasionally an island may attempt to absorb immigrants from the pier into its population. This allows the island populations to evolve in concert, drawing the benefits of a single, large population, while making room for genetic diversity by slowing evolutionary convergence. [CITE A PAPER ON ISLAND SELECTION -- KOVA?]
+
+**** Linear Geographies
+
+On each island, the subpopulation is structured as a one-dimensional circular buffer, outfitted with a constraint called /radius/. The first contestant for each tournament is drawn with uniform probability from the subpopulation as a whole, but each subsequent contestant is drawn only from among the first contestant's neighbours -- those dwelling within /radius/ slots of the first. Clearly, setting /radius/ to the size of the entire subpopulation captures unrestricted tournament selection as a special case (and this can be enabled by setting the ~migration_radius~ setting in the configuration file to 0). [CITE SPECTOR's PAPER]
+
+*** Genetic Operators
+
+**** Crossover (Alternating and Single-Point)
+     
+We apply a /crossover/ operator to our parental genomes (with a probability set by the configuration file, but which is typically set to 1.0, with the exception of the experiments for which it is set to 0.0), to produce offspring. This mimicks, to some modest extent, the process of /sexual reproduction/ in nature. In our earlier experiments, we implemented an algorithm for /alternating crossover/, which composed a child genome by stitching together alternating patches, of lengths drawn from an exponential distribution, from the two parents. This method reliably produced offspring with genomes no longer than the longest parental genome, thereby preventing genetic bloat. 
+
+We later added an implementation for the simple /single-point crossover/ algorithm, which composes a child genome simply by snipping the two parents at random indices, and gluing the head of the first to the tail of the second. We will later see the dramatic effects that this difference in crossover algorithm has on the genetic makeup of the population.
+
+**** Memory-aware Mutation Functions
+
+If a genotype is selected for mutation, we choose /n/ alleles to mutate using a Levy-flight distribution [CITE THIS], and then a mutation operator is selected to apply to that allele with uniform probability. The set of available mutation operators, for bare payload genomes, includes numerical and bitwise manipulations -- incrementing, decrementing, masking, and bitshifting the allele -- as well as a pair of memory-aware operations: searching for the allele's numerical value in the target process's memory, and replacing it with its address if found, or treating the allele as an address, and replacing it with whatever lies at that address in memory, if anything. 
+
+** Technical Obstacles
+*** A Race Condition Bug in the Unicorn Emulator Library
+
+In order to map ROPER's genotypes to their execution-profile phenotypes, we have relied heavily on the [[https://github.com/oblivia-simplex/unicorn][Unicorn Emulation Library]], which exposes QEMU's CPU emulation modules through a convenient API, allowing callbacks to be hooked into various processor events. This makes it an ideal instrument for the kind of microscopic attention we wish to bring to ROP-chain execution. To better adapt Unicorn to ROPER's needs, we have made numerous adjustments to ekse's [[https://github.com/oblivia-simplex/unicorn-rs][Rust bindings for Unicorn]]. Unfortunately, relying heavily on Unicorn's C codebase means that Rust's virtues of thread safety do not extend to this mission critical component, and when we started running ROPER experiments at scale, we soon triggered a segmentation fault in the Unicorn library. 
+
+An inspection of the core dumps from these crashes showed that the segmentation faults were due to an attempt to write to a field of a null ~cpu~ struct (see figure [[fig:unicorn-segfault]]).
+
+#+CAPTION: Segmentation fault in the Unicorn emulation library
+#+NAME: fig:unicorn-segfault
+[[../img/unicorn_segfault.png]]
+
+
+It appeared that these faults were only being triggered when Unicorn's timeout callback called the ~uc_emu_stop()~ function, from a watchdog thread separate from the main emulation thread. This function checks to ensure that ~uc->current_cpu~ is not null, and /then/ calls ~cpu_exit(uc->current_cpu)~. This led us to suspect a race condition, whereby, after the check but before the call, ~uc->current_cpu~ was made null by events unfolding on another thread. The solution to this problem, of course, was just to wrap this critical section of code in a mutex lock:
+
+#+BEGIN_SRC c
+pthread_mutex_lock(&EMU_STOP_MUTEX);
+if (uc->current_cpu) {
+  // exit the current TB
+  cpu_exit(uc->current_cpu);
+}
+pthread_mutex_unlock(&EMU_STOP_MUTEX);
+#+END_SRC
+
+Once we made this patch to the library, the segfaults disappeared.
+
+* Experiments
+
+** Sexual Reproduction and Composability
+
+
+In "A Mixability Theory for the Role of Sex in Evolution," Adi Livnat et al. ask what selective pressures might account for the ubiquity of sexual reproduction in nature:
+
+#+BEGIN_QUOTE
+We develop a measure, [mixability], which represents the genome-wide ability of alleles to perform well across different combinations. Using numerical iterations within a classical population-genetic framework, we find that sex favors the increase in [mixability] in a highly robust manner. Furthermore, we expose the mechanism underlying this effect and find that it operates during the evolutionary transient, which has been studied relatively little. We also find that the breaking down of highly favourable gene combinations is an integral part of this mechanism. Therefore, if the roles of sex involves selection not for the best combinations of genes, as would be registered by [fitness], but for genes that are favourable in many different combinations, as is registered by [mixability], then the breaking down of highly favourable combinations does not necessarily pose a problem. 
+#+END_QUOTE
+
+We expect that the domain of ROP chain evolution might prove to be an interesting case by which to test Livnat's theory, particularly given that the evolution of ROP chains from a soup of random addresses places the problem of composability and mixability front and centre. In traditional genetic programming environments, the composability of instructions is more or less assured /a priori/. Here, by contrast, maintaining control over the flow of execution is an achievement to be won. 
+
+A simple, somewhat crude measure of how composable the alleles circulating in a population are can be found in the number of return instructions each specimen executes on average, since these mark the points at which various strings of alleles can be composed. (This measure can be deceived by specimens which create return-loops for themselves, whereby a gadget pushes its own address onto the stack before executing ~ret~. But there is no prima facie reason to expect looping behaviour to be more common in sexual populations than asexual ones.)
+
+TODO: we should also perform post-mortem analyses of mixability, using the metric explained in the paper. get the average fitness of every specimen containing an /executed/ copy of the allele. BUT consider this: an allele that solves the problem in one stroke is highly mixable by this definition. This isn't a bug with the definition, really, but it should affect how we think of it as "playing well with others". If we didn't make the changes we made to the way execution traces are committed, then this property would describe many of our crashing local optima traps. 
+
+
+--- points to mention, all well-illustrated with graphs
+
+- circulation of alleles
+- correlation with return counts
+- alternating vs one-point crossover
+
+
+** Experiment
+
+*** Method
+
+*** Results
+
+**** Allele Circulation
+
+***** Asexual reproduction
+
+#+CAPTION: Allele circulation in an asexual population, seeded with random addresses
+#+NAME: fig:allele-circulation-asexual
+#+ATTR_ORG: :width 100
+[[../img/plots_for_code_coverage_sex_experiment/codecov_random_no_sex-0_island_0_soup.png]]
+
+#+CAPTION: Allele circulation in an asexual population, seeded with harvested addresses
+#+NAME: fig:allele-circulation-asexual-ropgadget
+#+ATTR_ORG: :width 100
+[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_no_sex-0_island_0_soup.png]]
+
+***** Alternating crossover
+
+#+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with random addresses
+#+NAME: fig:allele-circulation-alt
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_random_alt-0_island_0_soup.png]]
+
+#+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with harvested addresses
+#+NAME: fig:allele-circulation-alt-ropgadget
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_alt-0_island_0_soup.png]]
+
+***** Single-point crossover
+
+#+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with random addresses
+#+NAME: fig:allele-circulation-crossover
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_random_crossover-0_island_0_soup.png]]
+
+#+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with harvested addresses
+#+NAME: fig:allele-circulation-crossover-ropgadget
+#+ATTR_ORG: :width 100%
+[[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_crossover-0_island_0_soup.png]]
+
+
+**** Return Count
+
+***** Asexual reproduction
+
+#+CAPTION: Return count in a population reproducing asexually, seeded with random addresses
+#+NAME: fig:ret_count-asexual
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_no_sex-0__ret_count_mean.png]]  
+
+#+CAPTION: Return count in a population reproducing asexually, seeded with harvested addresses
+#+NAME: fig:ret_count-asexual-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0__ret_count_mean.png]]  
+
+***** Alternating Crossover
+
+#+CAPTION: Return count in a population reproducing by alternating crossover, seeded with random addresses
+#+NAME: fig:ret_count-alt
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_alt-0__ret_count_mean.png]]
+
+#+CAPTION: Return count in a population reproducing by alternating crossover, seeded with harvested addresses
+#+NAME: fig:ret_count-alt-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_alt-0__ret_count_mean.png]]
+
+***** Single-point crossover
+
+#+CAPTION: Return count in a population reproducing by single-point crossover, seeded with random addresses
+#+NAME: fig:ret_count-crossover
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random-0__ret_count_mean.png]]
+
+#+CAPTION: Return count in a population reproducing by single-point crossover, seeded with harvested addresses
+#+NAME: fig:ret_count-crossover-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0__ret_count_mean.png]]
+
+
+**** Code Coverage
+
+***** Asexual reproduction
+
+#+CAPTION: Code coverage in a population reproducing asexually, seeded with random addresses
+#+NAME: fig:codecov-asexual
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_no_sex-0__code_coverage_mean.png]]
+
+#+CAPTION: Code coverage in a population reproducing asexually, seeded with harvested addresses
+#+NAME: fig:codecov-asexual-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0__code_coverage_mean.png]]
+
+***** Alternating Crossover
+
+#+CAPTION: Code coverage in a population reproducing by alternating crossover, seeded with random addresses
+#+NAME: fig:codecov-alt
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_alt-0__code_coverage_mean.png]]
+
+#+CAPTION: Code coverage in a population reproducing by alternating crossover, seeded with harvested addresses
+#+NAME: fig:codecov-alt-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_alt-0__code_coverage_mean.png]]
+
+
+***** Single-point crossover
+
+#+CAPTION: Code coverage in a population reproducing by single-point crossover, seeded with random addresses
+#+NAME: fig:codecov-crossover
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random-0__code_coverage_mean.png]]
+
+#+CAPTION: Code coverage in a population reproducing by single-point crossover, seeded with harvested addresses
+#+NAME: fig:codecov-crossover-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0__code_coverage_mean.png]]
+
+
+
+**** Generational distribution
+
+***** Asexual reproduction
+
+#+CAPTION: Generational distribution of asexually reproducing population, seeded with random addresses
+#+NAME: fig:scatterplot-asexual
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_no_sex-0_scatterplot.png]]
+
+#+CAPTION: Generational distribution of asexually reproducing population, seeded with harvested addresses
+#+NAME: fig:scatterplot-asexual-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0_scatterplot.png]]
+
+***** Alternating crossover
+
+#+CAPTION: Generational distribution of population reproducing through alternating crossover, seeded with random addresses
+#+NAME: fig:scatterplot-alt
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_alt-0_scatterplot.png]]
+
+#+CAPTION: Generational distribution of population reproducing through alternating crossover, seeded with harvested addresses
+#+NAME: fig:scatterplot-alt-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_alt-0_scatterplot.png]]
+
+***** Single-point crossover
+
+#+CAPTION: Generational distribution of population reproducing through single-point crossover, seeded with random addresses
+#+NAME: fig:scatterplot-crossover
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random-0_scatterplot.png]]
+
+#+CAPTION: Generational distribution of population reproducing through single-point crossover, seeded with harvested addresses
+#+NAME: fig:scatterplot-crossover-ropgadget
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0_scatterplot.png]]
+
