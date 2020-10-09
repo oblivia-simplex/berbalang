@@ -1,3 +1,5 @@
+#+TITLE: Hello
+
 * Design of ROPER II (Berbalang)
 
 ROPER (Return Oriented Program Evolution with ROPER) is a system for the evolutionary exploration of a certain species of weird machine, a species which was first discovered and exploited by hackers through the technique known as "return-oriented programming". The first iteration of ROPER was developed by Special Circumstances researcher, Lucca Fraser, as part of her 2017 MCS dissertation at Dalhousie University [CITE]. There, Fraser showed that it was possible to evolve populations of ROP payloads on arbitrary executables, which could accomplish tasks varying from simple system call preparation to the accurate classication of small, linearly inseparable data sets, or even controlling an agent in a simple video game.
@@ -15,7 +17,6 @@ We decided to design a more or less general framework for the study of genetic p
 **** Genotype
 
 ***** Bare Payloads
-
 
 
 ***** Payload Builder Instructions
@@ -106,19 +107,23 @@ We expect that the domain of ROP chain evolution might prove to be an interestin
 
 A simple, somewhat crude measure of how composable the alleles circulating in a population are can be found in the number of return instructions each specimen executes on average, since these mark the points at which various strings of alleles can be composed. (This measure can be deceived by specimens which create return-loops for themselves, whereby a gadget pushes its own address onto the stack before executing ~ret~. But there is no prima facie reason to expect looping behaviour to be more common in sexual populations than asexual ones.)
 
-TODO: we should also perform post-mortem analyses of mixability, using the metric explained in the paper. get the average fitness of every specimen containing an /executed/ copy of the allele. BUT consider this: an allele that solves the problem in one stroke is highly mixable by this definition. This isn't a bug with the definition, really, but it should affect how we think of it as "playing well with others". If we didn't make the changes we made to the way execution traces are committed, then this property would describe many of our crashing local optima traps. 
+*** TODO: we should also perform post-mortem analyses of mixability  :noexport:
+using the metric explained in the paper. get the average fitness of every specimen containing an /executed/ copy of the allele. BUT consider this: an allele that solves the problem in one stroke is highly mixable by this definition. This isn't a bug with the definition, really, but it should affect how we think of it as "playing well with others". If we didn't make the changes we made to the way execution traces are committed, then this property would describe many of our crashing local optima traps.
 
 
---- points to mention, all well-illustrated with graphs
+ --- points to mention, all well-illustrated with graphs
 
-- circulation of alleles
-- correlation with return counts
-- alternating vs one-point crossover
+ - circulation of alleles
+ - correlation with return counts
+ - alternating vs one-point crossover
 
 
-** Comparing Crossover and Asexual Reproduction with a Code-Coverage Fitness Function
+*** Comparing Crossover and Asexual Reproduction with a Code-Coverage Fitness Function
 
-We conjecture that crossover, whether single-point or alternating, induces an implicit selection for highly composable genetic sequences, which is to say, genetic sequences that can be easily combined with others to achieve various complex phenotypic phenomena (execution behaviours). We believe that this should result, among other things, in a higher number of executed ~ret~ instructions in sexually-reproductive populations. This is because /returns/ are the simplest way to maintain control over the flow of execution, from one gadget to another. A pressure for the selection of composable units, which can potentially contribute to the fulfillment of the objective function no matter where they appear in an individual's genetic sequence, should therefore steer us towards ~ret~-terminated gadgets.
+ We conjecture that crossover, whether single-point or alternating, induces an implicit selection for highly composable genetic sequences, which is to say, genetic sequences that can be easily combined with others to achieve various complex phenotypic phenomena (execution behaviours). We believe that this should result, among other things, in a higher number of executed ~ret~ instructions in sexually-reproductive populations. This is because /returns/ are the simplest way to maintain control over the flow of execution, from one gadget to another. A pressure for the selection of composable units, which can potentially contribute to the fulfillment of the objective function no matter where they appear in an individual's genetic sequence, should therefore steer us towards ~ret~-terminated gadgets.
+
+ We focussed, here, on populations subjected to the code coverage fitness function, where an individual's fitness is simply proportionate to the number of unique addresses it visits during its execution. This coverage ratio can be a little misleading, when taken in isolation. It's nothing more than the size of the set of bytes executed divided by the total number of executable bytes, but there's no guarantee that all of the bytes in memory flagged with an executable permission are indeed executable in fact. The score also neglects to take into consideration the step and time limits placed on the emulator, which set an implicit  upper bound on the code coverage score that's even possible for a given run. It nevertheless serves as a point of comparison between specimens in the same batch, and places an easily understood selective pressure on the evolving population.
+
 
 *** Parameters
 
@@ -170,13 +175,11 @@ The build of berbalang used was compiled from commit ~4f59161~ of the ~master~ b
 
 **** Return Count
 
-These experiments bore out our hypothesis on return counts, in part. The mean count of returns per individual execution in the asexual, randomly-seeded /and/ the ROPgadget-seeded populations, over the course of 250 epochs, rarely exceeded 2 or 3.
-
-For randomly-seeded populations equipped with single-point crossover, the mean return count was frequently double that, ranging between 4 and 7 across the three trials. The single-point crossover populations seeded with ROPgadget-harvested addresses showed mean return counts as high as 81, in one case, and between 12 and 15 in the other two. It's interesting to reflect that our asexual populations were unable to extract much benefit at all from these ROPgadget harvest initializations -- it seems likely that the high mutation rate in those populations had something to do with this. 
+These experiments bore out our hypothesis on return counts, in part. The mean count of returns per individual execution in the asexual, randomly-seeded (fig. [[fig:ret_count-asexual]]) /and/ the ROPgadget-seeded populations (fig. [[fig:ret_count-asexual-ropgadget]]), over the course of 250 epochs, rarely exceeded 2 or 3. For randomly-seeded populations equipped with single-point crossover (fig. [[fig:ret_count-crossover]]), the mean return count was frequently double that, ranging between 4 and 7 across the three trials. The single-point crossover populations seeded with ROPgadget-harvested addresses (fig. [[fig:ret_count-crossover-ropgadget]]) showed mean return counts as high as 81, in one case, and between 12 and 15 in the other two. It's interesting to reflect that our asexual populations were unable to extract much benefit at all from these ROPgadget harvest initializations -- it seems likely that the high mutation rate in those populations had something to do with this. 
 
 It may be interesting to conduct another series of experiments in which crossover is replaced with some form of permutating, rather than point, mutation, which would rearrange (and perhaps even duplicate or delete) alleles, but which would not lead to a higher degree of allele damage than we already get in sexual populations.
 
-We were surprised by how weakly the populations equipped with alternating crossover performed. In most respects, they differed very little from the asexual populations: a maximum mean return count between 2 and 3, after 250 epochs, in the randomly-seeded populations, and between 4 and 5.5 in the ROPgadget-seeded populations.
+We were surprised by how weakly the populations equipped with alternating crossover performed. In most respects, they differed very little from the asexual populations: a maximum mean return count between 2 and 3, after 250 epochs, in the randomly-seeded populations (fig. [[fig:ret_count-alt]]), and between 4 and 5.5 in the ROPgadget-seeded populations (fig. [[fig:ret_count-alt-ropgadget]]).
 
 Plots illustrating mean return counts, along with standard deviations, for each of these six configurations are shown below, grouped by reproductive type. Additional plots can be found in our [[https://github.com/oblivia-simplex/berbalang][github repository]].
 
@@ -213,7 +216,7 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 
 **** Code Coverage
 
-***** Asexual reproduction
+We see a similar distribution of values when it comes to mean code coverage, in these populations. Single-point crossover (figs.  [[fig:codecov-crossover]], [[fig:codecov-crossover-ropgadget]]) outperformed both alternating crossover (figs. [[fig:codecov-alt]], [[fig:codecov-alt-ropgadget]]) and asexual (figs. [[fig:codecov-asexual]], [[fig:codecov-asexual-ropgadget]]) populations by a factor of 3. This is more or less what we would expect, given the mean return count measurements.
 
 #+CAPTION: Code coverage in a population reproducing asexually, seeded with random addresses
 #+NAME: fig:codecov-asexual
@@ -223,8 +226,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:codecov-asexual-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0__code_coverage_mean.png]]
 
-***** Alternating Crossover
-
 #+CAPTION: Code coverage in a population reproducing by alternating crossover, seeded with random addresses
 #+NAME: fig:codecov-alt
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_alt-0__code_coverage_mean.png]]
@@ -232,9 +233,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+CAPTION: Code coverage in a population reproducing by alternating crossover, seeded with harvested addresses
 #+NAME: fig:codecov-alt-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_alt-0__code_coverage_mean.png]]
-
-
-***** Single-point crossover
 
 #+CAPTION: Code coverage in a population reproducing by single-point crossover, seeded with random addresses
 #+NAME: fig:codecov-crossover
@@ -248,7 +246,15 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 
 **** Allele Circulation
 
-***** Asexual reproduction
+If we turn our attention to the circulation of alleles through the population, and ask how common it is, under each of these configurations, for certain alleles to reappear in a variety of genetic contexts. The following plots display a curve for each allele that appears 100 or more times in the individuals contained in a sliding window over the population, across 250 epochs. In these plots, we focus our attention on a single island subpopulation at a time, to avoid cluttering things more than we need to.
+
+In the asexual populations (see figures [[fig:allele-circulation-asexual]] and [[fig:allele-circulation-asexual-ropgadget]]), we occasionally see a handful of alleles achieve prominent fixation in the population, their trajectories wisping out from the baseline churn of genetic material -- a handful, but not many. 
+
+In the populations reproducing through alternating crossover (figs. [[fig:allele-circulation-alt]], [[fig:allele-circulation-alt-ropgadget]]), we, perhaps surprisingly, see even fewer alleles /dramatically/ separate themselves from the low-frequency genetic churn, but we see many more hovering at the 500-copy level. 
+
+The single-point crossover populations (figs. [[fig:allele-circulation-crossover]], [[fig:allele-circulation-crossover-ropgadget]]) stand out dramatically. Enormous waves of high-frequency alleles circulate through the population, achieving prominent fixation for upwards of 100 epochs before ebbing back into the sea of variation. 
+
+It is striking that the difference between randomly- and ROPgadget-seeded populations appears to /make/ so little difference in this aspect of the genetic landscape. This may have something to do with the fact that we are looking at a property of the evolutionary system that becomes prominent only 50 or so epochs into the process, whereas the differences between ROPgadget- and randomly-seeded populations tend to be most pronounced early in the evolutionary process.
 
 #+CAPTION: Allele circulation in an asexual population, seeded with random addresses
 #+NAME: fig:allele-circulation-asexual
@@ -260,8 +266,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+ATTR_ORG: :width 100
 [[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_no_sex-0_island_0_soup.png]]
 
-***** Alternating crossover
-
 #+CAPTION: Allele circulation in a population reproducing through alternating crossover, seeded with random addresses
 #+NAME: fig:allele-circulation-alt
 #+ATTR_ORG: :width 100%
@@ -271,8 +275,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:allele-circulation-alt-ropgadget
 #+ATTR_ORG: :width 100%
 [[../img/plots_for_code_coverage_sex_experiment/codecov_ropgadget_alt-0_island_0_soup.png]]
-
-***** Single-point crossover
 
 #+CAPTION: Allele circulation in a population reproducing through single-point crossover, seeded with random addresses
 #+NAME: fig:allele-circulation-crossover
@@ -287,7 +289,14 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 
 **** Generational distribution
 
-***** Asexual reproduction
+Another perspective on the effects of reproductive technique on the genetic makeup of our ROPER populations is provided in the following plots, in which every individual in the population, over the course of 250 epochs, is represented by a dot of varying hue, size, and position along the /x/ and /y/ axes. 
+
+The difference between these plots is immediately visible, though some features appear to be more significant than others. The tendency of the points in the asexual populations (figs. [[fig:scatterplot-asexual]], [[fig:scatterplot-asexual-ropgadget]]) to tend to be of lower generation is easily explained: when two genomes of generation $n$ and $m$ produce an offspring through crossover, that offspring is assigned the generation $max(m, n) + 1$. When an asexual parent of generation $n$ spawns a child, that child's generation is just $n + 1$.
+
+The patterns we observed in the line plots are clearly visible here as well, and more. In the single-point crossover populations (figs. [[fig:scatterplot-crossover]], [[fig:scatterplot-crossover-ropgadget]]) we see that the high-ret-count individuals are also those which have tend to be fitter (achieving high code coverage scores) and which, therefore, tend to have the greatest number of offspring.
+
+A curious feature of the alternating-crossover populations (figs. [[fig:scatterplot-alt]], [[fig:scatterplot-alt-ropgadget]]) is the preponderence of exceptionally heavy breeders early in the evolutionary process -- 25th-generation individuals that have spawned upwards of 200 offspring, for instance. 
+
 
 #+CAPTION: Generational distribution of asexually reproducing population, seeded with random addresses
 #+NAME: fig:scatterplot-asexual
@@ -297,8 +306,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:scatterplot-asexual-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0_scatterplot.png]]
 
-***** Alternating crossover
-
 #+CAPTION: Generational distribution of population reproducing through alternating crossover, seeded with random addresses
 #+NAME: fig:scatterplot-alt
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_random_alt-0_scatterplot.png]]
@@ -307,7 +314,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:scatterplot-alt-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_alt-0_scatterplot.png]]
 
-***** Single-point crossover
 
 #+CAPTION: Generational distribution of population reproducing through single-point crossover, seeded with random addresses
 #+NAME: fig:scatterplot-crossover
@@ -317,3 +323,75 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:scatterplot-crossover-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0_scatterplot.png]]
 
+
+** Register Control
+
+The task of evolving ROP payloads to set the register state to a determinate pattern was, naturally, one of the first problems we considered in this project. This was, in fact, one of the three problem domains tackled in the first iteration of ROPER, in the course of Lucca Fraser's graduate research. It was found to be a surprisingly difficult problem at the time, and continues to be so, today. Evolutionary computation, like many forms of stochastically-driven machine learning, truly shines in domains where problems and solutions have a bit of vagueness to them, but it has a hard time with exactitude. 
+
+The difficulty is compounded by the difficulty inherent in defining a reasonable distance metric between register states. What does it mean to be "near to" or "far from" a specified register pattern?
+
+An /ideal/ solution to this problem might be the following: let /G/ be a graph whose vertices are CPU states and whose edges are the state transitions that can be effected by "gadgets" (composable sequences of instructions) in the target binary. Let each edge be weighted, perhaps, according to the frequency or genetic accessibility of those gadgets. Then let the distance between a given vertex /n/ and the target state /t/ be the shortest path between /n/ and /t/ in /G/. 
+
+This is unfeasible for a number of reasons. To begin with, the number of vertices, alone, of /G/ is astronomically large. Even if we just count the register states on a 32-bit architecture, and restrict ourselves to, say, 4 registers, we're left with 2^34 vertices! The number of possible transitions between these vertices is at least as large, and enumerating /those/ would require, in addition, a complete semantic analysis of the binary in question. Storing such a monstrous graph, let alone computing its shortest paths (O(|edges| + |vertices| log |vertices|) in the worst case, if we use Dijkstra's algorithm), is simply beyond our meagre computational resources.
+
+Once we accept that we cannot get what we want, in this case, we might still ask if we can get what we need: can a more or less reasonable, more or less informative, and, importantly, cheap distance metric be defined?
+
+Two obvious options present themselves: 
+
+1. if we restrict our attention to register states, we could treat a state as a vector of integers, and interpret that as the coordinates of a point in Euclidean space. We could then treat the distance between the current state and our target as Euclidean distance.
+
+2. we could treat a register state as a vector of bits, and then take the /hamming distance/ between the current state and our target.
+
+Neither conception of distance maps very neatly onto the program space our populations are actually traversing, but this gives us a place to start. 
+
+One complication presents itself when we come to consider /indirect/ values. If ~EBX~ needs to point to the value 0x44434241 (a little-endian representation of "ABCD" in ASCII), for example, how should we handle this? We could treat indirect or referenced variables as additional dimensions, if we add a special value to denote invalid references, or we could replace indirect target values with sets of pointers to that value which already reside in memory.  Mutability raises a further complication. Should we count a pointer to, say, 0x44434200 to be "close" to the target, if the value resides in a writeable segment of memory?
+
+The approach we took is a somewhat unhappy compromise with these various complications. We employed a /weighted hamming distance/ measure for each value: for each register occurring in the target pattern, disagreeing with the /nth/ least significant bit of its counterpart in the actual register state adds $n + 1$ to its distance from the target. If there are multiple potential targets, only distance from the nearest counts. This measurement is repeated for all registers and the first $m$ nodes in the chain of references beginning from each register. A constant location penalty is applied to comparisons where there is a difference in location -- if the value that we hope to get in ~EAX~ shows up in ~EBX~, for example -- but there is no sense in which some registers are nearer to one another than others (an analysis of the target binary's data flow graph could, theoretically, be used to establish a workable notion of register proximity, but we have not yet attempted to implement this). 
+
+The sum of these measures gives us the "distance" between the target register and memory state, and the CPU context effected by any given specimen's execution.
+
+
+*** Parameters
+
+
+
+#+CAPTION: Champion of a system call preparation trial
+#+NAME: ex:champion-1
+#+BEGIN_EXAMPLE
+
+Name: wiles-flied-nooks-whipt, from island 0
+Generation: 2736
+
+Trace:
+----
+80b5dfa:	 89 f0                                           mov eax, esi
+80b5dfc:	 8b 4c 24 54                                     mov ecx, dword ptr [esp + 0x54]
+80b5e00:	 25 00 00 00 c0                                  and eax, 0xc0000000
+80b5e05:	 01 c1                                           add ecx, eax
+80b5e07:	 03 44 24 58                                     add eax, dword ptr [esp + 0x58]
+80b5e0b:	 81 e6 ff ff ff 3f                               and esi, 0x3fffffff
+80b5e11:	 89 c2                                           mov edx, eax
+80b5e13:	 74 39                                           je 0x80b5e4e
+----
+80b5e4e:	 83 c4 3c                                        add esp, 0x3c
+80b5e51:	 b8 01 00 00 00                                  mov eax, 1
+80b5e56:	 5b                                              pop ebx
+80b5e57:	 5e                                              pop esi
+80b5e58:	 5f                                              pop edi
+80b5e59:	 5d                                              pop ebp
+80b5e5a:	 c3                                              ret 
+----
+8075df7:	 52                                              push edx
+8075df8:	 1c f6                                           sbb al, 0xf6
+8075dfa:	 c2 02 74                                        ret 0x7402
+
+
+Spidered register state:
+EAX: 0xb
+EBP: 0x81606d5 RX -> 0x312e2520 " %.1"
+EBX: 0x81606a8 RX -> 0x6e69622f "/bin"
+ECX: 0x8049633 RX -> 0x0
+EDX: 0x0
+EIP: 0x8075dfa RX -> 0xe7402c2
+ESP: 0x8218150 RW (stack) -> 0x0
+#+END_EXAMPLE
