@@ -259,5 +259,5 @@ TODO: we should also perform post-mortem analyses of mixability, using the metri
 
 #+CAPTION: Generational distribution of population reproducing through single-point crossover, seeded with harvested addresses
 #+NAME: fig:scatterplot-crossover-ropgadget
-[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadgetr-0_scatterplot.png]]
+[[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0_scatterplot.png]]
 
