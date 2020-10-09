@@ -29,6 +29,8 @@ def plot_feature_for_islands(feature, x=None, csv="mean", smooth=0, scale="linea
     plt.clf()
     num_islands = len(glob("island_[0-9]*"))
     data = [pd.read_csv(f"./island_{i}/{csv}_statistics.csv", index_col=False) for i in range(0, num_islands)]
+    if os.getenv("PLOT_SCALE"):
+        scale = os.getenv("PLOT_SCALE")
     with plt.style.context(theme()):
         for i in range(0, num_islands):
             y = data[i][feature] if smooth == 0 else filters.gaussian_filter1d(data[i][feature], sigma=smooth)

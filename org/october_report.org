@@ -16,9 +16,17 @@ We decided to design a more or less general framework for the study of genetic p
 
 ***** Bare Payloads
 
+
+
 ***** Payload Builder Instructions
 
+Following a suggestion that Lee Spector made to Lucca Fraser at the 2017 GECCO conference, where she presented her initial findings with ROPER, we decided to see what might happen if, instead of evolving bare ROP payloads (treated as mere vectors of integers), we evolve a population of programs that, when given access to the target memory image, along with a basic semantic analysis of that image (provided by the [[https://github.com/falconre/falcon][falcon]] binary analysis library), /build/ ROP payloads. 
+
+We designed a stack-based virtual machine to execute these builder programs, closely following Lee Spector's designs for what he calls the PUSH VM.
+
 **** Phenotype
+
+Genetic programming turns on a distinction between an individual's genotype -- the object of its [[Genetic Operators][genetic operators]] -- and its phenotype -- the object of [[Tournament Selection][selection]]. In ROPER's case, what we are calling the "phenotype" is the observed behaviour of an emulated CPU when that payload is executed. (In the case of our [[Payload Builder Instructions][PUSH VM]] genomes, there is an intermediary step, whereby a genotype consisting of PUSH instructions is first mapped to a ROP payload, which is then sent to the CPU emulator.) The resulting observations, or "execution profile", furnish the domain for one of a variety of /fitnes functions/, which map execution profiles to a table of scalar attributes. ROPER then applies an easily-configurable /weighting formula/ to the resulting table of attributes, mapping the attribute table to a single floating point number, which we call the individual's /scalar fitness value/. This value is used to rank the contestants in a [[Tournament Selection][tournament]] and select parents for the next generation of genotypes.
 
 *** Tournament Selection
 
@@ -38,12 +46,24 @@ On each island, the subpopulation is structured as a one-dimensional circular bu
 
 *** Genetic Operators
 
+**** Crossover (Alternating and Single-Point)
+     
+We apply a /crossover/ operator to our parental genomes (with a probability set by the configuration file, but which is typically set to 1.0, with the exception of the experiments for which it is set to 0.0), to produce offspring. This mimicks, to some modest extent, the process of /sexual reproduction/ in nature. In our earlier experiments, we implemented an algorithm for /alternating crossover/, which composed a child genome by stitching together alternating patches, of lengths drawn from an exponential distribution, from the two parents. This method reliably produced offspring with genomes no longer than the longest parental genome, thereby preventing genetic bloat. 
+
+We later added an implementation for the simple /single-point crossover/ algorithm, which composes a child genome simply by snipping the two parents at random indices, and gluing the head of the first to the tail of the second. We will later see the dramatic effects that this difference in crossover algorithm has on the genetic makeup of the population.
+
 **** Memory-aware Mutation Functions
 
-If a genotype is selected for mutation, we choose /n/ alleles to mutate using a Levy-flight distribution [CITE THIS], and 
+If a genotype is selected for mutation, we choose /n/ alleles to mutate using a Levy-flight distribution [CITE THIS], and then a mutation operator is selected to apply to that allele with uniform probability. The set of available mutation operators, for bare payload genomes, includes numerical and bitwise manipulations -- incrementing, decrementing, masking, and bitshifting the allele -- as well as a pair of memory-aware operations: searching for the allele's numerical value in the target process's memory, and replacing it with its address if found, or treating the allele as an address, and replacing it with whatever lies at that address in memory, if anything. 
 
+** Technical Obstacles
+*** A Race Condition Bug in the Unicorn Emulator Library
 
-**** Crossover (Alternating and Single-Point)
+In order to map ROPER's genotypes to their execution-profile phenotypes, we have relied heavily on the [[https://github.com/oblivia-simplex/unicorn][Unicorn Emulation Library]], which exposes QEMU's CPU emulation modules through a convenient API, allowing callbacks to be hooked into various processor events. This makes it an ideal instrument for the kind of microscopic attention we wish to bring to ROP-chain execution. To better adapt Unicorn to ROPER's needs, we have made numerous adjustments to ekse's [[https://github.com/oblivia-simplex/unicorn-rs][Rust bindings for Unicorn]]. Unfortunately, relying heavily on Unicorn's C codebase means that Rust's virtues of thread safety do not extend to this mission critical component, and when we started running ROPER experiments at scale, we soon triggered a segmentation fault in the Unicorn library. 
 
+An inspection of the core dumps from these crashes showed that the segmentation faults were due to an attempt to write to a field of a null ~cpu~ struct (see figure [[fig:unicorn-segfault]]).
 
+#+CAPTION: Segmentation fault in the Unicorn emulation library
+#+NAME: fig:unicorn-segfault
+[[../img/unicorn_segfault.png]]
 
