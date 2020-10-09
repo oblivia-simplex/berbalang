@@ -47,7 +47,7 @@ def plot(data):
                 y="code_coverage",
                 size="num_offspring",
                 sizes=(15,200),
-                alpha=0.2,
+                alpha=0.7,
                 data=data)
         ax.set(ylim=(0,0.0005))
         ax.set(xlim=(0,250))

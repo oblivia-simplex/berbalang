@@ -43,7 +43,9 @@ pthread_mutex_unlock(&EMU_STOP_MUTEX);
 
 In this stage of our investigation, we set up three distinct fitness functions, to gauge the different ways in which ROPER's evolving payloads might exercise control over a target process.
 
-TODO: For each, explain what the motivating idea is, what our hypotheses are.
+TODO: For each, explain what the motivating idea is, what our hypotheses are. 
+
+FIXME: I think I've scattered things around a little too much. Describe one experiment at a time, in detail. The experiment on sexual vs. asexual reproduction should begin with the code coverage example, and then fan out into a discussion of the results seen with the register pattern and memory pattern tasks. Then describe the register pattern experiment, where we compare things against the blind search. 
 
 ## Variants
 
@@ -101,6 +103,12 @@ A simple, somewhat crude measure of how composable the alleles circulating in a 
 TODO: we should also perform post-mortem analyses of mixability, using the metric explained in the paper. get the average fitness of every specimen containing an *executed* copy of the allele. BUT consider this: an allele that solves the problem in one stroke is highly mixable by this definition. This isn't a bug with the definition, really, but it should affect how we think of it as "playing well with others". If we didn't make the changes we made to the way execution traces are committed, then this property would describe many of our crashing local optima traps. 
 
 
+--- points to mention, all well-illustrated with graphs
+
+- circulation of alleles
+- correlation with return counts
+- alternating vs one-point crossover
+
 ## Register Pattern Matching (Argument Preparation for System Calls)
 
 The object of this task is to set a subset of registers to certain immediate or referenced values, such as we might wish to do if we were preparing to execute a particular system call. If our goal is to dispatch a call to `execve("/bin/sh", NULL, NULL)`, on the x86, for instance, we would want to have `EAX` set to `11`, the code for the `execve` system call, `EBX` set to some pointer to the string `"/bin/sh"`, `ECX` set to some pointer to `0`, and `EDX` set to `0`. One way of expressing this target is to treat it as a 4-dimensional surface in an n-dimensional space, where n is the total number of registers under observation. At a first approximation, we can express proximity to this register pattern as the *distance* between any point in that space and that surface.
@@ -127,8 +135,11 @@ Neither conception of distance maps very neatly onto the program space our popul
 
 One complication presents itself when we come to consider *indirect* values. If `EBX` needs to point to the value 0x44434241 (a little-endian representation of "ABCD" in ASCII), for example, how should we handle this? We could treat indirect or referenced variables as additional dimensions, if we add a special value to denote invalid references, or we could replace indirect target values with sets of pointers to that value which already reside in memory.  Mutability raises a further complication. Should we count a pointer to, say, 0x44434200 to be "close" to the target, if the value resides in a writeable segment of memory?
 
+The approach we took is a somewhat unhappy compromise with these various complications. We employed a *weighted hamming distance* measure for each value: for each register occurring in the target pattern, disagreeing with the *nth* least significant bit of its counterpart in the actual register state adds *n + 1* to its distance from the target. If there are multiple potential targets, only distance from the nearest counts. This measurement is repeated for all registers and the first *m* nodes in the chain of references beginning from each register. A constant location penalty is applied to comparisons where there is a difference in location -- if the value that we hope to get in `EAX` shows up in `EBX`, for example -- but there is no sense in which some registers are nearer to one another than others (an analysis of the target binary's data flow graph could, theoretically, be used to establish a workable notion of register proximity, but we have not yet attempted to implement this). 
 
+The sum of these measures gives us the "distance" between the target register and memory state, and the CPU context effected by any given specimen's execution.
 
+[[ I feel like this whole section is a bit unclear and tortured. So is the code. Flag to overhaul. ]]
 
 ## Memory Writes
 
