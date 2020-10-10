@@ -249,7 +249,7 @@ It may be interesting to conduct another series of experiments in which crossove
 
 We were surprised by how weakly the populations equipped with alternating crossover performed. In most respects, they differed very little from the asexual populations: a maximum mean return count between 2 and 3, after 250 epochs, in the randomly-seeded populations (fig. [[fig:ret_count-alt]]), and between 4 and 5.5 in the ROPgadget-seeded populations (fig. [[fig:ret_count-alt-ropgadget]]).
 
-Plots illustrating mean return counts, along with standard deviations, for each of these six configurations are shown below, grouped by reproductive type. Additional plots can be found in our [[https://github.com/oblivia-simplex/berbalang][github repository]].
+Plots illustrating mean return counts, together with 95% confidence intervals, for each of these six configurations are shown below, grouped by reproductive type. Additional plots can be found in our [[https://github.com/oblivia-simplex/berbalang][github repository]].
 
 
 #+CAPTION: Return count in a population reproducing asexually, seeded with random addresses
@@ -296,7 +296,7 @@ The trends we see here are only amplified when we scale up from 250 epochs to 10
 
 **** Code Coverage
 
-We see a similar distribution of values when it comes to mean code coverage, in these populations. Single-point crossover (figs.  [[fig:codecov-crossover]], [[fig:codecov-crossover-ropgadget]]) outperformed both alternating crossover (figs. [[fig:codecov-alt]], [[fig:codecov-alt-ropgadget]]) and asexual (figs. [[fig:codecov-asexual]], [[fig:codecov-asexual-ropgadget]]) populations by a factor of 3. This is more or less what we would expect, given the mean return count measurements.
+We see a similar distribution of values when it comes to mean code coverage (with 95% confidence intervals), in these populations. Single-point crossover (figs.  [[fig:codecov-crossover]], [[fig:codecov-crossover-ropgadget]]) outperformed both alternating crossover (figs. [[fig:codecov-alt]], [[fig:codecov-alt-ropgadget]]) and asexual (figs. [[fig:codecov-asexual]], [[fig:codecov-asexual-ropgadget]]) populations by a factor of 3. This is more or less what we would expect, given the mean return count measurements.
 
 #+CAPTION: Code coverage in a population reproducing asexually, seeded with random addresses
 #+NAME: fig:codecov-asexual
