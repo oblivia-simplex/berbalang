@@ -1,9 +1,12 @@
 #+TITLE: The Evolutionary Exploration of Emergent Execution: AIMEE Progress Report
-#+AUTHOR: Olivia Lucca Fraser
+#+AUTHOR: Olivia Lucca Fraser & Daniel Kuehn of Special Circumstances
+#+EMAIL: lucca.fraser@specialcircumstanc.es
+#+LATEX_HEADER: \usepackage{natbib}
+#+BIBLIOGRAPHY: bibliography plain
 
 * Design of ROPER II (Berbalang)
 
-ROPER (Return Oriented Program Evolution with ROPER) is a system for the evolutionary exploration of a certain species of weird machine, a species which was first discovered and exploited by hackers through the technique known as "return-oriented programming". The first iteration of ROPER was developed by Special Circumstances researcher, Lucca Fraser, as part of her 2017 MCS dissertation at Dalhousie University. There, Fraser showed that it was possible to evolve populations of ROP payloads on arbitrary executables, which could accomplish tasks varying from simple system call preparation to the accurate classication of small, linearly inseparable data sets, or even controlling an agent in a simple video game.
+ROPER (Return Oriented Program Evolution with ROPER) is a system for the evolutionary exploration of a certain species of weird machine, a species which was first discovered and exploited by hackers through the technique known as "return-oriented programming". The first iteration of ROPER was developed by Special Circumstances researcher, Lucca Fraser, as part of her 2017 MCS dissertation at Dalhousie University \cite{fraser2018thesis}. There, Fraser showed that it was possible to evolve populations of ROP payloads on arbitrary executables, which could accomplish tasks varying from simple system call preparation to the accurate classication of small, linearly inseparable data sets, or even controlling an agent in a simple video game.
 
 The second and current iteration of ROPER builds on Fraser's earlier techniques, while extending it to cover other architectures -- chiefly the x86 and x86_64 chips most commonly encountered on servers and personal computers. A particular focus, this time around, has been given to /exploratory/ tasks, where the objective is less the achievement of a determinate goal than (partially) mapping the potential of a particular kind of emergent execution on a given target.
 
@@ -17,18 +20,19 @@ We decided to design a more or less general framework for the study of genetic p
 
 **** Genotype
 
-***** Bare Payloads
+***** Bare Integer Sequences
 
+Unless otherwise stated, the genotypes circulating in ROPER's populations are represented as simple vectors of 32 or 64-bit integers, depending on the word size of the target architecture. In viable specimens, these can be understood as the machine words making up a ROP chain payload. Some of these integers will be interpreted as addresses, pointing to "gadgets" of code in the target process's executable memory regions, or pointing to data that may be manipulated by the target machine when the payload is executed. Some of them will be interpreted as immediate integer values, and used in computations. But all of this concerns the [[Phenotype][phenotype]] rather than the genotype. As far as the genotype itself is concerned, these are mere sequences of tokens, which are susceptible to being manipulated and recombined by the system's [[Genetic Operators][genetic operators]].
 
 ***** Payload Builder Instructions
 
 Following a suggestion that Lee Spector made to Lucca Fraser at the 2017 GECCO conference, where she presented her initial findings with ROPER, we decided to see what might happen if, instead of evolving bare ROP payloads (treated as mere vectors of integers), we evolve a population of programs that, when given access to the target memory image, along with a basic semantic analysis of that image (provided by the [[https://github.com/falconre/falcon][falcon]] binary analysis library), /build/ ROP payloads. 
 
-We designed a stack-based virtual machine to execute these builder programs, closely following Lee Spector's designs for what he calls the PUSH VM.
+We designed a stack-based virtual machine to execute these builder programs, closely following Lee Spector's designs for what he calls the Push VM \cite{spector01}.
 
 **** Phenotype
 
-Genetic programming turns on a distinction between an individual's genotype -- the object of its [[Genetic Operators][genetic operators]] -- and its phenotype -- the object of [[Tournament Selection][selection]]. In ROPER's case, what we are calling the "phenotype" is the observed behaviour of an emulated CPU when that payload is executed. (In the case of our [[Payload Builder Instructions][PUSH VM]] genomes, there is an intermediary step, whereby a genotype consisting of PUSH instructions is first mapped to a ROP payload, which is then sent to the CPU emulator.) The resulting observations, or "execution profile", furnish the domain for one of a variety of /fitnes functions/, which map execution profiles to a table of scalar attributes. ROPER then applies an easily-configurable /weighting formula/ to the resulting table of attributes, mapping the attribute table to a single floating point number, which we call the individual's /scalar fitness value/. This value is used to rank the contestants in a [[Tournament Selection][tournament]] and select parents for the next generation of genotypes.
+Genetic programming turns on a distinction between an individual's genotype -- the object of its [[Genetic Operators][genetic operators]] -- and its phenotype -- the object of [[Tournament Selection][selection]]. In ROPER's case, what we are calling the "phenotype" is the observed behaviour of an emulated CPU when that payload is executed. (In the case of our [[Payload Builder Instructions][Push VM]] genomes, there is an intermediary step, whereby a genotype consisting of Push instructions is first mapped to a ROP payload, which is then sent to the CPU emulator.) The resulting observations, or "execution profile", furnish the domain for one of a variety of /fitnes functions/, which map execution profiles to a table of scalar attributes. ROPER then applies an easily-configurable /weighting formula/ to the resulting table of attributes, mapping the attribute table to a single floating point number, which we call the individual's /scalar fitness value/. This value is used to rank the contestants in a [[Tournament Selection][tournament]] and select parents for the next generation of genotypes.
 
 ***** "Commitment points" and composability
 
@@ -50,11 +54,11 @@ This process is repeated until a termination condition is reached.
 
 **** Islands with Migration
 
-This tournament process churns along on several subpopulations, or "islands", in parallel. Occasionally (at a rate that can be set in the configuration file), an individual may emigrate from an island onto a structure called the "pier" (implemented as a non-locking, threadsafe queue), and occasionally an island may attempt to absorb immigrants from the pier into its population. This allows the island populations to evolve in concert, drawing the benefits of a single, large population, while making room for genetic diversity by slowing evolutionary convergence. [CITE A PAPER ON ISLAND SELECTION -- KOVA?]
+This tournament process churns along on several subpopulations, or "islands", in parallel, a well-established technique for parallelizing genetic algorithms while fostering diversity \cite{reiko1989}. Occasionally (at a rate that can be set in the configuration file), an individual may emigrate from an island onto a structure called the "pier" (implemented as a non-locking, threadsafe queue), and occasionally an island may attempt to absorb immigrants from the pier into its population. This allows the island populations to evolve in concert, drawing the benefits of a single, large population, while making room for genetic diversity by slowing evolutionary convergence. 
 
 **** Linear Geographies
 
-On each island, the subpopulation is structured as a one-dimensional circular buffer, outfitted with a constraint called /radius/. The first contestant for each tournament is drawn with uniform probability from the subpopulation as a whole, but each subsequent contestant is drawn only from among the first contestant's neighbours -- those dwelling within /radius/ slots of the first. Clearly, setting /radius/ to the size of the entire subpopulation captures unrestricted tournament selection as a special case (and this can be enabled by setting the ~migration_radius~ setting in the configuration file to 0). [CITE SPECTOR's PAPER]
+Drawing on Lee Spector and Jon Klein's work on "trivial geographies" \cite{spector2006}, we impose a secondary geographical structure on each subpopulation. On each island, the subpopulation is structured as a one-dimensional circular buffer, outfitted with a constraint called /radius/. The first contestant for each tournament is drawn with uniform probability from the subpopulation as a whole, but each subsequent contestant is drawn only from among the first contestant's neighbours -- those dwelling within /radius/ slots of the first. Clearly, setting /radius/ to the size of the entire subpopulation captures unrestricted tournament selection as a special case (and this can be enabled by setting the ~migration_radius~ setting in the configuration file to 0). 
 
 *** Genetic Operators
 
@@ -66,7 +70,7 @@ We later added an implementation for the simple /single-point crossover/ algorit
 
 **** Memory-aware Mutation Functions
 
-If a genotype is selected for mutation, we choose /n/ alleles to mutate using a Levy-flight distribution [CITE THIS], and then a mutation operator is selected to apply to that allele with uniform probability. The set of available mutation operators, for bare payload genomes, includes numerical and bitwise manipulations -- incrementing, decrementing, masking, and bitshifting the allele -- as well as a pair of memory-aware operations: searching for the allele's numerical value in the target process's memory, and replacing it with its address if found, or treating the allele as an address, and replacing it with whatever lies at that address in memory, if anything. 
+If a genotype is selected for mutation, we choose /n/ alleles to mutate using a Levy-flight distribution (following suggestions sketched out in \cite{darabos2012}), and then a mutation operator is selected to apply to that allele with uniform probability. The set of available mutation operators, for bare payload genomes, includes numerical and bitwise manipulations -- incrementing, decrementing, masking, and bitshifting the allele -- as well as a pair of memory-aware operations: searching for the allele's numerical value in the target process's memory, and replacing it with its address if found, or treating the allele as an address, and replacing it with whatever lies at that address in memory, if anything. 
 
 ** Technical Obstacles
 *** A Race Condition Bug in the Unicorn Emulator Library
@@ -209,13 +213,13 @@ The following settings were common to every trial in this experiment:
 | geographic radius      |                          10 |
 | migration rate         |                        0.01 |
 | initial soup size      |                     0x40000 |
-| binary                 | OpenSSH_6.8p1 sshd for i386 |
+| binary                 | OpenSSH 6.8p1 sshd for i386 |
 | max emulator steps     |                      0x2000 |
 | max emulator time      |              5 milliseconds |
 | emulator stack size    |                      0x1000 |
 | allow function calls   |                          no |
 | fitness function       |               code coverage |
-| weighting              |        1.0 - code\_coverage |
+| weighting              |         1.0 - code-coverage |
 | number of epochs       |                         250 |
  
 In the asexual trials, we have the following settings:
@@ -423,31 +427,44 @@ The sum of these measures gives us the "distance" between the target register an
 *** Parameters
 
 
-| Setting                |                                Value |
-|------------------------+--------------------------------------|
-| number of islands      |                                    8 |
-| max initial length     |                                  500 |
-| min initial length     |                                  450 |
-| island population size |                                 1024 |
-| tournament size        |                                    5 |
-| number of parents      |                                    2 |
-| number of offspring    |                                    2 |
-| geographic radius      |                                   10 |
-| migration rate         |                                 0.01 |
-| initial soup size      |                              0x40000 |
-| binary                 |          OpenSSH_6.8p1 sshd for i386 |
-| max emulator steps     |                               0x2000 |
-| max emulator time      |                       5 milliseconds |
-| emulator stack size    |                               0x1000 |
-| allow function calls   |                                   no |
-| fitness function       |                     register pattern |
-| weighting              | register\_error + 10 * register_freq |
-| number of epochs       |                                 1000 |
-|                        |                                      |
+| Setting                |                               Value |
+|------------------------+-------------------------------------|
+| number of islands      |                                   8 |
+| max initial length     |                                 500 |
+| min initial length     |                                 450 |
+| island population size |                                1024 |
+| tournament size        |                                   5 |
+| number of parents      |                                   2 |
+| number of offspring    |                                   2 |
+| geographic radius      |                                  10 |
+| migration rate         |                                0.01 |
+| initial soup size      |                             0x40000 |
+| binary                 |         OpenSSH 6.8p1 sshd for i386 |
+| max emulator steps     |                              0x2000 |
+| max emulator time      |                      5 milliseconds |
+| emulator stack size    |                              0x1000 |
+| allow function calls   |                                  no |
+| fitness function       |                    register pattern |
+| weighting              | register-error + 10 * register-freq |
+| number of epochs       |                                1000 |
+|                        |                                     |
+
+The register pattern used for these experiments was:
+
+| Register | Value   |
+|----------+---------|
+| EAX      | 0xb     |
+| EBX      | &"/bin" |
+| ECX      | &0      |
+| EDX      | 0       |
  
 *** Perfect solutions
 
-Full solutions to the register pattern problem have been somewhat rare. In our run of 10 trials, each for up to 1000 epochs, only 2 arrived at perfect solutions.
+Full solutions to the register pattern problem have been somewhat rare. In our run of 10 trials, each for up to 1000 epochs, only 2 arrived at perfect solutions. In both instances, these were in populations where a secondary novelty pressure was applied to the selective process: a count-min-sketch structure was used to log every /incorrect/ register state (ignoring correctly set registers), and the sketch was then queried to obtain a frequency score for each particular error. This frequency score was then added to the fitness value, using the weighting formula shown above. The idea, here, is that /new/ errors are preferable to old errors, and should be shown greater leniency. 
+
+In a disappointing turn, /none/ of our trials using the Push VM as an ontogenic intermediary yielded consistently better results than bare ROP chain evolution. The silver lining is that the computationally cheaper technique appears to be just as good as its more elaborate and expensive rival, as far as we have seen. 
+
+Plots for these experiments can be found on our github repository. 
 
 **** First solution
 
@@ -560,5 +577,7 @@ ESP: 0x82181f4 RW (stack) -> 0x80ad3ae RX -> 0x8b097400
 
 #+END_EXAMPLE
 
-*** The failure of our PUSH VM implementation to make progress on the register pattern task
 
+
+\bibliographystyle{plain}
+\bibliography{bibliography}
