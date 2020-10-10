@@ -46,7 +46,7 @@ Any instructions that are executed without eventually reaching such a "commitmen
 
 *** Tournament Selection
 
-After some early experimentation with forms of fitness-proportional selection (the "roulette" and "Pareto front" selection methods), and lexicase selection, which we found poorly-suited to our problem domain, we settled on the widely-used technique of /tournament selection/, with an optional geographical constaint (detailed below, under [[Linear Geographies]]). Each iteration, /n/ (typically 5, in our experiments) contestants are drawn from the population and evaluated. The /p/ (typically 2) best performers are selected for breeding. The /p/ offspring thereby produced (by applying the [[Genetic Operators]] to the winners) are then inserted into the population, displacing the /p/ worst performers. 
+After some early experimentation with forms of fitness-proportional selection (the "roulette" and "Pareto front" selection methods), and lexicase selection, which we found poorly-suited to our problem domain, we settled on the widely-used technique of /tournament selection/, with an optional geographical constraint (detailed below, under [[Linear Geographies]]). Each iteration, /n/ (typically 5, in our experiments) contestants are drawn from the population and evaluated. The /p/ (typically 2) best performers are selected for breeding. The /p/ offspring thereby produced (by applying the [[Genetic Operators]] to the winners) are then inserted into the population, displacing the /p/ worst performers. 
 
 This process is repeated until a termination condition is reached.
 
@@ -64,7 +64,7 @@ Drawing on Lee Spector and Jon Klein's work on "trivial geographies" \cite{spect
 
 **** Crossover (Alternating and Single-Point)
      
-We apply a /crossover/ operator to our parental genomes (with a probability set by the configuration file, but which is typically set to 1.0, with the exception of the experiments for which it is set to 0.0), to produce offspring. This mimicks, to some modest extent, the process of /sexual reproduction/ in nature. In our earlier experiments, we implemented an algorithm for /alternating crossover/, which composed a child genome by stitching together alternating patches, of lengths drawn from an exponential distribution, from the two parents. This method reliably produced offspring with genomes no longer than the longest parental genome, thereby preventing genetic bloat. 
+We apply a /crossover/ operator to our parental genomes (with a probability set by the configuration file, but which is typically set to 1.0, with the exception of the experiments for which it is set to 0.0), to produce offspring. This mimics, to some modest extent, the process of /sexual reproduction/ in nature. In our earlier experiments, we implemented an algorithm for /alternating crossover/, which composed a child genome by stitching together alternating patches, of lengths drawn from an exponential distribution, from the two parents. This method reliably produced offspring with genomes no longer than the longest parental genome, thereby preventing genetic bloat. 
 
 We later added an implementation for the simple /single-point crossover/ algorithm, which composes a child genome simply by snipping the two parents at random indices, and gluing the head of the first to the tail of the second. We will later see the dramatic effects that this difference in crossover algorithm has on the genetic makeup of the population.
 
@@ -166,10 +166,13 @@ We will investigate this peculiarity further, to see what type of compute node i
 
 * Experiments
 
+** A Note on Terminology
+
+In the experiments discussed below, we make frequent reference to units of time we call "epochs". In this context, an epoch is equal to the number of tournaments after which we can expect every member of the population to have /possibly/ been replaced. We define this number to be the population size divided by the number of offspring generated per tournament.
+
 ** Sexual Reproduction and Composability
 
-
-In "A Mixability Theory for the Role of Sex in Evolution," Adi Livnat et al. ask what selective pressures might account for the ubiquity of sexual reproduction in nature:
+In "A Mixability Theory for the Role of Sex in Evolution," Adi Livnat et al. \cite{livnat2008} ask what selective pressures might account for the ubiquity of sexual reproduction in nature:
 
 #+BEGIN_QUOTE
 We develop a measure, [mixability], which represents the genome-wide ability of alleles to perform well across different combinations. Using numerical iterations within a classical population-genetic framework, we find that sex favors the increase in [mixability] in a highly robust manner. Furthermore, we expose the mechanism underlying this effect and find that it operates during the evolutionary transient, which has been studied relatively little. We also find that the breaking down of highly favourable gene combinations is an integral part of this mechanism. Therefore, if the roles of sex involves selection not for the best combinations of genes, as would be registered by [fitness], but for genes that are favourable in many different combinations, as is registered by [mixability], then the breaking down of highly favourable combinations does not necessarily pose a problem. 
@@ -181,13 +184,6 @@ A simple, somewhat crude measure of how composable the alleles circulating in a 
 
 *** TODO: we should also perform post-mortem analyses of mixability  :noexport:
 using the metric explained in the paper. get the average fitness of every specimen containing an /executed/ copy of the allele. BUT consider this: an allele that solves the problem in one stroke is highly mixable by this definition. This isn't a bug with the definition, really, but it should affect how we think of it as "playing well with others". If we didn't make the changes we made to the way execution traces are committed, then this property would describe many of our crashing local optima traps.
-
-
- --- points to mention, all well-illustrated with graphs
-
- - circulation of alleles
- - correlation with return counts
- - alternating vs one-point crossover
 
 
 *** Comparing Crossover and Asexual Reproduction with a Code-Coverage Fitness Function
@@ -255,7 +251,6 @@ We were surprised by how weakly the populations equipped with alternating crosso
 
 Plots illustrating mean return counts, along with standard deviations, for each of these six configurations are shown below, grouped by reproductive type. Additional plots can be found in our [[https://github.com/oblivia-simplex/berbalang][github repository]].
 
-***** Asexual reproduction
 
 #+CAPTION: Return count in a population reproducing asexually, seeded with random addresses
 #+NAME: fig:ret_count-asexual
@@ -265,7 +260,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:ret_count-asexual-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_no_sex-0__ret_count_mean.png]]  
 
-***** Alternating crossover
 
 #+CAPTION: Return count in a population reproducing by alternating crossover, seeded with random addresses
 #+NAME: fig:ret_count-alt
@@ -275,7 +269,6 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:ret_count-alt-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget_alt-0__ret_count_mean.png]]
 
-***** Single-point crossover
 
 #+CAPTION: Return count in a population reproducing by single-point crossover, seeded with random addresses
 #+NAME: fig:ret_count-crossover
@@ -285,6 +278,21 @@ Plots illustrating mean return counts, along with standard deviations, for each 
 #+NAME: fig:ret_count-crossover-ropgadget
 [[../img/plots_for_code_coverage_sex_experiment/behemoth-sshd_x86_codecov_ropgadget-0__ret_count_mean.png]]
 
+
+The trends we see here are only amplified when we scale up from 250 epochs to 1000, as seen in figures [[fig:ret_count-crossover-1000]]. There, we see the single-point crossover population achieve a mean return count of upwards of 40, while neither asexual reproduction nor alternating crossover barely bring the mean higher than 7.
+
+#+CAPTION: Return count in a population reproducing by single-point crossover, seeded with random addresses, over 1000 epochs.
+#+NAME: fig:ret_count-crossover-1000
+[[../img/plots_for_code_coverage_sex_experiment/adjusted_ip-172-31-12-63-sshd_x86_codecov_random-2__ret_count_mean.png]]
+
+
+#+CAPTION: Return count in a population reproducing by alternating crossover, seeded with random addresses, over 1000 epochs.
+#+NAME: fig:ret_count-crossover-1000
+[[../img/plots_for_code_coverage_sex_experiment/ip-172-31-12-63-sshd_x86_codecov_random_alt-0__ret_count_mean.png]]
+
+#+CAPTION: Return count in a population reproducing asexually, seeded with random addresses, over 1000 epochs.
+#+NAME: fig:ret_count-crossover-1000
+[[../img/plots_for_code_coverage_sex_experiment/adjusted_ip-172-31-13-133-sshd_x86_codecov_random_no_sex-1__ret_count_mean.png]]
 
 **** Code Coverage
 
