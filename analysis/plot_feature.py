@@ -93,5 +93,5 @@ if __name__ == "__main__":
 
         # plt.show()
         os.chdir(cur_dir)
-        filename = f"{p_name}__{feature}_{csv}.svg"
-        plt.savefig(filename, format="svg", bbox="tight")
+        filename = f"{p_name}__{feature}_{csv}.png"
+        plt.savefig(filename, format="png", bbox="tight")

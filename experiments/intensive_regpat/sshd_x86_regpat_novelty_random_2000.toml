@@ -9,16 +9,16 @@ crossover_period = 2
 crossover_rate = 1.0
 max_init_len = 100
 min_init_len = 5
-pop_size = 0x500
+pop_size = 0x600
 max_length = 500
 num_epochs = 2000
 
 [tournament]
 num_offspring = 2
 num_parents = 2
-tournament_size = 5
+tournament_size = 8
 geographic_radius = 10
-migration_rate = 0.01
+migration_rate = 0.005
 
 [observer]
 dump_population = 0.05
@@ -39,7 +39,7 @@ output_registers = ["EAX", "EBX", "ECX", "EDX", "ESP", "EBP", "EIP"]
 randomize_registers = true
 register_pattern_file = "./experiments/register_pattern.txt"
 break_on_calls = true
-record_memory_writes = true
+record_memory_writes = false
 monitor_stack_writes = true
 
 [fitness]

@@ -119,6 +119,7 @@ This approach stumbles over several complicating factors, however, which account
 
 One of the key challenges we faced, here, lay in formulating what it might mean to say that a given CPU state is "near" or "far from" our target. 
 
+
 An ideal solution to this problem might be the following: let *G* be a graph whose vertices are CPU states and whose edges are the state transitions that can be effected by "gadgets" (composable sequences of instructions) in the target binary. Let each edge be weighted, perhaps, according to the frequency or genetic accessibility of those gadgets. Then let the distance between a given vertex *n* and the target state *t* be the shortest path between *n* and *t* in *G*. 
 
 This is unfeasible for a number of reasons. To begin with, the number of vertices, alone, of *G* is astronomically large. Even if we just count the register states on a 32-bit architecture, and restrict ourselves to, say, 4 registers, we're left with 2^34 vertices! The number of possible transitions between these vertices is at least as large, and enumerating *those* would require, in addition, a complete semantic analysis of the binary in question. Storing such a monstrous graph, let alone computing its shortest paths (O(|edges| + |vertices| log |vertices|) in the worst case, if we use Dijkstra's algorithm), is simply beyond our meagre computational resources.
